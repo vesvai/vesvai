@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vesv/vesv.ai/internal/event"
+	"github.com/vesvai/vesvai/internal/event"
 )
 
 func TestCallback_IsAction(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/vesv/vesv.ai/internal/llm"
-	"github.com/vesv/vesv.ai/internal/utils/http"
+	"github.com/vesvai/vesvai/internal/llm"
+	"github.com/vesvai/vesvai/internal/utils/http"
 )
 
 const (
@@ -72,11 +72,11 @@ type OpenRouterResponse struct {
 	Model   string             `json:"model"`
 	Choices []OpenRouterChoice `json:"choices"`
 	Usage   struct {
-		PromptTokens     int     `json:"prompt_tokens"`
-		CompletionTokens int     `json:"completion_tokens"`
-		TotalTokens      int     `json:"total_tokens"`
-		Cost             float64 `json:"cost,omitempty"`
-		IsByok           bool    `json:"is_byok,omitempty"`
+		PromptTokens        int     `json:"prompt_tokens"`
+		CompletionTokens    int     `json:"completion_tokens"`
+		TotalTokens         int     `json:"total_tokens"`
+		Cost                float64 `json:"cost,omitempty"`
+		IsByok              bool    `json:"is_byok,omitempty"`
 		PromptTokensDetails *struct {
 			CachedTokens     int `json:"cached_tokens,omitempty"`
 			CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
@@ -240,10 +240,10 @@ func (c *Client) toLLMResponse(resp OpenRouterResponse) *llm.Response {
 		var msg *llm.Message
 		if choice.Message != nil {
 			msg = &llm.Message{
-				Role:       llm.Role(choice.Message.Role),
-				Content:    string(choice.Message.Content),
-				Reasoning:  string(choice.Message.Reasoning),
-				Name:       choice.Message.Name,
+				Role:      llm.Role(choice.Message.Role),
+				Content:   string(choice.Message.Content),
+				Reasoning: string(choice.Message.Reasoning),
+				Name:      choice.Message.Name,
 			}
 		}
 
@@ -266,14 +266,14 @@ func (c *Client) toLLMResponse(resp OpenRouterResponse) *llm.Response {
 		Model:   resp.Model,
 		Choices: choices,
 		Usage: llm.Usage{
-			PromptTokens:        resp.Usage.PromptTokens,
-			CompletionTokens:    resp.Usage.CompletionTokens,
-			TotalTokens:         resp.Usage.TotalTokens,
-			Cost:                resp.Usage.Cost,
-			IsByok:              resp.Usage.IsByok,
-			PromptTokensDetails: mapPromptTokensDetails(resp.Usage.PromptTokensDetails),
+			PromptTokens:            resp.Usage.PromptTokens,
+			CompletionTokens:        resp.Usage.CompletionTokens,
+			TotalTokens:             resp.Usage.TotalTokens,
+			Cost:                    resp.Usage.Cost,
+			IsByok:                  resp.Usage.IsByok,
+			PromptTokensDetails:     mapPromptTokensDetails(resp.Usage.PromptTokensDetails),
 			CompletionTokensDetails: mapCompletionTokensDetails(resp.Usage.CompletionTokensDetails),
-			CostDetails:         mapCostDetails(resp.Usage.CostDetails),
+			CostDetails:             mapCostDetails(resp.Usage.CostDetails),
 		},
 		SystemFingerprint: resp.SystemFingerprint,
 	}
@@ -304,14 +304,14 @@ func (c *Client) toStreamChunk(resp OpenRouterResponse) llm.StreamChunk {
 
 	if resp.Usage.TotalTokens > 0 {
 		chunk.Usage = &llm.Usage{
-			PromptTokens:        resp.Usage.PromptTokens,
-			CompletionTokens:    resp.Usage.CompletionTokens,
-			TotalTokens:         resp.Usage.TotalTokens,
-			Cost:                resp.Usage.Cost,
-			IsByok:              resp.Usage.IsByok,
-			PromptTokensDetails: mapPromptTokensDetails(resp.Usage.PromptTokensDetails),
+			PromptTokens:            resp.Usage.PromptTokens,
+			CompletionTokens:        resp.Usage.CompletionTokens,
+			TotalTokens:             resp.Usage.TotalTokens,
+			Cost:                    resp.Usage.Cost,
+			IsByok:                  resp.Usage.IsByok,
+			PromptTokensDetails:     mapPromptTokensDetails(resp.Usage.PromptTokensDetails),
 			CompletionTokensDetails: mapCompletionTokensDetails(resp.Usage.CompletionTokensDetails),
-			CostDetails:         mapCostDetails(resp.Usage.CostDetails),
+			CostDetails:             mapCostDetails(resp.Usage.CostDetails),
 		}
 	}
 

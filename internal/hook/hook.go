@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
-	"github.com/vesv/vesv.ai/internal/event"
+	"github.com/vesvai/vesvai/internal/event"
 )
 
 type HookType string

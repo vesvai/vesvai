@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/vesv/vesv.ai/internal/event"
+	"github.com/vesvai/vesvai/internal/event"
 )
 
 var (
