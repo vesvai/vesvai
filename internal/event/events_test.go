@@ -1,6 +1,7 @@
 package event
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -51,6 +52,56 @@ func TestDeadEvent_Subscribers(t *testing.T) {
 func TestDeadEvent_Timestamp(t *testing.T) {
 	de := NewDeadEvent(newTestEvent("test", ""))
 	if de.Timestamp().IsZero() {
+		t.Error("Timestamp() should not be zero")
+	}
+}
+
+func TestNewSystemEvent(t *testing.T) {
+	data := map[string]string{"key": "value"}
+	se := NewSystemEvent(EventSystemInit, data)
+
+	if string(se.Type()) != "system:init" {
+		t.Errorf("Type() = %q, want %q", se.Type(), "system:init")
+	}
+
+	if !reflect.DeepEqual(se.Data, data) {
+		t.Error("Data field not set correctly")
+	}
+}
+
+func TestSystemEvent_Types(t *testing.T) {
+	tests := []struct {
+		name     string
+		eventType SystemEventType
+		wantType string
+	}{
+		{"init", EventSystemInit, "system:init"},
+		{"ready", EventSystemReady, "system:ready"},
+		{"shutdown", EventSystemShutdown, "system:shutdown"},
+		{"error", EventSystemError, "system:error"},
+		{"config", EventSystemConfig, "system:config"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			se := NewSystemEvent(tt.eventType, nil)
+			if string(se.Type()) != tt.wantType {
+				t.Errorf("Type() = %q, want %q", se.Type(), tt.wantType)
+			}
+		})
+	}
+}
+
+func TestSystemEvent_NilData(t *testing.T) {
+	se := NewSystemEvent(EventSystemReady, nil)
+	if se.Data != nil {
+		t.Errorf("Data = %v, want nil", se.Data)
+	}
+}
+
+func TestSystemEvent_Timestamp(t *testing.T) {
+	se := NewSystemEvent(EventSystemInit, nil)
+	if se.Timestamp().IsZero() {
 		t.Error("Timestamp() should not be zero")
 	}
 }
