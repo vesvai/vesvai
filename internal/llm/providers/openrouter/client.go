@@ -43,6 +43,18 @@ type OpenRouterMessage struct {
 	Reasoning  json.RawMessage `json:"reasoning,omitempty"`
 	Name       string          `json:"name,omitempty"`
 	ToolCallID string          `json:"tool_call_id,omitempty"`
+	ToolCalls  []OpenRouterToolCall `json:"tool_calls,omitempty"`
+}
+
+type OpenRouterToolCall struct {
+	ID       string              `json:"id"`
+	Type     string              `json:"type"`
+	Function OpenRouterFunction  `json:"function"`
+}
+
+type OpenRouterFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type OpenRouterRequest struct {
@@ -53,7 +65,7 @@ type OpenRouterRequest struct {
 	MaxTokens         int                 `json:"max_tokens,omitempty"`
 	Stream            bool                `json:"stream,omitempty"`
 	Tools             []llm.Tool          `json:"tools,omitempty"`
-	ToolChoice        *llm.ToolChoice     `json:"tool_choice,omitempty"`
+	ToolChoice        any                 `json:"tool_choice,omitempty"`
 	ResponseFormat    *llm.ResponseFormat `json:"response_format,omitempty"`
 	ParallelToolCalls bool                `json:"parallel_tool_calls,omitempty"`
 	N                 int                 `json:"n,omitempty"`
@@ -189,6 +201,20 @@ func (c *Client) toOpenRouterRequest(req *llm.Request) *OpenRouterRequest {
 			openRouterMsg.Content = contentJSON
 		}
 
+		if len(msg.ToolCalls) > 0 {
+			openRouterMsg.ToolCalls = make([]OpenRouterToolCall, len(msg.ToolCalls))
+			for j, tc := range msg.ToolCalls {
+				openRouterMsg.ToolCalls[j] = OpenRouterToolCall{
+					ID:   tc.ID,
+					Type: tc.Type,
+					Function: OpenRouterFunction{
+						Name:      tc.Function.Name,
+						Arguments: tc.Function.Arguments,
+					},
+				}
+			}
+		}
+
 		openRouterReq.Messages = append(openRouterReq.Messages, openRouterMsg)
 	}
 
@@ -245,6 +271,20 @@ func (c *Client) toLLMResponse(resp OpenRouterResponse) *llm.Response {
 				Reasoning: string(choice.Message.Reasoning),
 				Name:      choice.Message.Name,
 			}
+
+			if len(choice.Message.ToolCalls) > 0 {
+				msg.ToolCalls = make([]llm.ToolCall, len(choice.Message.ToolCalls))
+				for j, tc := range choice.Message.ToolCalls {
+					msg.ToolCalls[j] = llm.ToolCall{
+						ID:   tc.ID,
+						Type: tc.Type,
+						Function: llm.Function{
+							Name:      tc.Function.Name,
+							Arguments: tc.Function.Arguments,
+						},
+					}
+				}
+			}
 		}
 
 		var finishReason llm.FinishReason
@@ -291,6 +331,30 @@ func (c *Client) toStreamChunk(resp OpenRouterResponse) llm.StreamChunk {
 			}
 			if choice.Delta.Reasoning != nil {
 				chunk.Reasoning = *choice.Delta.Reasoning
+			}
+			if len(choice.Delta.ToolCalls) > 0 {
+				for _, tc := range choice.Delta.ToolCalls {
+					if tcMap, ok := tc.(map[string]any); ok {
+						call := llm.ToolCall{
+							Type: "function",
+						}
+						if idx, ok := tcMap["index"].(float64); ok {
+							call.Index = int(idx)
+						}
+						if id, ok := tcMap["id"].(string); ok {
+							call.ID = id
+						}
+						if fn, ok := tcMap["function"].(map[string]any); ok {
+							if name, ok := fn["name"].(string); ok {
+								call.Function.Name = name
+							}
+							if args, ok := fn["arguments"].(string); ok {
+								call.Function.Arguments = args
+							}
+						}
+						chunk.ToolCalls = append(chunk.ToolCalls, call)
+					}
+				}
 			}
 		}
 

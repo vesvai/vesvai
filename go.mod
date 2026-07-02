@@ -1,4 +1,4 @@
-module github.com/vesv/vesv.ai
+module github.com/vesvai/vesvai
 
 go 1.25.0
 

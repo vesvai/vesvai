@@ -24,7 +24,7 @@ type Request struct {
 	MaxTokens         int             `json:"max_tokens,omitempty"`
 	Stream            bool            `json:"stream,omitempty"`
 	Tools             []Tool          `json:"tools,omitempty"`
-	ToolChoice        *ToolChoice     `json:"tool_choice,omitempty"`
+	ToolChoice        any             `json:"tool_choice,omitempty"`
 	ResponseFormat    *ResponseFormat `json:"response_format,omitempty"`
 	ParallelToolCalls bool            `json:"parallel_tool_calls,omitempty"`
 	N                 int             `json:"n,omitempty"`
@@ -60,7 +60,7 @@ func (r *Request) WithTools(tools []Tool) *Request {
 	return r
 }
 
-func (r *Request) WithToolChoice(choice *ToolChoice) *Request {
+func (r *Request) WithToolChoice(choice any) *Request {
 	r.ToolChoice = choice
 	return r
 }

@@ -21,11 +21,12 @@ func (c *Content) HasAttachments() bool {
 }
 
 type Message struct {
-	Role       Role   `json:"role"`
-	Content    any    `json:"content"`
-	Reasoning  any    `json:"reasoning,omitempty"`
-	Name       string `json:"name,omitempty"`
-	ToolCallID string `json:"tool_call_id,omitempty"`
+	Role       Role       `json:"role"`
+	Content    any        `json:"content"`
+	Reasoning  any        `json:"reasoning,omitempty"`
+	Name       string     `json:"name,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 }
 
 func NewMessage(role Role, content any) Message {

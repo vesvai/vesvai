@@ -31,6 +31,7 @@ type Usage struct {
 }
 
 type ToolCall struct {
+	Index    int      `json:"index,omitempty"`
 	ID       string   `json:"id"`
 	Type     string   `json:"type"`
 	Function Function `json:"function"`
@@ -99,6 +100,11 @@ func (r *Response) GetToolCalls() []ToolCall {
 	if msg == nil {
 		return nil
 	}
+
+	if len(msg.ToolCalls) > 0 {
+		return msg.ToolCalls
+	}
+
 	switch c := msg.Content.(type) {
 	case []any:
 		for _, item := range c {
