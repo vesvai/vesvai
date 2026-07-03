@@ -11,7 +11,7 @@ test:
 	go test -v ./...
 
 build:
-	go build -o bin/vesvai cmd/tui/main.go
+	go build -o bin/vesvai cmd/vesvai/main.go
 
 run:
 	./bin/vesvai
