@@ -167,7 +167,7 @@ func (r *Runner) Run(ctx context.Context, agent Agent, userMessage string) (*Res
 		messages = append(messages, assistantMsg)
 
 		for _, tc := range toolCalls {
-			r.publishEvent(ctx, EventAgentToolCall, ToolEventData{
+			r.publishEvent(ctx, EventAgentToolCall, &ToolEventData{
 				AgentID:  agentID,
 				ToolName: tc.Function.Name,
 				Args:     parseToolArgsSafe(tc.Function.Arguments),
@@ -177,7 +177,7 @@ func (r *Runner) Run(ctx context.Context, agent Agent, userMessage string) (*Res
 			result, err := r.executeTool(ctx, agent, tc)
 			duration := time.Since(toolStart).Milliseconds()
 
-			r.publishEvent(ctx, EventAgentToolResult, ToolEventData{
+			r.publishEvent(ctx, EventAgentToolResult, &ToolEventData{
 				AgentID:  agentID,
 				ToolName: tc.Function.Name,
 				Result:   result,
@@ -460,7 +460,7 @@ func (r *Runner) RunStream(ctx context.Context, agent Agent, userMessage string,
 				},
 			})
 
-			r.publishEvent(ctx, EventAgentToolCall, ToolEventData{
+			r.publishEvent(ctx, EventAgentToolCall, &ToolEventData{
 				AgentID:  agentID,
 				ToolName: tc.Function.Name,
 				Args:     args,
@@ -479,7 +479,7 @@ func (r *Runner) RunStream(ctx context.Context, agent Agent, userMessage string,
 				},
 			})
 
-			r.publishEvent(ctx, EventAgentToolResult, ToolEventData{
+			r.publishEvent(ctx, EventAgentToolResult, &ToolEventData{
 				AgentID:  agentID,
 				ToolName: tc.Function.Name,
 				Result:   result,
