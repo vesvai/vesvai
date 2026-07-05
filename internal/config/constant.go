@@ -10,4 +10,5 @@ const (
 	SessionsDirName = "sessions"
 	SkillsDirName   = "skills"
 	PluginsDirName  = "plugins"
+	MemoryDirName   = "memory"
 )

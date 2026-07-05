@@ -80,6 +80,14 @@ func GetPluginsDir() (string, error) {
 	return filepath.Join(configDir, PluginsDirName), nil
 }
 
+func GetMemoryDir() (string, error) {
+	configDir, err := GetConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, MemoryDirName), nil
+}
+
 func Load() (*Config, error) {
 	config := DefaultConfig()
 
