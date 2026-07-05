@@ -1,4 +1,4 @@
-package tools
+package lsp
 
 import (
 	"context"
@@ -6,10 +6,18 @@ import (
 	"fmt"
 
 	"github.com/vesvai/vesvai/internal/agent"
-	"github.com/vesvai/vesvai/internal/lsp"
+	"github.com/vesvai/vesvai/internal/hook"
+	"github.com/vesvai/vesvai/internal/tools"
 )
 
-func NewLSPTools(m *lsp.Manager) []agent.Tool {
+func RegisterLSPTools(hooks *hook.Hooks, m *Manager) {
+	hooks.AddFilter(tools.HookTools, func(ctx context.Context, value interface{}, args ...interface{}) interface{} {
+		existing, _ := value.([]agent.Tool)
+		return append(existing, NewLSPTools(m)...)
+	}, 50)
+}
+
+func NewLSPTools(m *Manager) []agent.Tool {
 	return []agent.Tool{
 		newCompletionTool(m),
 		newDefinitionTool(m),
@@ -24,7 +32,7 @@ func NewLSPTools(m *lsp.Manager) []agent.Tool {
 	}
 }
 
-func clientForURI(m *lsp.Manager, uri string) (*lsp.Client, error) {
+func clientForURI(m *Manager, uri string) (*Client, error) {
 	clients, err := m.GetClientForFile(uri)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve client for %s: %w", uri, err)
@@ -59,7 +67,7 @@ func asInt(params map[string]any, key string) int {
 	return 0
 }
 
-func newCompletionTool(m *lsp.Manager) agent.Tool {
+func newCompletionTool(m *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"lsp_completion",
 		"Get auto-completion items at a position in a file. Returns a list of completion suggestions.",
@@ -92,7 +100,7 @@ func newCompletionTool(m *lsp.Manager) agent.Tool {
 				return "", err
 			}
 
-			pos := lsp.Position{
+			pos := Position{
 				Line:      asInt(params, "line"),
 				Character: asInt(params, "character"),
 			}
@@ -107,7 +115,7 @@ func newCompletionTool(m *lsp.Manager) agent.Tool {
 	)
 }
 
-func newDefinitionTool(m *lsp.Manager) agent.Tool {
+func newDefinitionTool(m *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"lsp_definition",
 		"Go to definition of the symbol at a position in a file. Returns one or more locations.",
@@ -140,7 +148,7 @@ func newDefinitionTool(m *lsp.Manager) agent.Tool {
 				return "", err
 			}
 
-			pos := lsp.Position{
+			pos := Position{
 				Line:      asInt(params, "line"),
 				Character: asInt(params, "character"),
 			}
@@ -155,7 +163,7 @@ func newDefinitionTool(m *lsp.Manager) agent.Tool {
 	)
 }
 
-func newReferencesTool(m *lsp.Manager) agent.Tool {
+func newReferencesTool(m *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"lsp_references",
 		"Find all references to the symbol at a position in a file. Returns a list of locations.",
@@ -192,7 +200,7 @@ func newReferencesTool(m *lsp.Manager) agent.Tool {
 				return "", err
 			}
 
-			pos := lsp.Position{
+			pos := Position{
 				Line:      asInt(params, "line"),
 				Character: asInt(params, "character"),
 			}
@@ -214,7 +222,7 @@ func newReferencesTool(m *lsp.Manager) agent.Tool {
 	)
 }
 
-func newHoverTool(m *lsp.Manager) agent.Tool {
+func newHoverTool(m *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"lsp_hover",
 		"Get hover information for the symbol at a position in a file. Returns type info and documentation.",
@@ -247,7 +255,7 @@ func newHoverTool(m *lsp.Manager) agent.Tool {
 				return "", err
 			}
 
-			pos := lsp.Position{
+			pos := Position{
 				Line:      asInt(params, "line"),
 				Character: asInt(params, "character"),
 			}
@@ -262,7 +270,7 @@ func newHoverTool(m *lsp.Manager) agent.Tool {
 	)
 }
 
-func newDocumentSymbolTool(m *lsp.Manager) agent.Tool {
+func newDocumentSymbolTool(m *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"lsp_document_symbol",
 		"Get the document outline (symbols) for a file. Returns a hierarchical list of symbols.",
@@ -297,7 +305,7 @@ func newDocumentSymbolTool(m *lsp.Manager) agent.Tool {
 	)
 }
 
-func newCodeActionTool(m *lsp.Manager) agent.Tool {
+func newCodeActionTool(m *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"lsp_code_action",
 		"Get available code actions (quick fixes, refactorings) for a range in a file.",
@@ -345,24 +353,24 @@ func newCodeActionTool(m *lsp.Manager) agent.Tool {
 				return "", err
 			}
 
-			r := lsp.Range{
-				Start: lsp.Position{
+			r := Range{
+				Start: Position{
 					Line:      asInt(params, "start_line"),
 					Character: asInt(params, "start_character"),
 				},
-				End: lsp.Position{
+				End: Position{
 					Line:      asInt(params, "end_line"),
 					Character: asInt(params, "end_character"),
 				},
 			}
 
-			var diags []lsp.Diagnostic
+			var diags []Diagnostic
 			if rawDiags, ok := params["diagnostics"]; ok {
 				if rawSlice, ok := rawDiags.([]any); ok {
 					for _, raw := range rawSlice {
 						if rawMap, ok := raw.(map[string]any); ok {
 							data, _ := json.Marshal(rawMap)
-							var d lsp.Diagnostic
+							var d Diagnostic
 							if err := json.Unmarshal(data, &d); err == nil {
 								diags = append(diags, d)
 							}
@@ -384,7 +392,7 @@ func newCodeActionTool(m *lsp.Manager) agent.Tool {
 	)
 }
 
-func newDiagnosticsTool(m *lsp.Manager) agent.Tool {
+func newDiagnosticsTool(m *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"lsp_diagnostics",
 		"Get cached diagnostics (errors, warnings) for a file. Diagnostics are updated asynchronously.",
@@ -419,7 +427,7 @@ func newDiagnosticsTool(m *lsp.Manager) agent.Tool {
 	)
 }
 
-func newFormatTool(m *lsp.Manager) agent.Tool {
+func newFormatTool(m *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"lsp_format",
 		"Format a document and return the resulting text edits. Applies default formatting options.",
@@ -463,7 +471,7 @@ func newFormatTool(m *lsp.Manager) agent.Tool {
 				}
 			}
 
-			opts := lsp.FormattingOptions{
+			opts := FormattingOptions{
 				TabSize:      tabSize,
 				InsertSpaces: insertSpaces,
 			}
@@ -478,7 +486,7 @@ func newFormatTool(m *lsp.Manager) agent.Tool {
 	)
 }
 
-func newRenameTool(m *lsp.Manager) agent.Tool {
+func newRenameTool(m *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"lsp_rename",
 		"Rename a symbol at a position. Returns a workspace edit with all changes needed.",
@@ -520,7 +528,7 @@ func newRenameTool(m *lsp.Manager) agent.Tool {
 				return "", err
 			}
 
-			pos := lsp.Position{
+			pos := Position{
 				Line:      asInt(params, "line"),
 				Character: asInt(params, "character"),
 			}
@@ -535,7 +543,7 @@ func newRenameTool(m *lsp.Manager) agent.Tool {
 	)
 }
 
-func newSignatureHelpTool(m *lsp.Manager) agent.Tool {
+func newSignatureHelpTool(m *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"lsp_signature_help",
 		"Get function signature help at a position. Returns available overloads and parameter info.",
@@ -568,7 +576,7 @@ func newSignatureHelpTool(m *lsp.Manager) agent.Tool {
 				return "", err
 			}
 
-			pos := lsp.Position{
+			pos := Position{
 				Line:      asInt(params, "line"),
 				Character: asInt(params, "character"),
 			}

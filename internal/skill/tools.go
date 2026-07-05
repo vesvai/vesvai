@@ -1,4 +1,4 @@
-package tools
+package skill
 
 import (
 	"context"
@@ -6,10 +6,18 @@ import (
 	"strings"
 
 	"github.com/vesvai/vesvai/internal/agent"
-	"github.com/vesvai/vesvai/internal/skill"
+	"github.com/vesvai/vesvai/internal/hook"
+	"github.com/vesvai/vesvai/internal/tools"
 )
 
-func NewSkillTools(manager *skill.Manager) []agent.Tool {
+func RegisterSkillTools(hooks *hook.Hooks, manager *Manager) {
+	hooks.AddFilter(tools.HookTools, func(ctx context.Context, value interface{}, args ...interface{}) interface{} {
+		existing, _ := value.([]agent.Tool)
+		return append(existing, NewSkillTools(manager)...)
+	}, 50)
+}
+
+func NewSkillTools(manager *Manager) []agent.Tool {
 	return []agent.Tool{
 		newListSkillsTool(manager),
 		newReadSkillTool(manager),
@@ -17,7 +25,7 @@ func NewSkillTools(manager *skill.Manager) []agent.Tool {
 	}
 }
 
-func newListSkillsTool(manager *skill.Manager) agent.Tool {
+func newListSkillsTool(manager *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"list-skills",
 		"List all available skills from both global (~/.config/vesvai/skills/) and project (.vesvai/skills/) locations. Project skills override global skills with the same name. Returns skill names, descriptions, and locations.",
@@ -51,7 +59,7 @@ func newListSkillsTool(manager *skill.Manager) agent.Tool {
 	)
 }
 
-func newReadSkillTool(manager *skill.Manager) agent.Tool {
+func newReadSkillTool(manager *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"read-skill",
 		"Read a skill's content by name. Project skills take precedence over global skills with the same name. Returns the full markdown content of the skill file.",
@@ -88,7 +96,7 @@ func newReadSkillTool(manager *skill.Manager) agent.Tool {
 	)
 }
 
-func newCreateSkillTool(manager *skill.Manager) agent.Tool {
+func newCreateSkillTool(manager *Manager) agent.Tool {
 	return agent.NewFuncTool(
 		"create-skill",
 		"Create a new skill file. Agents can use this to create their own skills for future use. Skills are markdown files with optional frontmatter. Project skills are stored in .vesvai/skills/, global skills in ~/.config/vesvai/skills/.",
@@ -123,12 +131,12 @@ func newCreateSkillTool(manager *skill.Manager) agent.Tool {
 			}
 
 			locationStr, _ := params["location"].(string)
-			var location skill.SkillLocation
+			var location SkillLocation
 			switch locationStr {
 			case "global":
-				location = skill.LocationGlobal
+				location = LocationGlobal
 			case "project", "":
-				location = skill.LocationProject
+				location = LocationProject
 			default:
 				return "", fmt.Errorf("invalid location: %s (use 'project' or 'global')", locationStr)
 			}
