@@ -72,6 +72,14 @@ func GetSkillsDir() (string, error) {
 	return filepath.Join(configDir, SkillsDirName), nil
 }
 
+func GetPluginsDir() (string, error) {
+	configDir, err := GetConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, PluginsDirName), nil
+}
+
 func Load() (*Config, error) {
 	config := DefaultConfig()
 
