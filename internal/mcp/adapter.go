@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/vesvai/vesvai/internal/config"
 )
 
 type AgentTool interface {
@@ -100,4 +102,77 @@ func DiscoverToolsFromConfig(ctx context.Context, config MCPServerConfig) ([]Age
 		transport.SetEnv(config.Env)
 	}
 	return DiscoverTools(ctx, transport)
+}
+
+func DiscoverToolsFromMCPFile(ctx context.Context, dir string) (map[string][]AgentTool, error) {
+	configFile, err := LoadMCPConfigFile(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load .mcp.json: %w", err)
+	}
+
+	result := make(map[string][]AgentTool)
+	for name, entry := range configFile.MCPServers {
+		transport, err := CreateTransportForEntry(entry)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create transport for %q: %w", name, err)
+		}
+
+		tools, err := DiscoverTools(ctx, transport)
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover tools for %q: %w", name, err)
+		}
+
+		result[name] = tools
+	}
+
+	return result, nil
+}
+
+func DiscoverToolsFromConfigFile(ctx context.Context, mcps []config.MCPConfig) (map[string][]AgentTool, error) {
+	result := make(map[string][]AgentTool)
+
+	for _, mcp := range mcps {
+		if !mcp.Enabled {
+			continue
+		}
+
+		name := deriveServerName(mcp)
+
+		var transport Transport
+		if mcp.Url != "" {
+			transport = NewSSETransport(mcp.Url, mcp.Headers)
+		} else if len(mcp.Command) > 0 {
+			transport = NewStdioTransport(mcp.Command[0], mcp.Command[1:]...)
+			if len(mcp.Environment) > 0 {
+				if stdio, ok := transport.(*StdioTransport); ok {
+					stdio.SetEnv(mcp.Environment)
+				}
+			}
+		} else {
+			continue
+		}
+
+		tools, err := DiscoverTools(ctx, transport)
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover tools for %q: %w", name, err)
+		}
+
+		result[name] = tools
+	}
+
+	return result, nil
+}
+
+func deriveServerName(mcp config.MCPConfig) string {
+	if mcp.Url != "" {
+		parts := strings.Split(strings.TrimRight(mcp.Url, "/"), "/")
+		if len(parts) > 0 {
+			return parts[len(parts)-1]
+		}
+		return "remote"
+	}
+	if len(mcp.Command) > 0 {
+		return mcp.Command[0]
+	}
+	return "unknown"
 }
