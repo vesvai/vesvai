@@ -1,7 +1,6 @@
 package skill
 
 import (
-	"os"
 	"path/filepath"
 )
 
@@ -43,14 +42,6 @@ type SkillConfig struct {
 	Triggers []string `json:"triggers,omitempty"`
 
 	Depends []string `json:"depends,omitempty"`
-}
-
-func GlobalSkillsDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".config", "vesvai", "skills"), nil
 }
 
 func ProjectSkillsDir(projectRoot string) string {

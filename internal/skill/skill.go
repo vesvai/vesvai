@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/vesvai/vesvai/internal/config"
 )
 
 type Manager struct {
@@ -15,7 +17,7 @@ type Manager struct {
 }
 
 func NewManager(projectRoot string) (*Manager, error) {
-	globalDir, err := GlobalSkillsDir()
+	globalDir, err := config.GetSkillsDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get global skills dir: %w", err)
 	}

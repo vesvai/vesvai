@@ -11,8 +11,7 @@ import (
 
 func newTestStore(t *testing.T) (*FileStore, func()) {
 	t.Helper()
-	dir := t.TempDir()
-	store, err := NewFileStore(dir)
+	store, err := NewFileStore()
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}

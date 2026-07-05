@@ -9,13 +9,11 @@ import (
 
 func setupBenchmarkStore(b *testing.B, sessionCount int) *FileStore {
 	b.Helper()
-	dir := b.TempDir()
-	store, err := NewFileStore(dir)
+	store, err := NewFileStore()
 	if err != nil {
 		b.Fatalf("failed to create store: %v", err)
 	}
 
-	// Pre-populate with sessions
 	for i := 0; i < sessionCount; i++ {
 		session := &Session{
 			ID:    fmt.Sprintf("session-%d", i),
@@ -25,7 +23,7 @@ func setupBenchmarkStore(b *testing.B, sessionCount int) *FileStore {
 				llm.AssistantMessage(fmt.Sprintf("Response %d", i)),
 			},
 			Metadata: SessionMetadata{
-				Model:        "gpt-4",
+				Model:         "gpt-4",
 				WorkspacePath: "/test/workspace",
 			},
 		}
@@ -51,7 +49,7 @@ func BenchmarkSave(b *testing.B) {
 				llm.AssistantMessage("Hi there!"),
 			},
 			Metadata: SessionMetadata{
-				Model:        "gpt-4",
+				Model:         "gpt-4",
 				WorkspacePath: "/test/workspace",
 			},
 		}
@@ -138,8 +136,8 @@ func BenchmarkEncodeSession(b *testing.B) {
 			llm.AssistantMessage("I'm doing well, thanks for asking!"),
 		},
 		Metadata: SessionMetadata{
-			Model:        "gpt-4",
-			MessageCount: 4,
+			Model:         "gpt-4",
+			MessageCount:  4,
 			WorkspacePath: "/test/workspace",
 		},
 	}
@@ -163,8 +161,8 @@ func BenchmarkDecodeSession(b *testing.B) {
 			llm.AssistantMessage("I'm doing well, thanks for asking!"),
 		},
 		Metadata: SessionMetadata{
-			Model:        "gpt-4",
-			MessageCount: 4,
+			Model:         "gpt-4",
+			MessageCount:  4,
 			WorkspacePath: "/test/workspace",
 		},
 	}

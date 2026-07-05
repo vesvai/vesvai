@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vesvai/vesvai/internal/config"
 )
 
 var (
@@ -32,8 +33,11 @@ type sessionIndex struct {
 	dirty    bool
 }
 
-func NewFileStore(basePath string) (*FileStore, error) {
-	sessionsPath := filepath.Join(basePath, "sessions")
+func NewFileStore() (*FileStore, error) {
+	sessionsPath, err := config.GetSessionsDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get global sessions dir: %w", err)
+	}
 	if err := os.MkdirAll(sessionsPath, 0755); err != nil {
 		return nil, fmt.Errorf("create sessions directory: %w", err)
 	}
