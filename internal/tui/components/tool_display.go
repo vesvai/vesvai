@@ -18,8 +18,6 @@ const (
 	ToolFailed
 )
 
-const maxPreviewLines = 3
-
 type ToolDisplay struct {
 	Name     string
 	Args     map[string]any
@@ -27,6 +25,7 @@ type ToolDisplay struct {
 	Result   string
 	Error    error
 	Duration int64
+	Expanded bool
 }
 
 func NewToolDisplay(name string, args map[string]any) *ToolDisplay {
@@ -53,6 +52,62 @@ func (td *ToolDisplay) SetFailed(err error, duration int64) {
 	td.Duration = duration
 }
 
+func (td *ToolDisplay) ToggleExpand() {
+	td.Expanded = !td.Expanded
+}
+
+func (td *ToolDisplay) IsExpanded() bool {
+	return td.Expanded
+}
+
+func (td *ToolDisplay) toolDisplayName() string {
+	name := strings.ToUpper(td.Name)
+	name = strings.ReplaceAll(name, "_", " ")
+	return name
+}
+
+func (td *ToolDisplay) toolPath() string {
+	if td.Args == nil {
+		return ""
+	}
+	for _, v := range td.Args {
+		val := fmt.Sprintf("%v", v)
+		if len(val) > 0 {
+			if len(val) > 50 {
+				val = val[:47] + "..."
+			}
+			return val
+		}
+	}
+	return ""
+}
+
+func (td *ToolDisplay) Height(screenWidth int) int {
+	return 1
+}
+
+func (td *ToolDisplay) Draw(s tcell.Screen, y, screenWidth int) {
+	startX := 2
+	width := screenWidth - 4
+
+	render.FillArea(s, startX, y, width, 1, tcell.StyleDefault.Background(theme.BgPrimary))
+
+	statusStyle := tcell.StyleDefault.Foreground(theme.AccentGold).Background(theme.BgPrimary)
+	statusGlyph := td.statusGlyph()
+	s.SetContent(startX, y, []rune(statusGlyph)[0], nil, statusStyle)
+
+	nameStyle := tcell.StyleDefault.Foreground(theme.TextSecondary).Background(theme.BgPrimary).Bold(true)
+	name := td.toolDisplayName()
+	render.DrawText(s, startX+2, y, name, nameStyle)
+
+	path := td.toolPath()
+	if path != "" {
+		pathStyle := tcell.StyleDefault.Foreground(theme.TextDim).Background(theme.BgPrimary)
+		pathX := startX + 2 + len(name) + 1
+		render.DrawTextLimited(s, pathX, y, width-10, path, pathStyle)
+	}
+}
+
 func (td *ToolDisplay) statusGlyph() string {
 	switch td.Status {
 	case ToolRunning:
@@ -63,123 +118,5 @@ func (td *ToolDisplay) statusGlyph() string {
 		return "×"
 	default:
 		return "○"
-	}
-}
-
-func (td *ToolDisplay) cardWidth(screenWidth int) (startX, width int) {
-	startX = 2
-	width = screenWidth - 4
-	if width < 20 {
-		width = 20
-	}
-	return startX, width
-}
-
-func (td *ToolDisplay) outputText() string {
-	if td.Status == ToolFailed && td.Error != nil {
-		return td.Error.Error()
-	}
-	return td.Result
-}
-
-func (td *ToolDisplay) previewLines(screenWidth int) []string {
-	text := td.outputText()
-	if text == "" {
-		return nil
-	}
-	_, width := td.cardWidth(screenWidth)
-	contentWidth := width - 4
-
-	text = strings.ReplaceAll(text, "\r", "")
-	rawLines := strings.Split(text, "\n")
-
-	var out []string
-	for _, ln := range rawLines {
-		if strings.TrimSpace(ln) == "" {
-			continue
-		}
-		for _, wl := range render.WrapText(ln, contentWidth) {
-			out = append(out, wl)
-			if len(out) >= maxPreviewLines {
-				out = append(out, "…")
-				return out
-			}
-		}
-	}
-	return out
-}
-
-func (td *ToolDisplay) Height(screenWidth int) int {
-	h := 2
-	h += len(td.previewLines(screenWidth))
-	return h + 1
-}
-
-func (td *ToolDisplay) FormatArgs() string {
-	if td.Args == nil {
-		return ""
-	}
-	parts := make([]string, 0, len(td.Args))
-	for k, v := range td.Args {
-		val := fmt.Sprintf("%v", v)
-		if len(val) > 40 {
-			val = val[:40] + "…"
-		}
-		parts = append(parts, k+"="+val)
-	}
-	return strings.Join(parts, "  ")
-}
-
-func (td *ToolDisplay) Draw(s tcell.Screen, y, screenWidth int) {
-	startX, width := td.cardWidth(screenWidth)
-	bodyLines := td.previewLines(screenWidth)
-	bodyHeight := 1 + len(bodyLines)
-
-	headerStyle := tcell.StyleDefault.Background(theme.BgTertiary)
-	bodyStyle := tcell.StyleDefault.Background(theme.BgSecondary)
-
-	render.FillArea(s, startX, y, width, 1, headerStyle)
-
-	dot := td.statusGlyph()
-	dotStyle := tcell.StyleDefault.Foreground(theme.TextSecondary).Background(theme.BgTertiary)
-	s.SetContent(startX+2, y, []rune(dot)[0], nil, dotStyle)
-
-	nameStyle := tcell.StyleDefault.
-		Foreground(theme.TextPrimary).
-		Background(theme.BgTertiary).
-		Bold(true)
-	render.DrawText(s, startX+4, y, td.Name, nameStyle)
-
-	rightBits := []string{}
-	if td.Status == ToolComplete && td.Duration > 0 {
-		rightBits = append(rightBits, fmt.Sprintf("%dms", td.Duration))
-	}
-	if td.Status == ToolFailed {
-		rightBits = append(rightBits, "failed")
-	}
-	right := strings.Join(rightBits, "  ")
-	if right != "" {
-		rightStyle := tcell.StyleDefault.
-			Foreground(theme.TextDim).
-			Background(theme.BgTertiary)
-		x := startX + width - len(right) - 2
-		render.DrawText(s, x, y, right, rightStyle)
-	}
-
-	render.FillArea(s, startX, y+1, width, bodyHeight, bodyStyle)
-
-	argsStr := td.FormatArgs()
-	if argsStr != "" {
-		argsStyle := tcell.StyleDefault.
-			Foreground(theme.TextDim).
-			Background(theme.BgSecondary)
-		render.DrawTextLimited(s, startX+2, y+1, width-4, argsStr, argsStyle)
-	}
-
-	lineStyle := tcell.StyleDefault.
-		Foreground(theme.TextSecondary).
-		Background(theme.BgSecondary)
-	for i, line := range bodyLines {
-		render.DrawTextLimited(s, startX+2, y+2+i, width-4, line, lineStyle)
 	}
 }

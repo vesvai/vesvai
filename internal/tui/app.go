@@ -444,25 +444,26 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 func (a *App) markDirty() { a.dirty = true }
 
 func (a *App) draw() {
-	if !a.dirty {
-		a.streamMu.Lock()
-		streaming := a.streamingMsg != nil && a.streamingMsg.IsStreaming()
-		a.streamMu.Unlock()
-		if !streaming {
-			return
-		}
-	}
-
 	now := time.Now()
 	if now.Sub(a.lastDraw) < time.Millisecond*8 {
 		return
 	}
 	a.lastDraw = now
+
+	a.streamMu.Lock()
+	if !a.dirty {
+		streaming := a.streamingMsg != nil && a.streamingMsg.IsStreaming()
+		if !streaming {
+			a.streamMu.Unlock()
+			return
+		}
+	}
 	a.dirty = false
 
 	a.updateSubagentPanel()
 	a.layout.Draw(a.screen)
 	a.screen.Show()
+	a.streamMu.Unlock()
 }
 
 func (a *App) updateSubagentPanel() {
@@ -523,6 +524,8 @@ func (a *App) handleSubmit(text string) {
 
 	a.layout.ClearAttachments()
 	a.layout.Input().Clear()
+	a.layout.Input().SetBlocked(true)
+	a.layout.LoadingIndicator().Show()
 
 	ctx, cancel := context.WithCancel(a.agentService.ctx)
 	a.cancelFunc = cancel
@@ -538,10 +541,13 @@ func (a *App) handleSubmit(text string) {
 		a.isPending = false
 		a.streamingMsg = nil
 		a.streamMu.Unlock()
+		a.layout.Input().SetBlocked(false)
+		a.layout.LoadingIndicator().Hide()
 	}
 }
 
 func (a *App) handleStreamChunk(chunk agent.StreamChunk) {
+	a.markDirty()
 	if chunk.IsDone {
 		a.debugLog("CHUNK_RECV", "done=true", theme.AccentGreen)
 		if chunk.Content != "" {
@@ -561,13 +567,21 @@ func (a *App) handleStreamChunk(chunk agent.StreamChunk) {
 			a.streamingMsg = nil
 		}
 		a.isPending = false
+		a.layout.Input().SetBlocked(false)
+		a.layout.LoadingIndicator().Hide()
 		return
 	}
 
 	if chunk.Reasoning != "" {
+		if a.streamingMsg == nil {
+			a.streamingMsg = components.NewStreamingMessage()
+			a.layout.AddStreamingMessage(a.streamingMsg)
+		}
+		a.streamingMsg.AppendThinking(chunk.Reasoning)
 	}
 
 	if chunk.Content != "" {
+		a.layout.LoadingIndicator().Hide()
 		detail := chunk.Content
 		if len(detail) > 60 {
 			detail = detail[:60] + "..."
@@ -614,7 +628,11 @@ func (a *App) handleTUIEvent(event TUIEvent) {
 	a.markDirty()
 	switch e := event.(type) {
 	case TUIThinkingEvent:
-		_ = e
+		if a.streamingMsg == nil {
+			a.streamingMsg = components.NewStreamingMessage()
+			a.layout.AddStreamingMessage(a.streamingMsg)
+		}
+		a.streamingMsg.AppendThinking(e.Content)
 
 	case TUIContentEvent:
 		a.debugLog("TUI_EVENT", fmt.Sprintf("content=%q", truncate(e.Content, 60)), theme.AccentGreen)
@@ -623,12 +641,26 @@ func (a *App) handleTUIEvent(event TUIEvent) {
 			a.layout.AddStreamingMessage(a.streamingMsg)
 		}
 		a.streamingMsg.AppendContent(e.Content)
+		a.layout.LoadingIndicator().Hide()
 
 	case TUIToolCallEvent:
-		_ = e
+		if a.streamingMsg == nil {
+			a.streamingMsg = components.NewStreamingMessage()
+			a.layout.AddStreamingMessage(a.streamingMsg)
+		}
+		a.streamingMsg.AddToolCall(e.ToolName, e.Args)
 
 	case TUIToolDoneEvent:
-		_ = e
+		success := e.Error == nil
+		resultStr := e.Result
+		if len(resultStr) > 200 {
+			resultStr = resultStr[:200] + "..."
+		}
+		if a.streamingMsg == nil {
+			a.streamingMsg = components.NewStreamingMessage()
+			a.layout.AddStreamingMessage(a.streamingMsg)
+		}
+		a.streamingMsg.CompleteToolCall(e.ToolName, resultStr, success, e.Duration)
 
 	case TUIDoneEvent:
 		a.debugLog("TUI_EVENT", "done", theme.AccentGreen)
@@ -642,12 +674,16 @@ func (a *App) handleTUIEvent(event TUIEvent) {
 			a.streamingMsg = nil
 		}
 		a.isPending = false
+		a.layout.Input().SetBlocked(false)
+		a.layout.LoadingIndicator().Hide()
 
 	case TUIErrorEvent:
 		a.debugLog("TUI_EVENT", fmt.Sprintf("error=%v", e.Error), theme.AccentRed)
 		a.layout.ErrorOverlay().Show(agent.FormatError(e.Error))
 		a.streamingMsg = nil
 		a.isPending = false
+		a.layout.Input().SetBlocked(false)
+		a.layout.LoadingIndicator().Hide()
 	}
 }
 
@@ -723,7 +759,9 @@ func (a *App) handleCommand(cmd components.Command) {
 		a.layout.Input().Clear()
 		a.layout.MessageList().Clear()
 		a.layout.ShowTitleScreen()
+		a.streamMu.Lock()
 		a.streamingMsg = nil
+		a.streamMu.Unlock()
 
 	case "Load Session":
 		sessions, err := a.agentService.ListSessions()
@@ -749,7 +787,9 @@ func (a *App) handleCommand(cmd components.Command) {
 			}
 			a.layout.Input().Clear()
 			a.layout.MessageList().Clear()
+			a.streamMu.Lock()
 			a.streamingMsg = nil
+			a.streamMu.Unlock()
 			for _, msg := range sess.Messages {
 				switch msg.Role {
 				case "user":
@@ -775,7 +815,9 @@ func (a *App) handleCommand(cmd components.Command) {
 		a.layout.Input().Clear()
 		a.layout.MessageList().Clear()
 		a.layout.ShowTitleScreen()
+		a.streamMu.Lock()
 		a.streamingMsg = nil
+		a.streamMu.Unlock()
 
 	case "Change Model":
 		models := a.agentService.AvailableModels()

@@ -92,16 +92,34 @@ var (
 	Sparkle      = "✦"
 	Lightning    = "◇"
 	Ellipsis     = "…"
+
+	ToolIconGlob     = "Q"
+	ToolIconGrep     = "Q"
+	ToolIconRead     = "D"
+	ToolIconWrite    = "W"
+	ToolIconTodo     = "T"
+	ToolIconSubAgent = "S"
+	ToolIconMessage  = "M"
+	ToolIconList     = "Q"
+	ToolIconDefault  = "●"
+
+	ToolStatusPending  = "○"
+	ToolStatusRunning  = "◌"
+	ToolStatusComplete = "●"
+	ToolStatusFailed   = "×"
 )
 
 var TitleBlock = []string{
-	`░██    ░██ ░██████████   ░██████   ░██    ░██    ░███    ░██████`,
-	`░██    ░██ ░██          ░██   ░██  ░██    ░██   ░██░██     ░██  `,
-	`░██    ░██ ░██         ░██         ░██    ░██  ░██  ░██    ░██  `,
-	`░██    ░██ ░█████████   ░████████  ░██    ░██ ░█████████   ░██  `,
-	` ░██  ░██  ░██                 ░██  ░██  ░██  ░██    ░██   ░██  `,
-	`  ░██░██   ░██          ░██   ░██    ░██░██   ░██    ░██   ░██  `,
-	`   ░███    ░██████████   ░██████      ░███    ░██    ░██ ░██████`,
+	`██████╗ ███████╗███████╗██╗   ██╗██╗████████╗███████╗`,
+	`██╔══██╗██╔════╝██╔════╝██║   ██║██║╚══██╔══╝██╔════╝`,
+	`██████╔╝█████╗  ███████╗██║   ██║██║   ██║   █████╗  `,
+	`██╔══██╗██╔══╝  ╚════██║██║   ██║██║   ██║   ██╔══╝  `,
+	`██║  ██║███████╗███████║╚██████╔╝██║   ██║   ███████╗`,
+	`╚═╝  ╚═╝╚══════╝╚══════╝ ╚═════╝ ╚═╝   ╚═╝   ╚══════╝`,
+}
+
+var TitleBlockSmall = []string{
+	`V E S V A I`,
 }
 
 func LerpColor(r1, g1, b1, r2, g2, b2 int, t float64) (int, int, int) {

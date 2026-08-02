@@ -70,7 +70,7 @@ func (m *Message) RoleName() string {
 	case RoleUser:
 		return "You"
 	case RoleAssistant:
-		return "Vesvai"
+		return "VESVAI"
 	case RoleSystem:
 		return "System"
 	case RoleError:
@@ -118,19 +118,36 @@ func (mb *MessageBubble) Height(screenWidth int) int {
 
 	totalHeight := 0
 	if mb.message.Role == RoleUser {
-		totalHeight = 2
+		content := mb.message.Content
+		lines := render.WrapText(content, contentWidth-2)
+		totalHeight = len(lines) + 2
+	}
+
+	content := mb.message.Content
+	if idx := strings.Index(content, "<think>"); idx >= 0 {
+		endIdx := strings.Index(content, "</think>")
+		if endIdx > idx {
+			thinkContent := content[idx+7 : endIdx]
+			thinkLines := render.WrapText(thinkContent, contentWidth)
+			totalHeight += len(thinkLines)
+			content = content[endIdx+8:]
+		}
 	}
 
 	for _, td := range mb.message.Tools {
 		totalHeight += td.Height(screenWidth)
 	}
 
-	lines := mb.renderer.Render(mb.message.Content)
+	lines := mb.renderer.Render(content)
 	for _, line := range lines {
-		wrapped := render.WrapText(mb.plainText(line), contentWidth)
-		totalHeight += len(wrapped)
-		if len(wrapped) == 0 {
+		if line.PreRendered {
 			totalHeight++
+		} else {
+			wrapped := render.WrapText(mb.plainText(line), contentWidth)
+			totalHeight += len(wrapped)
+			if len(wrapped) == 0 {
+				totalHeight++
+			}
 		}
 	}
 
@@ -169,55 +186,91 @@ func (mb *MessageBubble) Draw(s tcell.Screen, y, screenWidth int) {
 		cardHeight := mb.Height(screenWidth)
 		cardStyle := tcell.StyleDefault.Background(bg)
 		render.FillArea(s, startContentX, y, contentWidth+2, cardHeight, cardStyle)
-		contentY = y + 1
-	}
 
-	for _, td := range mb.message.Tools {
-		td.Draw(s, contentY, screenWidth)
-		contentY += td.Height(screenWidth)
-	}
-
-	lines := mb.renderer.Render(mb.message.Content)
-	for _, line := range lines {
-		var segments []render.StyledSegment
-		if line.PreRendered {
-			segments = line.Segments
-		} else {
-			segments = mb.renderer.RenderInline(mb.plainText(line))
+		borderStyle := tcell.StyleDefault.Foreground(theme.BorderDefault).Background(bg)
+		s.SetContent(startContentX, y, '╭', nil, borderStyle)
+		s.SetContent(startContentX+contentWidth+1, y, '╮', nil, borderStyle)
+		s.SetContent(startContentX, y+cardHeight-1, '╰', nil, borderStyle)
+		s.SetContent(startContentX+contentWidth+1, y+cardHeight-1, '╯', nil, borderStyle)
+		for i := 1; i < contentWidth+1; i++ {
+			s.SetContent(startContentX+i, y, '─', nil, borderStyle)
+			s.SetContent(startContentX+i, y+cardHeight-1, '─', nil, borderStyle)
 		}
-		curX := startContentX
-		for _, seg := range segments {
-			segStyle := seg.Style.ToTcell()
-			_, segBg, _ := segStyle.Decompose()
-			if segBg == tcell.ColorDefault {
-				segStyle = segStyle.Background(bg)
-			}
-			if line.PreRendered {
-				for _, r := range seg.Text {
-					if curX-startContentX >= contentWidth {
-						break
-					}
-					s.SetContent(curX, contentY, r, nil, segStyle)
-					curX++
+		for i := 1; i < cardHeight-1; i++ {
+			s.SetContent(startContentX, y+i, '│', nil, borderStyle)
+			s.SetContent(startContentX+contentWidth+1, y+i, '│', nil, borderStyle)
+		}
+
+		lines := render.WrapText(mb.message.Content, contentWidth-2)
+		textStyle := tcell.StyleDefault.Foreground(theme.TextPrimary).Background(bg)
+		for i, line := range lines {
+			render.DrawText(s, startContentX+2, y+1+i, line, textStyle)
+		}
+		contentY = y + cardHeight
+	} else {
+		content := mb.message.Content
+
+		if idx := strings.Index(content, "<think>"); idx >= 0 {
+			endIdx := strings.Index(content, "</think>")
+			if endIdx > idx {
+				thinkContent := content[idx+7 : endIdx]
+				thinkLines := render.WrapText(thinkContent, contentWidth)
+				thinkStyle := tcell.StyleDefault.Foreground(theme.TextDim).Background(bg).Italic(true)
+				for _, line := range thinkLines {
+					render.DrawText(s, startContentX, contentY, line, thinkStyle)
+					contentY++
 				}
+				content = content[endIdx+8:]
+			}
+		}
+
+		for _, td := range mb.message.Tools {
+			td.Draw(s, contentY, screenWidth)
+			contentY += td.Height(screenWidth)
+		}
+
+		lines := mb.renderer.Render(content)
+		for _, line := range lines {
+			var segments []render.StyledSegment
+			if line.PreRendered {
+				segments = line.Segments
 			} else {
-				wrapped := render.WrapText(seg.Text, contentWidth-(curX-startContentX))
-				for wi, wLine := range wrapped {
-					if wi > 0 {
-						contentY++
-						curX = startContentX
-					}
-					for _, r := range wLine {
+				segments = mb.renderer.RenderInline(mb.plainText(line))
+			}
+			curX := startContentX
+			for _, seg := range segments {
+				segStyle := seg.Style.ToTcell()
+				_, segBg, _ := segStyle.Decompose()
+				if segBg == tcell.ColorDefault {
+					segStyle = segStyle.Background(bg)
+				}
+				if line.PreRendered {
+					for _, r := range seg.Text {
 						if curX-startContentX >= contentWidth {
 							break
 						}
 						s.SetContent(curX, contentY, r, nil, segStyle)
 						curX++
 					}
+				} else {
+					wrapped := render.WrapText(seg.Text, contentWidth-(curX-startContentX))
+					for wi, wLine := range wrapped {
+						if wi > 0 {
+							contentY++
+							curX = startContentX
+						}
+						for _, r := range wLine {
+							if curX-startContentX >= contentWidth {
+								break
+							}
+							s.SetContent(curX, contentY, r, nil, segStyle)
+							curX++
+						}
+					}
 				}
 			}
+			contentY++
 		}
-		contentY++
 	}
 
 	if len(mb.message.Attachments) > 0 {
@@ -249,9 +302,9 @@ type StreamingMessage struct {
 	*Message
 	renderer     *MarkdownRenderer
 	accumulated  string
+	thinking     string
 	toolDisplays []*ToolDisplay
 	streaming    bool
-	spinnerFrame int
 }
 
 func NewStreamingMessage() *StreamingMessage {
@@ -262,6 +315,7 @@ func NewStreamingMessage() *StreamingMessage {
 		},
 		renderer:    NewMarkdownRenderer(),
 		accumulated: "",
+		thinking:    "",
 		streaming:   true,
 	}
 }
@@ -269,6 +323,14 @@ func NewStreamingMessage() *StreamingMessage {
 func (sm *StreamingMessage) AppendContent(chunk string) {
 	sm.accumulated += chunk
 	sm.Message.Content = sm.accumulated
+}
+
+func (sm *StreamingMessage) AppendThinking(chunk string) {
+	sm.thinking += chunk
+}
+
+func (sm *StreamingMessage) Thinking() string {
+	return sm.thinking
 }
 
 func (sm *StreamingMessage) AddToolCall(name string, args map[string]any) {
@@ -321,9 +383,13 @@ func (sm *StreamingMessage) Content() string {
 }
 
 func (sm *StreamingMessage) Finalize() *Message {
+	content := sm.accumulated
+	if sm.thinking != "" {
+		content = "<think>" + sm.thinking + "</think>" + content
+	}
 	return &Message{
 		Role:      RoleAssistant,
-		Content:   sm.accumulated,
+		Content:   content,
 		Tools:     sm.toolDisplays,
 		Timestamp: "now",
 	}
@@ -332,24 +398,31 @@ func (sm *StreamingMessage) Finalize() *Message {
 func (sm *StreamingMessage) Height(screenWidth int) int {
 	h := 0
 
-	for _, td := range sm.toolDisplays {
-		h += td.Height(screenWidth)
-	}
-
 	bw := screenWidth - 6
 	if bw <= 0 {
 		bw = 20
 	}
+
+	if sm.thinking != "" {
+		thinkLines := render.WrapText(sm.thinking, bw)
+		h += len(thinkLines)
+	}
+
+	for _, td := range sm.toolDisplays {
+		h += td.Height(screenWidth)
+	}
+
 	lines := sm.renderer.Render(sm.accumulated)
 	for _, line := range lines {
-		wrapped := render.WrapText(sm.plainTextLine(line), bw)
-		h += len(wrapped)
-		if len(wrapped) == 0 {
+		if line.PreRendered {
 			h++
+		} else {
+			wrapped := render.WrapText(sm.plainTextLine(line), bw)
+			h += len(wrapped)
+			if len(wrapped) == 0 {
+				h++
+			}
 		}
-	}
-	if sm.streaming {
-		h++
 	}
 	return h
 }
@@ -367,14 +440,13 @@ func (sm *StreamingMessage) Draw(s tcell.Screen, y, screenWidth int) {
 	startX := 2
 	contentWidth := screenWidth - 6
 
-	if sm.streaming {
-		spinnerChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-		sm.spinnerFrame = (sm.spinnerFrame + 1) % len(spinnerChars)
-		spinnerStyle := tcell.StyleDefault.
-			Foreground(theme.AccentCyan).
-			Background(appBackground)
-		render.DrawText(s, startX+2, currentY, spinnerChars[sm.spinnerFrame], spinnerStyle)
-		currentY++
+	if sm.thinking != "" {
+		thinkLines := render.WrapText(sm.thinking, contentWidth)
+		thinkStyle := tcell.StyleDefault.Foreground(theme.TextDim).Background(appBackground).Italic(true)
+		for _, line := range thinkLines {
+			render.DrawText(s, startX+2, currentY, line, thinkStyle)
+			currentY++
+		}
 	}
 
 	for _, td := range sm.toolDisplays {

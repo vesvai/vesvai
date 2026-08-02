@@ -5,30 +5,34 @@ import "github.com/gdamore/tcell/v2"
 type Color = tcell.Color
 
 var (
-	BgPrimary    = tcell.NewRGBColor(0x0D, 0x11, 0x17)
-	BgSecondary  = tcell.NewRGBColor(0x16, 0x1B, 0x22)
-	BgTertiary   = tcell.NewRGBColor(0x21, 0x26, 0x2D)
-	BgOverlay    = tcell.NewRGBColor(0x1C, 0x21, 0x28)
+	BgPrimary    = tcell.NewRGBColor(0x0a, 0x0a, 0x0a)
+	BgSecondary  = tcell.NewRGBColor(0x14, 0x14, 0x14)
+	BgTertiary   = tcell.NewRGBColor(0x1e, 0x1e, 0x1e)
+	BgOverlay    = tcell.NewRGBColor(0x12, 0x12, 0x12)
 
-	BorderDefault = tcell.NewRGBColor(0x30, 0x36, 0x3D)
-	BorderFocus   = tcell.NewRGBColor(0x58, 0xA6, 0xFF)
-	BorderMuted   = tcell.NewRGBColor(0x21, 0x26, 0x2D)
+	BorderDefault = tcell.NewRGBColor(0x33, 0x33, 0x33)
+	BorderFocus   = tcell.NewRGBColor(0x55, 0x55, 0x55)
+	BorderMuted   = tcell.NewRGBColor(0x28, 0x28, 0x28)
 
 	AccentCyan    = tcell.NewRGBColor(0x58, 0xA6, 0xFF)
 	AccentGreen   = tcell.NewRGBColor(0x3F, 0xB9, 0x50)
-	AccentAmber   = tcell.NewRGBColor(0xF0, 0x88, 0x3E)
+	AccentAmber   = tcell.NewRGBColor(0xD4, 0xA5, 0x37)
 	AccentMagenta = tcell.NewRGBColor(0xF7, 0x78, 0xBA)
 	AccentRed     = tcell.NewRGBColor(0xF8, 0x51, 0x49)
 	AccentPurple  = tcell.NewRGBColor(0xBC, 0x8C, 0xFF)
+	AccentGold    = tcell.NewRGBColor(0xD4, 0xA5, 0x37)
 
-	TextPrimary   = tcell.NewRGBColor(0xE6, 0xED, 0xF3)
-	TextSecondary = tcell.NewRGBColor(0x8B, 0x94, 0x9E)
-	TextDim       = tcell.NewRGBColor(0x48, 0x4F, 0x58)
-	TextMuted     = tcell.NewRGBColor(0x65, 0x6D, 0x76)
+	TextPrimary   = tcell.NewRGBColor(0xe0, 0xd5, 0xc0)
+	TextSecondary = tcell.NewRGBColor(0x77, 0x77, 0x77)
+	TextDim       = tcell.NewRGBColor(0x55, 0x55, 0x55)
+	TextMuted     = tcell.NewRGBColor(0x66, 0x66, 0x66)
 	TextLink      = tcell.NewRGBColor(0x58, 0xA6, 0xFF)
 
-	White  = tcell.ColorWhite
-	Black  = tcell.ColorBlack
+	TitleColor    = tcell.NewRGBColor(0xe0, 0xd5, 0xc0)
+	SubtitleColor = tcell.NewRGBColor(0x77, 0x77, 0x77)
+
+	White       = tcell.ColorWhite
+	Black       = tcell.ColorBlack
 	Transparent = tcell.ColorDefault
 )
 
@@ -80,9 +84,7 @@ func (g Gradient) GradientColors() []Color {
 }
 
 var TitleGradient = NewGradient(
-	AccentCyan,
-	AccentPurple,
-	AccentMagenta,
+	TitleColor,
 )
 
 var AccentGradient = NewGradient(

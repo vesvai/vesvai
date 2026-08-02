@@ -70,9 +70,9 @@ func (t *Title) Draw(s tcell.Screen, startY, screenWidth int) {
 		}
 	}
 
-	subtitle := "AI-Powered Development Assistant"
+	subtitle := "A quiet agent for careful code."
 	subX := render.CenterX(len(subtitle), screenWidth)
-	subStyle := tcell.StyleDefault.Foreground(theme.TextDim).Background(theme.BgPrimary)
+	subStyle := tcell.StyleDefault.Foreground(theme.SubtitleColor).Background(theme.BgPrimary)
 	for i, r := range subtitle {
 		s.SetContent(subX+i, startY+len(t.ascii)+1, r, nil, subStyle)
 	}

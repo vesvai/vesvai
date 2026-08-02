@@ -27,6 +27,7 @@ type ChatLayout struct {
 	todoView           *components.TodoView
 	subagentPanel      *components.SubagentPanel
 	approvalPrompt     *components.ApprovalPrompt
+	loadingIndicator   *components.LoadingIndicator
 	screenWidth        int
 	screenHeight       int
 	showTitle          bool
@@ -43,25 +44,26 @@ func NewChatLayout(screenWidth, screenHeight int) *ChatLayout {
 	}
 
 	cl := &ChatLayout{
-		title:          components.NewTitle(),
-		textarea:       components.NewTextarea("Ask anything... \"Fix broken tests\"", inputWidth, nil),
-		messageList:    components.NewMessageList(),
-		statusBar:      components.NewStatusBar(),
-		commandPalette: components.NewCommandPalette(),
-		attachmentBar:  components.NewAttachmentBar(),
-		previewModal:   components.NewPreviewModal(),
-		actionList:     components.NewActionList(),
-		modelSelector:  components.NewModelSelector(),
-		sessionPicker:  components.NewSessionPicker(),
-		helpModal:      components.NewHelpModal(),
-		debugPanel:     components.NewDebugPanel(),
-		errorOverlay:   components.NewErrorOverlay(),
-		todoView:       components.NewTodoView(),
-		subagentPanel:  components.NewSubagentPanel(),
-		approvalPrompt: components.NewApprovalPrompt(),
-		screenWidth:    screenWidth,
-		screenHeight:   screenHeight,
-		showTitle:      true,
+		title:            components.NewTitle(),
+		textarea:         components.NewTextarea("Ask VESVAI to build, refactor or investigate... @mention /skill", inputWidth, nil),
+		messageList:      components.NewMessageList(),
+		statusBar:        components.NewStatusBar(),
+		commandPalette:   components.NewCommandPalette(),
+		attachmentBar:    components.NewAttachmentBar(),
+		previewModal:     components.NewPreviewModal(),
+		actionList:       components.NewActionList(),
+		modelSelector:    components.NewModelSelector(),
+		sessionPicker:    components.NewSessionPicker(),
+		helpModal:        components.NewHelpModal(),
+		debugPanel:       components.NewDebugPanel(),
+		errorOverlay:     components.NewErrorOverlay(),
+		todoView:         components.NewTodoView(),
+		subagentPanel:    components.NewSubagentPanel(),
+		approvalPrompt:   components.NewApprovalPrompt(),
+		loadingIndicator: components.NewLoadingIndicator(),
+		screenWidth:      screenWidth,
+		screenHeight:     screenHeight,
+		showTitle:        true,
 	}
 
 	cl.textarea.SetWidth(inputWidth)
@@ -234,15 +236,15 @@ func (cl *ChatLayout) HandleEvent(ev tcell.Event) bool {
 }
 
 func (cl *ChatLayout) textareaYPosition() int {
-	statusBarHeight := cl.statusBar.Height()
+	headerHeight := cl.statusBar.Height()
 	textareaHeight := cl.textarea.Height()
 	if cl.showTitle {
-		welcomeHeight := cl.screenHeight - statusBarHeight - textareaHeight - 2
+		welcomeHeight := cl.screenHeight - headerHeight - textareaHeight - 2
 		titleHeight := cl.title.Height()
-		titleY := (welcomeHeight-titleHeight)/2 + 1
+		titleY := (welcomeHeight-titleHeight)/2 + headerHeight + 1
 		return titleY + titleHeight + 3
 	}
-	return cl.screenHeight - statusBarHeight - textareaHeight
+	return cl.screenHeight - cl.statusBar.Height() - textareaHeight
 }
 
 func (cl *ChatLayout) buildMentionItems() []components.Action {
@@ -463,7 +465,7 @@ func (cl *ChatLayout) Draw(s tcell.Screen) {
 	bgStyle := tcell.StyleDefault.Background(theme.BgPrimary)
 	render.FillArea(s, 0, 0, width, height, bgStyle)
 
-	statusBarHeight := cl.statusBar.Height()
+	headerHeight := cl.statusBar.Height()
 	textareaHeight := cl.textarea.Height()
 	attBarHeight := 0
 	if cl.attachmentBar.Len() > 0 {
@@ -472,13 +474,13 @@ func (cl *ChatLayout) Draw(s tcell.Screen) {
 
 	var textareaY int
 	if cl.showTitle {
-		welcomeHeight := height - statusBarHeight - textareaHeight - 2
+		welcomeHeight := height - headerHeight - textareaHeight - 2
 		textareaY = cl.textareaYPosition()
-		cl.drawWelcomeScreen(s, width, height, statusBarHeight, textareaHeight, welcomeHeight)
+		cl.drawWelcomeScreen(s, width, height, headerHeight, textareaHeight, welcomeHeight)
 	} else {
-		chatHeight := height - statusBarHeight - textareaHeight - attBarHeight - 2
+		chatHeight := height - headerHeight - textareaHeight - attBarHeight - 2
 		textareaY = cl.textareaYPosition()
-		cl.drawChatScreen(s, width, height, statusBarHeight, textareaHeight, chatHeight)
+		cl.drawChatScreen(s, width, height, headerHeight, textareaHeight, chatHeight)
 	}
 
 	if attBarHeight > 0 {
@@ -489,9 +491,9 @@ func (cl *ChatLayout) Draw(s tcell.Screen) {
 		cl.attachmentBar.Draw(s, attBarY, width)
 	}
 
-	cl.statusBar.Draw(s, height-statusBarHeight, width)
+	cl.statusBar.Draw(s, 0, width)
 
-	cl.errorOverlay.Draw(s, 0, width, height-statusBarHeight-textareaHeight-attBarHeight-2)
+	cl.errorOverlay.Draw(s, 0, width, height-headerHeight-textareaHeight-attBarHeight-2)
 
 	if cl.todoView.IsVisible() && cl.todoView.TotalCount() > 0 {
 		todoHeight := cl.todoView.Height(width)
@@ -515,9 +517,9 @@ func (cl *ChatLayout) Draw(s tcell.Screen) {
 	cl.approvalPrompt.Draw(s, width, height)
 }
 
-func (cl *ChatLayout) drawWelcomeScreen(s tcell.Screen, width, height, statusBarHeight, textareaHeight, availableHeight int) {
+func (cl *ChatLayout) drawWelcomeScreen(s tcell.Screen, width, height, headerHeight, textareaHeight, availableHeight int) {
 	titleHeight := cl.title.Height()
-	titleY := (availableHeight-titleHeight)/2 + 1
+	titleY := headerHeight + (availableHeight-titleHeight)/2 + 1
 
 	cl.title.Draw(s, titleY, width)
 
@@ -525,15 +527,20 @@ func (cl *ChatLayout) drawWelcomeScreen(s tcell.Screen, width, height, statusBar
 	cl.textarea.Draw(s, textareaY, width)
 }
 
-func (cl *ChatLayout) drawChatScreen(s tcell.Screen, width, height, statusBarHeight, textareaHeight, availableHeight int) {
+func (cl *ChatLayout) drawChatScreen(s tcell.Screen, width, height, headerHeight, textareaHeight, availableHeight int) {
 	cl.messageList.SetScreenWidth(width)
 	cl.messageList.SetMaxVisible(availableHeight)
 
-	messageY := 0
+	messageY := headerHeight
 	cl.messageList.Draw(s, messageY, width, availableHeight)
 
-	textareaY := height - statusBarHeight - textareaHeight
+	textareaY := height - cl.statusBar.Height() - textareaHeight
 	cl.textarea.Draw(s, textareaY, width)
+
+	if cl.loadingIndicator.IsVisible() {
+		loadingY := textareaY + 1
+		cl.loadingIndicator.Draw(s, loadingY, width)
+	}
 }
 
 func (cl *ChatLayout) Input() *components.Textarea {
@@ -602,6 +609,10 @@ func (cl *ChatLayout) ToggleSubagentPanel() {
 
 func (cl *ChatLayout) ApprovalPrompt() *components.ApprovalPrompt {
 	return cl.approvalPrompt
+}
+
+func (cl *ChatLayout) LoadingIndicator() *components.LoadingIndicator {
+	return cl.loadingIndicator
 }
 
 func (cl *ChatLayout) ToggleDebugPanel() {

@@ -44,32 +44,6 @@ func TestMessageBubble_HeightIncludesTools(t *testing.T) {
 	}
 }
 
-func TestToolDisplay_PreviewLinesTruncated(t *testing.T) {
-	td := NewToolDisplay("bash", nil)
-	td.SetRunning()
-
-	long := ""
-	for i := 0; i < 40; i++ {
-		long += "line of output text for testing truncation\n"
-	}
-	td.SetComplete(long, 123)
-
-	lines := td.previewLines(100)
-	if len(lines) > maxPreviewLines+1 {
-		t.Errorf("preview lines = %d, want at most %d", len(lines), maxPreviewLines+1)
-	}
-	if lines[len(lines)-1] != "…" {
-		t.Errorf("last preview line should be the ellipsis, got %q", lines[len(lines)-1])
-	}
-
-	td2 := NewToolDisplay("read", nil)
-	td2.SetRunning()
-	td2.SetComplete("single line", 5)
-	if got := td2.previewLines(100); len(got) != 1 || got[0] != "single line" {
-		t.Errorf("compact preview = %v", got)
-	}
-}
-
 func TestToolDisplay_StatusGlyphNoEmoji(t *testing.T) {
 	td := NewToolDisplay("bash", nil)
 	for _, status := range []ToolStatus{ToolPending, ToolRunning, ToolComplete, ToolFailed} {

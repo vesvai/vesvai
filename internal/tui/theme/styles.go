@@ -70,19 +70,33 @@ func (s Style) ToTcell() tcell.Style {
 
 var (
 	TitleBigStyle = NewStyle().
-			WithForeground(AccentCyan).
+			WithForeground(TitleColor).
 			BoldOn()
 
 	TitleSmallStyle = NewStyle().
-				WithForeground(TextPrimary).
+				WithForeground(TitleColor).
 				BoldOn()
+
+	TitleBlockStyle = NewStyle().
+			WithForeground(TitleColor).
+			BoldOn()
+
+	HeaderBrandStyle = NewStyle().
+				WithForeground(TextDim).
+				BoldOn()
+
+	HeaderShortcutStyle = NewStyle().
+				WithForeground(TextDim)
+
+	HeaderSeparatorStyle = NewStyle().
+				WithForeground(BorderDefault)
 
 	InputBorderStyle = NewStyle().
 				WithForeground(BorderDefault).
 				WithBackground(BgPrimary)
 
 	InputBorderFocusStyle = NewStyle().
-				WithForeground(BorderFocus).
+				WithForeground(BorderDefault).
 				WithBackground(BgPrimary)
 
 	InputTextStyle = NewStyle().
@@ -94,7 +108,7 @@ var (
 				WithBackground(BgSecondary)
 
 	CursorStyle = NewStyle().
-			WithForeground(AccentCyan).
+			WithForeground(AccentGold).
 			BoldOn()
 
 	MessageUserBorder = NewStyle().
@@ -122,7 +136,7 @@ var (
 			WithBackground(BgPrimary)
 
 	ShortcutKeyStyle = NewStyle().
-				WithForeground(AccentCyan).
+				WithForeground(AccentGold).
 				WithBackground(BgPrimary).
 				BoldOn()
 
@@ -306,4 +320,55 @@ var (
 			WithForeground(AccentCyan).
 			WithBackground(BgSecondary).
 			BoldOn()
+
+	ToolCardStyle = NewStyle().
+			WithForeground(TextPrimary).
+			WithBackground(BgSecondary)
+
+	ToolCardBorderStyle = NewStyle().
+				WithForeground(BorderDefault).
+				WithBackground(BgSecondary)
+
+	ToolIconStyle = NewStyle().
+			WithForeground(AccentGold).
+			WithBackground(BgSecondary).
+			BoldOn()
+
+	ToolNameStyle = NewStyle().
+			WithForeground(TextPrimary).
+			WithBackground(BgSecondary).
+			BoldOn()
+
+	ToolParamStyle = NewStyle().
+			WithForeground(TextSecondary).
+			WithBackground(BgSecondary)
+
+	ToolMetaStyle = NewStyle().
+			WithForeground(TextDim).
+			WithBackground(BgSecondary)
+
+	ToolExpandStyle = NewStyle().
+			WithForeground(TextDim).
+			WithBackground(BgSecondary)
+
+	ToolResultPreviewStyle = NewStyle().
+				WithForeground(TextSecondary).
+				WithBackground(BgSecondary)
+
+	UserMessageStyle = NewStyle().
+				WithForeground(TextPrimary).
+				WithBackground(BgSecondary)
+
+	UserMessageBorderStyle = NewStyle().
+				WithForeground(BorderDefault).
+				WithBackground(BgSecondary)
+
+	AssistantLabelStyle = NewStyle().
+				WithForeground(TextDim).
+				WithBackground(BgPrimary).
+				BoldOn()
+
+	AssistantContentStyle = NewStyle().
+				WithForeground(TextPrimary).
+				WithBackground(BgPrimary)
 )

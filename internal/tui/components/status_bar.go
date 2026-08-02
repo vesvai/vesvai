@@ -10,6 +10,7 @@ type StatusBar struct {
 	shortcuts []Shortcut
 	version   string
 	model     string
+	isHeader  bool
 }
 
 type Shortcut struct {
@@ -20,10 +21,12 @@ type Shortcut struct {
 func NewStatusBar() *StatusBar {
 	return &StatusBar{
 		shortcuts: []Shortcut{
-			{Key: "tab", Desc: "change focus"},
-			{Key: "ctrl+p", Desc: "commands"},
+			{Key: "⌘P", Desc: "COMMANDS"},
+			{Key: "·", Desc: "SESSION"},
+			{Key: "·", Desc: "LOCAL"},
 		},
-		version: config.AppVersion,
+		version:  config.AppVersion,
+		isHeader: true,
 	}
 }
 
@@ -36,6 +39,47 @@ func (sb *StatusBar) Height() int {
 }
 
 func (sb *StatusBar) Draw(s tcell.Screen, y, width int) {
+	if sb.isHeader {
+		sb.drawHeader(s, y, width)
+	} else {
+		sb.drawFooter(s, y, width)
+	}
+}
+
+func (sb *StatusBar) drawHeader(s tcell.Screen, y, width int) {
+	emptyStyle := tcell.StyleDefault.Background(theme.BgPrimary)
+
+	for i := 0; i < width; i++ {
+		s.SetContent(i, y, ' ', nil, emptyStyle)
+	}
+
+	brandText := "V E S V A I"
+	brandStyle := tcell.StyleDefault.Foreground(theme.TextDim).Background(theme.BgPrimary)
+	drawX := 2
+	for _, r := range brandText {
+		s.SetContent(drawX, y, r, nil, brandStyle)
+		drawX++
+	}
+
+	if sb.model != "" {
+		modelStyle := tcell.StyleDefault.Foreground(theme.TextDim).Background(theme.BgPrimary)
+		modelStr := sb.model
+		if len(modelStr) > 40 {
+			modelStr = modelStr[:37] + "..."
+		}
+		modelX := width - len(modelStr) - 2
+		for i, r := range modelStr {
+			s.SetContent(modelX+i, y, r, nil, modelStyle)
+		}
+	}
+
+	sepStyle := tcell.StyleDefault.Foreground(theme.BorderDefault).Background(theme.BgPrimary)
+	for i := 0; i < width; i++ {
+		s.SetContent(i, y+1, '─', nil, sepStyle)
+	}
+}
+
+func (sb *StatusBar) drawFooter(s tcell.Screen, y, width int) {
 	separatorStyle := tcell.StyleDefault.Foreground(theme.BorderDefault).Background(theme.BgPrimary)
 	for i := 0; i < width; i++ {
 		s.SetContent(i, y, []rune(theme.RoundedBorder.Horizontal)[0], nil, separatorStyle)
@@ -43,7 +87,7 @@ func (sb *StatusBar) Draw(s tcell.Screen, y, width int) {
 
 	drawX := 1
 	for _, sc := range sb.shortcuts {
-		keyStyle := tcell.StyleDefault.Foreground(theme.AccentCyan).Background(theme.BgPrimary).Bold(true)
+		keyStyle := tcell.StyleDefault.Foreground(theme.AccentGold).Background(theme.BgPrimary).Bold(true)
 		descStyle := tcell.StyleDefault.Foreground(theme.TextDim).Background(theme.BgPrimary)
 
 		for _, r := range sc.Key {
@@ -73,7 +117,7 @@ func (sb *StatusBar) Draw(s tcell.Screen, y, width int) {
 	rightX = versionX - 2
 
 	if sb.model != "" {
-		modelStyle := tcell.StyleDefault.Foreground(theme.AccentCyan).Background(theme.BgPrimary)
+		modelStyle := tcell.StyleDefault.Foreground(theme.AccentGold).Background(theme.BgPrimary)
 		modelStr := sb.model
 		if len(modelStr) > 30 {
 			modelStr = modelStr[:27] + "..."
@@ -83,7 +127,7 @@ func (sb *StatusBar) Draw(s tcell.Screen, y, width int) {
 			s.SetContent(modelX+i, y+1, r, nil, modelStyle)
 		}
 		modelIconX := modelX - 2
-		iconStyle := tcell.StyleDefault.Foreground(theme.AccentGreen).Background(theme.BgPrimary)
+		iconStyle := tcell.StyleDefault.Foreground(theme.AccentGold).Background(theme.BgPrimary)
 		s.SetContent(modelIconX, y+1, '●', nil, iconStyle)
 	}
 }

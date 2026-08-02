@@ -16,6 +16,7 @@ type Textarea struct {
 	hasSelection         bool
 	placeholder          string
 	focused              bool
+	blocked              bool
 	width                int
 	minHeight            int
 	maxHeight            int
@@ -77,6 +78,14 @@ func (t *Textarea) Focus() {
 
 func (t *Textarea) Blur() {
 	t.focused = false
+}
+
+func (t *Textarea) SetBlocked(blocked bool) {
+	t.blocked = blocked
+}
+
+func (t *Textarea) IsBlocked() bool {
+	return t.blocked
 }
 
 func (t *Textarea) IsFocused() bool {
@@ -224,6 +233,9 @@ func (t *Textarea) handleKey(ev *tcell.EventKey) bool {
 		return true
 
 	case tcell.KeyEnter:
+		if t.blocked {
+			return true
+		}
 		if (len(t.text) > 0 || len(t.attachments) > 0) && t.OnSubmit != nil {
 			t.OnSubmit(string(t.text))
 			t.text = []rune{}
@@ -289,6 +301,9 @@ func (t *Textarea) handleKey(ev *tcell.EventKey) bool {
 		return true
 
 	case tcell.KeyUp:
+		if t.cursorPos < t.getVisibleWidth() {
+			return false
+		}
 		if shiftHeld {
 			t.moveUpWithSelection()
 		} else {
@@ -297,6 +312,10 @@ func (t *Textarea) handleKey(ev *tcell.EventKey) bool {
 		return true
 
 	case tcell.KeyDown:
+		visibleWidth := t.getVisibleWidth()
+		if len(t.text) == 0 || t.cursorPos >= len(t.text)-visibleWidth {
+			return false
+		}
 		if shiftHeld {
 			t.moveDownWithSelection()
 		} else {
@@ -693,18 +712,7 @@ func (t *Textarea) prefixStyle(pos int) tcell.Style {
 }
 
 func (t *Textarea) adjustScroll() {
-	visualRow := t.getVisualRow(t.cursorPos)
-	maxVisible := t.maxHeight - 2
-
-	if visualRow < t.scrollOffset {
-		t.scrollOffset = visualRow
-	} else if visualRow >= t.scrollOffset+maxVisible {
-		t.scrollOffset = visualRow - maxVisible + 1
-	}
-
-	if t.scrollOffset < 0 {
-		t.scrollOffset = 0
-	}
+	t.scrollOffset = 0
 }
 
 func (t *Textarea) Draw(s tcell.Screen, y, screenWidth int) {
@@ -748,7 +756,7 @@ func (t *Textarea) Draw(s tcell.Screen, y, screenWidth int) {
 		if t.focused && t.cursorVisible {
 			cursorStyle := tcell.StyleDefault.
 				Foreground(theme.BgPrimary).
-				Background(theme.AccentCyan).
+				Background(theme.AccentGold).
 				Bold(true)
 			s.SetContent(startX+2, contentY, ' ', nil, cursorStyle)
 		}
@@ -801,11 +809,11 @@ func (t *Textarea) Draw(s tcell.Screen, y, screenWidth int) {
 			if t.cursorVisible {
 				cs = tcell.StyleDefault.
 					Foreground(theme.BgPrimary).
-					Background(theme.AccentCyan).
+					Background(theme.AccentGold).
 					Bold(true)
 			} else {
 				cs = tcell.StyleDefault.
-					Foreground(theme.AccentCyan).
+					Foreground(theme.AccentGold).
 					Background(theme.BgSecondary)
 			}
 
