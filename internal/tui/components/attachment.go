@@ -1,219 +1,298 @@
 package components
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+	"github.com/gdamore/tcell/v2"
+	"github.com/vesvai/vesvai/internal/tui"
 )
 
-type AttachmentType int
+const attachmentsPerPage = 3
 
-const (
-	AttachmentText AttachmentType = iota
-	AttachmentImage
-	AttachmentVideo
-	AttachmentDocument
-	AttachmentUnknown
-)
-
-type Attachment struct {
-	Type        AttachmentType
-	Name        string
-	Content     string
-	FilePath    string
-	Size        int64
-	MimeType    string
-	Previewable bool
+type AttachmentBar struct {
+	*Base
+	attachments []*tui.Attachment
+	cursor      int
 }
 
-var textExtensions = map[string]bool{
-	".txt": true, ".md": true, ".go": true, ".py": true, ".js": true,
-	".ts": true, ".jsx": true, ".tsx": true, ".html": true, ".css": true,
-	".json": true, ".xml": true, ".yaml": true, ".yml": true, ".toml": true,
-	".sh": true, ".bash": true, ".zsh": true, ".rs": true, ".java": true,
-	".c": true, ".cpp": true, ".h": true, ".hpp": true, ".rb": true,
-	".php": true, ".swift": true, ".kt": true, ".scala": true, ".conf": true,
-	".cfg": true, ".ini": true, ".env": true, ".gitignore": true,
-	".dockerfile": true, ".makefile": true, ".log": true, ".csv": true,
+func NewAttachmentBar() *AttachmentBar {
+	b := &AttachmentBar{Base: NewBase("attachments"), cursor: -1}
+	b.SetDraw(b.draw)
+	return b
 }
 
-var imageExtensions = map[string]bool{
-	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".bmp": true,
-	".svg": true, ".webp": true, ".ico": true, ".tiff": true,
-}
-
-var videoExtensions = map[string]bool{
-	".mp4": true, ".avi": true, ".mov": true, ".mkv": true, ".webm": true,
-	".flv": true, ".wmv": true,
-}
-
-var documentExtensions = map[string]bool{
-	".pdf": true, ".doc": true, ".docx": true, ".xls": true, ".xlsx": true,
-	".ppt": true, ".pptx": true, ".odt": true, ".ods": true, ".odp": true,
-	".rtf": true,
-}
-
-func NewTextAttachment(content string) *Attachment {
-	name := "pasted text"
-	if len(content) > 30 {
-		name = content[:30] + "..."
+func (b *AttachmentBar) Page() int {
+	if b.cursor < 0 {
+		return 0
 	}
-	return &Attachment{
-		Type:        AttachmentText,
-		Name:        name,
-		Content:     content,
-		Size:        int64(len(content)),
-		MimeType:    "text/plain",
-		Previewable: true,
-	}
+	return b.cursor / attachmentsPerPage
 }
 
-func NewFileAttachment(filePath string) (*Attachment, error) {
-	info, err := os.Stat(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("cannot access file: %w", err)
+func (b *AttachmentBar) Count() int { return len(b.attachments) }
+
+func (b *AttachmentBar) Selected() *tui.Attachment {
+	if b.cursor < 0 || b.cursor >= len(b.attachments) {
+		return nil
 	}
+	return b.attachments[b.cursor]
+}
 
-	ext := strings.ToLower(filepath.Ext(filePath))
-	attType, previewable := detectType(ext)
-	mime := mimeFromExt(ext)
-
-	att := &Attachment{
-		Type:        attType,
-		Name:        filepath.Base(filePath),
-		FilePath:    filePath,
-		Size:        info.Size(),
-		MimeType:    mime,
-		Previewable: previewable,
+func (b *AttachmentBar) Add(a *tui.Attachment) {
+	b.attachments = append(b.attachments, a)
+	if b.cursor < 0 {
+		b.cursor = 0
 	}
+	b.RequestRender()
+}
 
-	if previewable {
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			return nil, fmt.Errorf("cannot read file: %w", err)
+func (b *AttachmentBar) Remove(idx int) {
+	if idx < 0 || idx >= len(b.attachments) {
+		return
+	}
+	b.attachments = append(b.attachments[:idx], b.attachments[idx+1:]...)
+	if len(b.attachments) == 0 {
+		b.cursor = -1
+	} else if b.cursor >= len(b.attachments) {
+		b.cursor = len(b.attachments) - 1
+	}
+	b.RequestRender()
+}
+
+func (b *AttachmentBar) TakeAll() []*tui.Attachment {
+	atts := b.attachments
+	b.attachments = nil
+	b.cursor = -1
+	b.RequestRender()
+	return atts
+}
+
+func (b *AttachmentBar) SetFocused(f bool) {
+	if f && b.cursor < 0 && len(b.attachments) > 0 {
+		b.cursor = 0
+	}
+	b.Base.SetFocused(f)
+}
+
+func (b *AttachmentBar) DesiredHeight() int {
+	if len(b.attachments) == 0 {
+		return 0
+	}
+	return 5
+}
+
+func (b *AttachmentBar) Focusable() bool { return len(b.attachments) > 0 }
+
+func (b *AttachmentBar) pageCount() int {
+	n := len(b.attachments)
+	if n == 0 {
+		return 0
+	}
+	return (n + attachmentsPerPage - 1) / attachmentsPerPage
+}
+
+func (b *AttachmentBar) draw(s tcell.Screen, pal *tui.Palette) {
+	width := b.Width()
+	if width < 12 || len(b.attachments) == 0 {
+		return
+	}
+	x0, y0 := b.bounds.Min.X, b.bounds.Min.Y
+
+	clear := pal.Style(pal.Foreground, pal.Background)
+	for y := 0; y < b.Height(); y++ {
+		for x := 0; x < width; x++ {
+			s.SetContent(x0+x, y0+y, ' ', nil, clear)
 		}
-		att.Content = string(data)
 	}
 
-	return att, nil
+	if b.cursor < 0 {
+		b.cursor = 0
+	}
+	if b.cursor >= len(b.attachments) {
+		b.cursor = len(b.attachments) - 1
+	}
+	page := b.cursor / attachmentsPerPage
+	pages := b.pageCount()
+
+	borderColor := pal.Border
+	arrowColor := pal.Muted
+	if b.Focused() {
+		arrowColor = pal.Accent
+	}
+
+	arrowStyle := pal.Style(arrowColor, pal.Background).Bold(true)
+	if pages > 1 {
+		s.SetContent(x0, y0, '‹', nil, arrowStyle)
+		s.SetContent(x0+width-1, y0, '›', nil, arrowStyle)
+	}
+
+	cardW := (width - 8) / 3
+	if cardW < 10 {
+		cardW = 10
+	}
+	start := page * attachmentsPerPage
+	for i := 0; i < attachmentsPerPage; i++ {
+		idx := start + i
+		if idx >= len(b.attachments) {
+			break
+		}
+		bc := borderColor
+		if b.Focused() && idx == b.cursor {
+			bc = pal.Accent
+		}
+		b.drawCard(s, pal, x0+2+i*(cardW+1), y0, cardW, b.attachments[idx], bc)
+	}
+
+	var dots tui.Line
+	dim := pal.Style(pal.Muted, pal.Background)
+	bg := pal.Style(pal.Foreground, pal.Background)
+	for p := 0; p < pages; p++ {
+		if p == page {
+			dots = append(dots, tui.Cell{R: '●', S: pal.Style(pal.Accent, pal.Background)})
+		} else {
+			dots = append(dots, tui.Cell{R: '○', S: dim})
+		}
+		dots = append(dots, tui.Cell{R: ' ', S: bg})
+	}
+	dotX := x0 + (width-len(dots))/2
+	tui.DrawLine(s, dotX, y0+4, dots)
 }
 
-func detectType(ext string) (AttachmentType, bool) {
-	if imageExtensions[ext] {
-		return AttachmentImage, false
-	}
-	if videoExtensions[ext] {
-		return AttachmentVideo, false
-	}
-	if documentExtensions[ext] {
-		return AttachmentDocument, false
-	}
-	if textExtensions[ext] {
-		return AttachmentText, true
-	}
-	return AttachmentUnknown, false
-}
+func (b *AttachmentBar) drawCard(s tcell.Screen, pal *tui.Palette, x, y, w int, a *tui.Attachment, borderColor tcell.Color) {
+	border := pal.Style(borderColor, pal.Surface)
+	bg := pal.Style(pal.Foreground, pal.Surface)
+	innerW := w - 2
 
-func mimeFromExt(ext string) string {
-	mimes := map[string]string{
-		".txt": "text/plain", ".md": "text/markdown", ".go": "text/x-go",
-		".py": "text/x-python", ".js": "text/javascript", ".ts": "text/typescript",
-		".html": "text/html", ".css": "text/css", ".json": "application/json",
-		".xml": "application/xml", ".yaml": "text/yaml", ".yml": "text/yaml",
-		".sh": "text/x-shellscript", ".rs": "text/x-rust", ".java": "text/x-java",
-		".c": "text/x-c", ".cpp": "text/x-c++", ".h": "text/x-c-header",
-		".rb": "text/x-ruby", ".php": "text/x-php",
-		".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-		".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp",
-		".mp4": "video/mp4", ".avi": "video/x-msvideo", ".mov": "video/quicktime",
-		".mkv": "video/x-matroska", ".webm": "video/webm",
-		".pdf": "application/pdf", ".doc": "application/msword",
-		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	top := tui.Line{{R: '┌', S: border}}
+	for len(top) < w-1 {
+		top = append(top, tui.Cell{R: '─', S: border})
 	}
-	if m, ok := mimes[ext]; ok {
-		return m
-	}
-	return "application/octet-stream"
-}
+	top = append(top, tui.Cell{R: '┐', S: border})
+	tui.DrawLine(s, x, y, top)
 
-func (a *Attachment) Icon() string {
-	switch a.Type {
-	case AttachmentText:
-		return "✦"
-	case AttachmentImage:
-		return "◆"
-	case AttachmentVideo:
-		return "▶"
-	case AttachmentDocument:
-		return "→"
+	var icon rune
+	switch a.Kind {
+	case "image":
+		icon = '🖼'
+	case "video":
+		icon = '🎬'
+	case "pdf":
+		icon = '📄'
 	default:
-		return "●"
+		icon = '📎'
 	}
+	nameStyle := pal.Style(pal.Foreground, pal.Surface)
+	row1 := tui.Line{{R: '│', S: border}, {R: ' ', S: bg}, {R: icon, S: bg}, {R: ' ', S: bg}}
+	name := a.Name
+	for row1.Width()+tui.DisplayWidth(name) > innerW {
+		if len(name) <= 1 {
+			break
+		}
+		name = name[:len(name)-1]
+	}
+	if a.Name != name {
+		name += "…"
+	}
+	for _, r := range name {
+		row1 = append(row1, tui.Cell{R: r, S: nameStyle})
+	}
+	for row1.Width() < w-1 {
+		row1 = append(row1, tui.Cell{R: ' ', S: bg})
+	}
+	row1 = append(row1, tui.Cell{R: '│', S: border})
+	tui.DrawLine(s, x, y+1, row1)
+
+	size := pal.Style(pal.Muted, pal.Surface)
+	row2 := tui.Line{{R: '│', S: border}, {R: ' ', S: bg}}
+	sizeText := tui.FormatSize(a.Size)
+	for _, r := range sizeText {
+		row2 = append(row2, tui.Cell{R: r, S: size})
+	}
+	for row2.Width() < w-1 {
+		row2 = append(row2, tui.Cell{R: ' ', S: bg})
+	}
+	row2 = append(row2, tui.Cell{R: '│', S: border})
+	tui.DrawLine(s, x, y+2, row2)
+
+	bottom := tui.Line{{R: '└', S: border}}
+	for len(bottom) < w-1 {
+		bottom = append(bottom, tui.Cell{R: '─', S: border})
+	}
+	bottom = append(bottom, tui.Cell{R: '┘', S: border})
+	tui.DrawLine(s, x, y+3, bottom)
 }
 
-func (a *Attachment) ShortName(maxLen int) string {
-	runes := []rune(a.Name)
-	if len(runes) <= maxLen {
-		return a.Name
-	}
-	return string(runes[:maxLen-1]) + "…"
-}
-
-func (a *Attachment) SizeFormatted() string {
-	if a.Size < 1024 {
-		return fmt.Sprintf("%d B", a.Size)
-	}
-	if a.Size < 1024*1024 {
-		return fmt.Sprintf("%.1f KB", float64(a.Size)/1024)
-	}
-	if a.Size < 1024*1024*1024 {
-		return fmt.Sprintf("%.1f MB", float64(a.Size)/(1024*1024))
-	}
-	return fmt.Sprintf("%.1f GB", float64(a.Size)/(1024*1024*1024))
-}
-
-func (a *Attachment) TypeLabel() string {
-	switch a.Type {
-	case AttachmentText:
-		return "Text"
-	case AttachmentImage:
-		return "Image"
-	case AttachmentVideo:
-		return "Video"
-	case AttachmentDocument:
-		return "Document"
-	default:
-		return "File"
-	}
-}
-
-func LookupFileFromText(text string) string {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return ""
-	}
-
-	if trimmed[0] == '~' {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			trimmed = home + trimmed[1:]
+func (b *AttachmentBar) HandleEvent(ev tcell.Event) bool {
+	switch e := ev.(type) {
+	case *tcell.EventKey:
+		switch e.Key() {
+		case tcell.KeyLeft:
+			if b.cursor > 0 {
+				b.cursor--
+				b.RequestRender()
+			}
+			return true
+		case tcell.KeyRight:
+			if b.cursor < len(b.attachments)-1 {
+				b.cursor++
+				b.RequestRender()
+			}
+			return true
+		case tcell.KeyHome:
+			if len(b.attachments) > 0 {
+				b.cursor = 0
+				b.RequestRender()
+			}
+			return true
+		case tcell.KeyEnd:
+			if len(b.attachments) > 0 {
+				b.cursor = len(b.attachments) - 1
+				b.RequestRender()
+			}
+			return true
+		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete:
+			b.Remove(b.cursor)
+			return true
+		}
+	case *tcell.EventMouse:
+		if e.Buttons()&tcell.Button1 != 0 {
+			x, y := e.Position()
+			if y == b.bounds.Min.Y {
+				switch {
+				case x == b.bounds.Min.X:
+					p := b.cursor / attachmentsPerPage
+					if p > 0 {
+						b.cursor = (p - 1) * attachmentsPerPage
+						b.RequestRender()
+					}
+				case x == b.bounds.Max.X-1:
+					p := b.cursor / attachmentsPerPage
+					if p < b.pageCount()-1 {
+						b.cursor = (p + 1) * attachmentsPerPage
+						if b.cursor >= len(b.attachments) {
+							b.cursor = len(b.attachments) - 1
+						}
+						b.RequestRender()
+					}
+				default:
+					cardW := (b.Width() - 8) / 3
+					if cardW < 10 {
+						cardW = 10
+					}
+					start := (b.cursor / attachmentsPerPage) * attachmentsPerPage
+					for i := 0; i < attachmentsPerPage; i++ {
+						idx := start + i
+						if idx >= len(b.attachments) {
+							break
+						}
+						cx := b.bounds.Min.X + 2 + i*(cardW+1)
+						if x >= cx && x < cx+cardW {
+							b.cursor = idx
+							b.RequestRender()
+							break
+						}
+					}
+				}
+			}
+			return true
 		}
 	}
-
-	if strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "./") || strings.HasPrefix(trimmed, "../") {
-		if _, err := os.Stat(trimmed); err == nil {
-			return trimmed
-		}
-	}
-
-	cwd, err := os.Getwd()
-	if err == nil {
-		candidate := filepath.Join(cwd, trimmed)
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-
-	return ""
+	return false
 }

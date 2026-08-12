@@ -5,8 +5,8 @@ import "testing"
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if cfg.MaxSteps != 10 {
-		t.Errorf("MaxSteps = %d, want 10", cfg.MaxSteps)
+	if cfg.MaxSteps != DefaultMaxSteps {
+		t.Errorf("MaxSteps = %d, want %d", cfg.MaxSteps, DefaultMaxSteps)
 	}
 	if cfg.Temperature != 0.7 {
 		t.Errorf("Temperature = %f, want 0.7", cfg.Temperature)
@@ -22,6 +22,25 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.ToolChoice != "" {
 		t.Errorf("ToolChoice = %q, want empty", cfg.ToolChoice)
+	}
+}
+
+func TestMaxStepsFromEnv(t *testing.T) {
+	t.Setenv("VESVAI_MAX_STEPS", "")
+	if got := MaxStepsFromEnv(); got != DefaultMaxSteps {
+		t.Errorf("unset env: MaxStepsFromEnv = %d, want %d", got, DefaultMaxSteps)
+	}
+	t.Setenv("VESVAI_MAX_STEPS", "500")
+	if got := MaxStepsFromEnv(); got != 500 {
+		t.Errorf("env 500: MaxStepsFromEnv = %d, want 500", got)
+	}
+	t.Setenv("VESVAI_MAX_STEPS", "0")
+	if got := MaxStepsFromEnv(); got != 0 {
+		t.Errorf("env 0 (unlimited): MaxStepsFromEnv = %d, want 0", got)
+	}
+	t.Setenv("VESVAI_MAX_STEPS", "abc")
+	if got := MaxStepsFromEnv(); got != DefaultMaxSteps {
+		t.Errorf("invalid env: MaxStepsFromEnv = %d, want %d", got, DefaultMaxSteps)
 	}
 }
 

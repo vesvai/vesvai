@@ -15,7 +15,7 @@ func New(opts ...agent.AgentOption) *Agent {
 	config := agent.DefaultConfig()
 	config.ID = "planner"
 	config.SystemPrompt = Prompt().Build()
-	config.MaxSteps = 10
+	config.MaxSteps = agent.MaxStepsFromEnv()
 	config.Temperature = 0.3
 	config.ToolNames = []string{
 		"read",

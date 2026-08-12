@@ -20,7 +20,7 @@ import (
 	"github.com/vesvai/vesvai/internal/permission"
 	"github.com/vesvai/vesvai/internal/session"
 	"github.com/vesvai/vesvai/internal/skill"
-	"github.com/vesvai/vesvai/internal/tui"
+	tui_app "github.com/vesvai/vesvai/internal/tui/app"
 )
 
 func main() {
@@ -60,15 +60,18 @@ func main() {
 }
 
 func runTUI(args ...string) {
-	debug := false
-
-	for _, arg := range args {
-		if arg == "--debug" || arg == "-debug" {
-			debug = true
+	demo := false
+	for _, a := range args {
+		if a == "--demo" || a == "-demo" {
+			demo = true
 		}
 	}
-	if os.Getenv("VESVAI_DEBUG") == "1" || os.Getenv("VESVAI_DEBUG") == "true" {
-		debug = true
+	if demo {
+		if err := tui_app.New().Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "tui error: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	cfg, err := config.Load()
@@ -77,14 +80,47 @@ func runTUI(args ...string) {
 		os.Exit(1)
 	}
 
-	app, err := tui.New(cfg, debug)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to initialize TUI: %v\n", err)
+	app := bootstrap.New(cfg)
+	ctx := context.Background()
+
+	if err := app.Init(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "init error: %v\n", err)
+		os.Exit(1)
+	}
+	defer app.Shutdown(ctx)
+
+	if len(cfg.Providers) == 0 {
+		fmt.Fprintln(os.Stderr, "no providers configured — run: vesvai provider add <name> <api-key>")
+		fmt.Fprintln(os.Stderr, "or launch in demo mode: vesvai --demo")
 		os.Exit(1)
 	}
 
-	if err := app.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
+	provider, err := app.CreateProvider()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "provider error: %v\n", err)
+		os.Exit(1)
+	}
+
+	approver := tui_app.NewTUIApprover()
+	runner := app.CreateRunnerWithApprover(provider, approver)
+
+	cwd, _ := os.Getwd()
+	store, err := session.NewFileStore(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "session store error: %v\n", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+
+	driver := tui_app.NewAgentDriver(tui_app.AgentDriverConfig{
+		Runner:   runner,
+		Store:    store,
+		App:      app,
+		Approver: approver,
+	})
+
+	if err := tui_app.NewWithDriver(driver).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "tui error: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -462,7 +498,7 @@ func cmdHelp() {
 
 USAGE:
   vesvai                                          Launch the TUI (default)
-  vesvai --debug                                  Launch TUI with debug panel (F2 to toggle)
+  vesvai --demo                                   Launch the TUI with the demo driver
   vesvai run --model <model> <prompt>             Run a prompt non-interactively
   vesvai session list                             List saved sessions
   vesvai session delete <id>                      Delete a session
@@ -474,13 +510,9 @@ USAGE:
   vesvai version                                  Print version
   vesvai help                                     Show this help message
 
-DEBUG:
-  --debug or VESVAI_DEBUG=1                       Enable debug tracing
-  F2                                              Toggle debug panel while running
-
 EXAMPLES:
   vesvai                                          # start interactive TUI
-  vesvai --debug                                  # start with debug panel
+  vesvai --demo                                   # start with simulated runs
   vesvai run --model gemini-1.5-flash "explain code"
   vesvai run --model claude-3-opus "refactor this"
   vesvai session list                             # list sessions

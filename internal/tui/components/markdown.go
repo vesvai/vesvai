@@ -1,445 +1,520 @@
 package components
 
 import (
-	"bytes"
+	"fmt"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
-	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/gdamore/tcell/v2"
-	"github.com/vesvai/vesvai/internal/tui/render"
-	"github.com/vesvai/vesvai/internal/tui/theme"
+	"github.com/vesvai/vesvai/internal/tui"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	gast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/text"
 )
 
 type MarkdownRenderer struct {
-	md    goldmark.Markdown
-	theme string
+	md goldmark.Markdown
 }
 
 func NewMarkdownRenderer() *MarkdownRenderer {
 	return &MarkdownRenderer{
-		md:    goldmark.New(),
-		theme: "monokai",
+		md: goldmark.New(goldmark.WithExtensions(extension.GFM)),
 	}
 }
 
-type StyledLine struct {
-	Segments    []render.StyledSegment
-	PreRendered bool
+type mdContext struct {
+	width int
+	pal   *tui.Palette
+	lines []tui.Line
+	blank bool
 }
 
-func (mr *MarkdownRenderer) Render(markdown string) []StyledLine {
-	source := []byte(markdown)
-	reader := text.NewReader(source)
-	doc := mr.md.Parser().Parse(reader)
+func (c *mdContext) pushBlank() { c.blank = true }
 
-	var lines []StyledLine
-	mr.renderNode(doc, source, &lines, 0)
+func (c *mdContext) flushBlank() {
+	if c.blank {
+		c.lines = append(c.lines, nil)
+		c.blank = false
+	}
+}
 
+func (r *MarkdownRenderer) Render(src string, width int, pal *tui.Palette) []tui.Line {
+	if width <= 0 {
+		return nil
+	}
+	source := []byte(src)
+	doc := r.md.Parser().Parse(text.NewReader(source))
+	ctx := &mdContext{width: width, pal: pal}
+	r.renderBlocks(doc, ctx, source)
+	return ctx.lines
+}
+
+func (r *MarkdownRenderer) renderBlocks(node ast.Node, ctx *mdContext, src []byte) {
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		r.renderBlock(child, ctx, src)
+	}
+}
+
+func (r *MarkdownRenderer) renderBlock(n ast.Node, ctx *mdContext, src []byte) {
+	switch b := n.(type) {
+	case *ast.Paragraph, *ast.TextBlock:
+		ctx.flushBlank()
+		ctx.lines = append(ctx.lines, tui.WrapSegments(r.renderInline(n, ctx, src), ctx.width)...)
+		ctx.pushBlank()
+
+	case *ast.Heading:
+		ctx.flushBlank()
+		segs := r.renderInline(n, ctx, src)
+		style := ctx.pal.TextStyle().Bold(true)
+		switch b.Level {
+		case 1:
+			style = style.Foreground(ctx.pal.Accent)
+		case 2:
+			style = style.Foreground(ctx.pal.AssistantLabel)
+		default:
+			style = style.Foreground(ctx.pal.Foreground)
+		}
+		for i := range segs {
+			segs[i].Style = style
+		}
+		ctx.pushPrefixed(segs, "▍ ", ctx.pal.Style(ctx.pal.AccentDim, ctx.pal.Background))
+		ctx.pushBlank()
+
+	case *ast.List:
+		r.renderList(b, ctx, src)
+
+	case *ast.Blockquote:
+		ctx.flushBlank()
+		sub := &mdContext{width: ctx.width - 2, pal: ctx.pal}
+		r.renderBlocks(b, sub, src)
+		dim := ctx.pal.Style(ctx.pal.TextDim, ctx.pal.Background)
+		for _, ln := range sub.lines {
+			prefix := tui.Line{{R: '│', S: dim}, {R: ' ', S: dim}}
+			ctx.lines = append(ctx.lines, append(prefix, ln...))
+		}
+		ctx.pushBlank()
+
+	case *ast.CodeBlock, *ast.FencedCodeBlock:
+		ctx.flushBlank()
+		var lang string
+		if l, ok := n.(interface{ Language(src []byte) []byte }); ok {
+			lang = string(l.Language(src))
+		}
+		var code []string
+		if ln, ok := n.(interface{ Lines() *text.Segments }); ok {
+			for i := 0; i < ln.Lines().Len(); i++ {
+				seg := ln.Lines().At(i)
+				code = append(code, strings.TrimSuffix(string(seg.Value(src)), "\n"))
+			}
+		}
+		ctx.pushCodeBlock(lang, code)
+		ctx.pushBlank()
+
+	case *ast.ThematicBreak:
+		ctx.flushBlank()
+		ctx.lines = append(ctx.lines, tui.LineFromSegments([]tui.Segment{
+			{Text: strings.Repeat("─", ctx.width), Style: ctx.pal.Style(ctx.pal.Muted, ctx.pal.Background)},
+		}, ctx.width))
+		ctx.pushBlank()
+
+	case *gast.Table:
+		r.renderTable(b, ctx, src)
+
+	case *ast.HTMLBlock:
+
+	default:
+		r.renderBlocks(n, ctx, src)
+	}
+}
+
+func (c *mdContext) pushPrefixed(segs []tui.Segment, prefix string, prefixStyle tcell.Style) {
+	pw := 0
+	for _, r := range prefix {
+		pw += tui.RuneWidth(r)
+	}
+	lines := tui.WrapSegments(segs, c.width-pw)
+	for i, ln := range lines {
+		if i == 0 {
+			marker := tui.LineFromSegments([]tui.Segment{{Text: prefix, Style: prefixStyle}}, pw)
+			ln = append(marker, ln...)
+		}
+		c.lines = append(c.lines, ln)
+	}
 	if len(lines) == 0 {
-		lines = append(lines, StyledLine{
-			Segments: []render.StyledSegment{
-				{Text: markdown, Style: theme.MarkdownParagraph},
-			},
-		})
+		c.lines = append(c.lines, tui.LineFromSegments([]tui.Segment{{Text: prefix, Style: prefixStyle}}, c.width))
+	}
+}
+
+func (r *MarkdownRenderer) renderList(b *ast.List, ctx *mdContext, src []byte) {
+	ctx.flushBlank()
+	markerW := 2
+	ordered := b.IsOrdered()
+	if ordered {
+		markerW = 4
+	}
+	item := b.Start
+	if item == 0 {
+		item = 1
+	}
+	for li := b.FirstChild(); li != nil; li = li.NextSibling() {
+		sub := &mdContext{width: ctx.width - markerW, pal: ctx.pal}
+		r.renderBlocks(li, sub, src)
+		lines := sub.lines
+		if len(lines) > 0 && len(lines[len(lines)-1]) == 0 {
+			lines = lines[:len(lines)-1]
+		}
+		marker := "• "
+		if ordered {
+			marker = fmt.Sprintf("%d. ", item)
+			item++
+		}
+		style := ctx.pal.TextStyle()
+		for i, ln := range lines {
+			if i == 0 {
+				markerLine := tui.LineFromSegments([]tui.Segment{{Text: marker, Style: style.Foreground(ctx.pal.Accent)}}, markerW)
+				ctx.lines = append(ctx.lines, append(markerLine, ln...))
+			} else {
+				indent := tui.LineFromSegments([]tui.Segment{{Text: strings.Repeat(" ", markerW), Style: style}}, markerW)
+				ctx.lines = append(ctx.lines, append(indent, ln...))
+			}
+		}
+		ctx.lines = append(ctx.lines, nil)
+	}
+	ctx.pushBlank()
+}
+
+type tableRow []string
+
+func (r *MarkdownRenderer) renderTable(b *gast.Table, ctx *mdContext, src []byte) {
+	ctx.flushBlank()
+	var rows []tableRow
+	var header tableRow
+	var colCount int
+
+	collect := func(n ast.Node) {
+		var cells tableRow
+		for cell := n.FirstChild(); cell != nil; cell = cell.NextSibling() {
+			tc, ok := cell.(*gast.TableCell)
+			if !ok {
+				continue
+			}
+			var sb strings.Builder
+			for _, seg := range r.renderInline(tc, ctx, src) {
+				sb.WriteString(seg.Text)
+			}
+			cells = append(cells, sb.String())
+		}
+		if len(cells) > colCount {
+			colCount = len(cells)
+		}
+		rows = append(rows, cells)
+		if _, isHeader := n.(*gast.TableHeader); isHeader {
+			header = cells
+		}
+	}
+	for child := b.FirstChild(); child != nil; child = child.NextSibling() {
+		switch child.(type) {
+		case *gast.TableHeader:
+			collect(child)
+		case *gast.TableRow:
+			collect(child)
+		default:
+			for c := child.FirstChild(); c != nil; c = c.NextSibling() {
+				collect(c)
+			}
+		}
+	}
+	if colCount == 0 {
+		return
 	}
 
+	widths := make([]int, colCount)
+	total := 0
+	for _, rw := range rows {
+		for i, c := range rw {
+			w := len(c)
+			if w > widths[i] {
+				widths[i] = w
+			}
+		}
+	}
+	avail := ctx.width - (colCount*3 + 1)
+	if avail < colCount {
+		avail = colCount
+	}
+	for i := range widths {
+		if widths[i] > avail/colCount {
+			widths[i] = avail / colCount
+		}
+		total += widths[i]
+	}
+
+	renderRow := func(cells tableRow, style tcell.Style) {
+		segs := []tui.Segment{{Text: "│", Style: style}}
+		for i := 0; i < colCount; i++ {
+			cell := ""
+			if i < len(cells) {
+				cell = cells[i]
+			}
+			cw := widths[i]
+			if dw := tui.DisplayWidth(cell); dw > cw {
+				cell = truncateCell(cell, cw)
+			}
+			pad := cw - tui.DisplayWidth(cell)
+			if pad < 0 {
+				pad = 0
+			}
+			segs = append(segs,
+				tui.Segment{Text: " " + cell, Style: style},
+				tui.Segment{Text: strings.Repeat(" ", pad), Style: style},
+				tui.Segment{Text: " │", Style: style},
+			)
+		}
+		ctx.lines = append(ctx.lines, tui.LineFromSegments(segs, ctx.width))
+	}
+
+	border := ctx.pal.Style(ctx.pal.Muted, ctx.pal.Background)
+	renderRow(header, border.Foreground(ctx.pal.Foreground))
+
+	sep := []tui.Segment{{Text: "│", Style: border}}
+	for i := 0; i < colCount; i++ {
+		sep = append(sep, tui.Segment{Text: "─" + strings.Repeat("─", widths[i]) + "─│", Style: border})
+	}
+	ctx.lines = append(ctx.lines, tui.LineFromSegments(sep, ctx.width))
+
+	body := border.Foreground(ctx.pal.TextDim)
+	for _, rw := range rows {
+		if len(rw) == 0 {
+			continue
+		}
+		if header != nil && rowEq(rw, header) {
+			continue
+		}
+		renderRow(rw, body)
+	}
+	ctx.pushBlank()
+}
+
+func rowEq(a, b tableRow) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func truncateCell(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	w := 0
+	keep := 0
+	for _, r := range runes {
+		rw := tui.RuneWidth(r)
+		if w+rw > maxWidth {
+			break
+		}
+		w += rw
+		keep++
+	}
+	if keep == len(runes) {
+		return s
+	}
+	if keep == 0 {
+		return ""
+	}
+	last := runes[keep-1]
+	if w-tui.RuneWidth(last)+tui.RuneWidth('…') <= maxWidth {
+		return string(runes[:keep-1]) + "…"
+	}
+	return string(runes[:keep])
+}
+
+func (r *MarkdownRenderer) renderInline(n ast.Node, ctx *mdContext, src []byte) []tui.Segment {
+	base := ctx.pal.TextStyle()
+	var segs []tui.Segment
+	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+		switch c := child.(type) {
+		case *ast.Text:
+			s := string(c.Segment.Value(src))
+			if c.HardLineBreak() {
+				s += "\n"
+			}
+			segs = append(segs, tui.Segment{Text: s, Style: base})
+		case *ast.String:
+			segs = append(segs, tui.Segment{Text: string(c.Value), Style: base})
+		case *ast.CodeSpan:
+			style := ctx.pal.Style(ctx.pal.TokenString, ctx.pal.Surface)
+			segs = append(segs, tui.Segment{Text: string(c.Text(src)), Style: style})
+		case *ast.Emphasis:
+			inner := r.renderInline(c, ctx, src)
+			for i := range inner {
+				if c.Level >= 2 {
+					inner[i].Style = inner[i].Style.Bold(true)
+				} else {
+					inner[i].Style = inner[i].Style.Dim(true)
+				}
+			}
+			segs = append(segs, inner...)
+		case *gast.Strikethrough:
+			inner := r.renderInline(c, ctx, src)
+			for i := range inner {
+				inner[i].Style = inner[i].Style.StrikeThrough(true)
+			}
+			segs = append(segs, inner...)
+		case *ast.Link:
+			inner := r.renderInline(c, ctx, src)
+			for i := range inner {
+				inner[i].Style = inner[i].Style.Foreground(ctx.pal.Accent).Underline(true)
+			}
+			segs = append(segs, inner...)
+		case *ast.AutoLink:
+			style := base.Foreground(ctx.pal.Accent).Underline(true)
+			segs = append(segs, tui.Segment{Text: string(c.URL(src)), Style: style})
+		case *ast.Image:
+			inner := r.renderInline(c, ctx, src)
+			for i := range inner {
+				inner[i].Style = inner[i].Style.Foreground(ctx.pal.TextDim)
+			}
+			segs = append(segs, inner...)
+		default:
+			if c.FirstChild() != nil {
+				segs = append(segs, r.renderInline(c, ctx, src)...)
+			}
+		}
+	}
+	return segs
+}
+
+func (c *mdContext) pushCodeBlock(lang string, code []string) {
+	innerW := c.width - 4
+	if innerW < 1 {
+		innerW = 1
+	}
+	border := c.pal.Style(c.pal.CodeBorder, c.pal.CodeBg)
+	content := c.pal.Style(c.pal.CodeText, c.pal.CodeBg)
+
+	label := lang
+	if label == "" {
+		label = "code"
+	}
+	title := tui.Line{
+		{R: '┌', S: border},
+		{R: '─', S: border},
+	}
+	for _, r := range label {
+		title = append(title, tui.Cell{R: r, S: border.Foreground(c.pal.Accent)})
+	}
+	for len(title) < innerW+2 {
+		title = append(title, tui.Cell{R: '─', S: border})
+	}
+	title = append(title, tui.Cell{R: '┐', S: border})
+	c.lines = append(c.lines, title)
+
+	var body [][]tui.Cell
+	plain := func(lines []string) [][]tui.Cell {
+		out := make([][]tui.Cell, len(lines))
+		for i, ln := range lines {
+			runes := []rune(ln)
+			cells := make([]tui.Cell, 0, len(runes))
+			for _, r := range runes {
+				cells = append(cells, tui.Cell{R: r, S: content})
+			}
+			out[i] = cells
+		}
+		return out
+	}
+
+	if lang != "" && lexers.Get(lang) != nil {
+		lexer := chroma.Coalesce(lexers.Get(lang))
+		if it, err := lexer.Tokenise(nil, strings.Join(code, "\n")); err == nil {
+			body = chromaToCells(it.Tokens(), c.pal, content)
+		} else {
+			body = plain(code)
+		}
+	} else {
+		body = plain(code)
+	}
+
+	prefix := tui.Cell{R: '│', S: border}
+	pad := tui.Cell{R: ' ', S: content}
+	for i := 0; i < len(body); i++ {
+		row := append([]tui.Cell{prefix, pad}, body[i]...)
+		if len(row) > innerW+2 {
+			row = row[:innerW+2]
+		}
+		for len(row) < innerW+2 {
+			row = append(row, tui.Cell{R: ' ', S: content})
+		}
+		c.lines = append(c.lines, row)
+	}
+
+	footer := tui.Line{{R: '└', S: border}}
+	for len(footer) < innerW+1 {
+		footer = append(footer, tui.Cell{R: '─', S: border})
+	}
+	footer = append(footer, tui.Cell{R: '┘', S: border})
+	c.lines = append(c.lines, footer)
+}
+
+func chromaToCells(tokens []chroma.Token, pal *tui.Palette, base tcell.Style) [][]tui.Cell {
+	var lines [][]tui.Cell
+	var cur []tui.Cell
+	for _, tok := range tokens {
+		style := tokenStyle(tok.Type, pal, base)
+		parts := strings.Split(tok.Value, "\n")
+		for i, part := range parts {
+			if i > 0 {
+				lines = append(lines, cur)
+				cur = nil
+			}
+			for _, r := range part {
+				cur = append(cur, tui.Cell{R: r, S: style})
+			}
+		}
+	}
+	if len(cur) > 0 {
+		lines = append(lines, cur)
+	}
 	return lines
 }
 
-func (mr *MarkdownRenderer) renderNode(n ast.Node, source []byte, lines *[]StyledLine, depth int) {
-	switch n.Kind() {
-	case ast.KindDocument:
-		for child := n.FirstChild(); child != nil; child = child.NextSibling() {
-			mr.renderNode(child, source, lines, depth)
-		}
-
-	case ast.KindHeading:
-		heading := n.(*ast.Heading)
-		textContent := mr.extractText(n, source)
-		style := mr.headingStyle(heading.Level)
-		*lines = append(*lines, StyledLine{
-			Segments: []render.StyledSegment{
-				{Text: textContent, Style: style},
-			},
-		})
-		*lines = append(*lines, StyledLine{})
-
-	case ast.KindParagraph:
-		textContent := mr.extractText(n, source)
-		wrapped := render.WrapText(textContent, 80)
-		for _, line := range wrapped {
-			*lines = append(*lines, StyledLine{
-				Segments: []render.StyledSegment{
-					{Text: line, Style: theme.MarkdownParagraph},
-				},
-			})
-		}
-		*lines = append(*lines, StyledLine{})
-
-	case ast.KindFencedCodeBlock:
-		codeBlock := n.(*ast.FencedCodeBlock)
-		language := ""
-		if codeBlock.Info != nil {
-			language = string(codeBlock.Info.Text(source))
-		}
-		mr.renderCodeBlock(codeBlock, source, language, lines)
-
-	case ast.KindCodeBlock:
-		mr.renderIndentedCodeBlock(n.(*ast.CodeBlock), source, lines)
-
-	case ast.KindBlockquote:
-		for child := n.FirstChild(); child != nil; child = child.NextSibling() {
-			textContent := mr.extractText(child, source)
-			wrapped := render.WrapText(textContent, 76)
-			for _, line := range wrapped {
-				*lines = append(*lines, StyledLine{
-					Segments: []render.StyledSegment{
-						{Text: "  " + theme.Pipe + " ", Style: theme.MarkdownBlockquote},
-						{Text: line, Style: theme.MarkdownBlockquote},
-					},
-				})
-			}
-		}
-		*lines = append(*lines, StyledLine{})
-
-	case ast.KindList:
-		mr.renderList(n.(*ast.List), source, lines, depth)
-
-	case ast.KindListItem:
-		mr.renderListItem(n.(*ast.ListItem), source, lines, depth)
-
-	case ast.KindThematicBreak:
-		*lines = append(*lines, StyledLine{
-			Segments: []render.StyledSegment{
-				{Text: strings.Repeat(theme.Dash, 60), Style: theme.MarkdownHR},
-			},
-		})
-		*lines = append(*lines, StyledLine{})
-
-	case ast.KindHTMLBlock:
-		textContent := mr.extractText(n, source)
-		*lines = append(*lines, StyledLine{
-			Segments: []render.StyledSegment{
-				{Text: textContent, Style: theme.NewStyle().WithForeground(theme.TextDim)},
-			},
-		})
-
-	default:
-		if n.HasChildren() {
-			for child := n.FirstChild(); child != nil; child = child.NextSibling() {
-				mr.renderNode(child, source, lines, depth)
-			}
-		}
-	}
-}
-
-func (mr *MarkdownRenderer) renderCodeBlock(codeBlock *ast.FencedCodeBlock, source []byte, language string, lines *[]StyledLine) {
-	rawText := string(codeBlock.Text(source))
-	codeLines := strings.Split(rawText, "\n")
-	if len(codeLines) > 0 && codeLines[len(codeLines)-1] == "" {
-		codeLines = codeLines[:len(codeLines)-1]
-	}
-
-	code := strings.Join(codeLines, "\n")
-
-	header := "  " + language + " "
-	if language == "" {
-		header = "  code "
-	}
-	*lines = append(*lines, StyledLine{
-		Segments: []render.StyledSegment{
-			{Text: header, Style: theme.ShortcutKeyStyle},
-		},
-		PreRendered: true,
-	})
-
-	highlighted := mr.highlightCode(code, language)
-	for _, line := range highlighted {
-		paddedSegs := []render.StyledSegment{
-			{Text: "  ", Style: theme.MarkdownCodeBlock},
-		}
-		paddedSegs = append(paddedSegs, line.Segments...)
-		*lines = append(*lines, StyledLine{Segments: paddedSegs, PreRendered: true})
-	}
-
-	*lines = append(*lines, StyledLine{})
-}
-
-func (mr *MarkdownRenderer) renderIndentedCodeBlock(codeBlock *ast.CodeBlock, source []byte, lines *[]StyledLine) {
-	rawText := string(codeBlock.Text(source))
-	codeLines := strings.Split(rawText, "\n")
-	if len(codeLines) > 0 && codeLines[len(codeLines)-1] == "" {
-		codeLines = codeLines[:len(codeLines)-1]
-	}
-
-	for _, line := range codeLines {
-		*lines = append(*lines, StyledLine{
-			Segments: []render.StyledSegment{
-				{Text: "    " + line, Style: theme.MarkdownCodeBlock},
-			},
-			PreRendered: true,
-		})
-	}
-	*lines = append(*lines, StyledLine{})
-}
-
-func (mr *MarkdownRenderer) highlightCode(code string, language string) []StyledLine {
-	if code == "" {
-		return []StyledLine{}
-	}
-
-	lexer := lexers.Get(language)
-	if lexer == nil {
-		lexer = lexers.Fallback
-	}
-	lexer = chroma.Coalesce(lexer)
-
-	style := styles.Get(mr.theme)
-	if style == nil {
-		style = styles.Fallback
-	}
-
-	iterator, err := lexer.Tokenise(nil, code)
-	if err != nil {
-		lines := []StyledLine{}
-		for _, l := range strings.Split(code, "\n") {
-			lines = append(lines, StyledLine{Segments: []render.StyledSegment{{Text: l, Style: theme.MarkdownCodeBlock}}})
-		}
-		return lines
-	}
-
-	var result []StyledLine
-	currentLine := StyledLine{}
-
-	for _, token := range iterator.Tokens() {
-		value := token.Value
-		lines := strings.Split(value, "\n")
-
-		for i, part := range lines {
-			if i > 0 {
-				result = append(result, currentLine)
-				currentLine = StyledLine{}
-			}
-			if part == "" {
-				continue
-			}
-
-			fg := theme.TextPrimary
-			if tokenType := token.Type; tokenType != chroma.Text {
-				entry := style.Get(tokenType)
-				if entry.Colour.IsSet() {
-					fg = theme.Color(tcell.NewRGBColor(int32(entry.Colour.Red()), int32(entry.Colour.Green()), int32(entry.Colour.Blue())))
-				}
-			}
-
-			currentLine.Segments = append(currentLine.Segments, render.StyledSegment{
-				Text:  part,
-				Style: theme.NewStyle().WithForeground(fg).WithBackground(theme.BgSecondary),
-			})
-		}
-	}
-
-	if len(currentLine.Segments) > 0 {
-		result = append(result, currentLine)
-	}
-
-	return result
-}
-
-func (mr *MarkdownRenderer) renderList(list *ast.List, source []byte, lines *[]StyledLine, depth int) {
-	for child := list.FirstChild(); child != nil; child = child.NextSibling() {
-		mr.renderNode(child, source, lines, depth+1)
-	}
-}
-
-func (mr *MarkdownRenderer) renderListItem(item *ast.ListItem, source []byte, lines *[]StyledLine, depth int) {
-	indent := strings.Repeat("  ", depth)
-	bullet := theme.Bullet
-
-	textContent := mr.extractText(item, source)
-
-	wrapped := render.WrapText(textContent, max(1, 76-len(indent)))
-	if len(wrapped) > 0 {
-		*lines = append(*lines, StyledLine{
-			Segments: []render.StyledSegment{
-				{Text: indent, Style: theme.MarkdownParagraph},
-				{Text: bullet + " ", Style: theme.MarkdownListBullet},
-				{Text: wrapped[0], Style: theme.MarkdownParagraph},
-			},
-		})
-		for _, line := range wrapped[1:] {
-			*lines = append(*lines, StyledLine{
-				Segments: []render.StyledSegment{
-					{Text: indent + "  " + line, Style: theme.MarkdownParagraph},
-				},
-			})
-		}
-	}
-
-	for child := item.FirstChild(); child != nil; child = child.NextSibling() {
-		if child.Kind() == ast.KindList {
-			mr.renderNode(child, source, lines, depth+1)
-		}
-	}
-}
-
-func (mr *MarkdownRenderer) extractText(n ast.Node, source []byte) string {
-	var buf bytes.Buffer
-	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
-		switch t := child.(type) {
-		case *ast.Text:
-			buf.Write(t.Segment.Value(source))
-		case *ast.String:
-			buf.Write(t.Value)
-		case *ast.CodeSpan:
-			buf.WriteString("`")
-			for c := t.FirstChild(); c != nil; c = c.NextSibling() {
-				if textNode, ok := c.(*ast.Text); ok {
-					buf.Write(textNode.Segment.Value(source))
-				}
-			}
-			buf.WriteString("`")
-		case *ast.Emphasis:
-			marker := "*"
-			if t.Level == 2 {
-				marker = "**"
-			}
-			buf.WriteString(marker)
-			for c := t.FirstChild(); c != nil; c = c.NextSibling() {
-				if textNode, ok := c.(*ast.Text); ok {
-					buf.Write(textNode.Segment.Value(source))
-				}
-			}
-			buf.WriteString(marker)
-		case *ast.Link:
-			buf.WriteString("[")
-			for c := t.FirstChild(); c != nil; c = c.NextSibling() {
-				if textNode, ok := c.(*ast.Text); ok {
-					buf.Write(textNode.Segment.Value(source))
-				}
-			}
-			buf.WriteString("](" + string(t.Destination) + ")")
-		case *ast.AutoLink:
-			buf.WriteString(string(t.URL(source)))
+func tokenStyle(t chroma.TokenType, pal *tui.Palette, base tcell.Style) tcell.Style {
+	c := pal.TokenName
+	switch t.Category() {
+	case chroma.Keyword:
+		c = pal.TokenKeyword
+	case chroma.Name:
+		switch t.SubCategory() {
+		case chroma.NameFunction:
+			c = pal.TokenFunction
+		case chroma.NameClass, chroma.NameTag, chroma.NameBuiltin:
+			c = pal.TokenType
+		case chroma.NameConstant:
+			c = pal.TokenConstant
 		default:
-			if child.HasChildren() {
-				buf.WriteString(mr.extractText(child, source))
-			}
+			c = pal.TokenName
 		}
+	case chroma.LiteralString:
+		c = pal.TokenString
+	case chroma.LiteralNumber:
+		c = pal.TokenNumber
+	case chroma.Comment:
+		return base.Foreground(pal.TokenComment).Dim(true)
+	case chroma.Operator:
+		c = pal.TokenOperator
+	case chroma.Punctuation:
+		c = pal.TokenPunctuation
+	case chroma.Generic:
+		c = pal.TokenGeneric
 	}
-	return buf.String()
-}
-
-func (mr *MarkdownRenderer) headingStyle(level int) theme.Style {
-	switch level {
-	case 1:
-		return theme.MarkdownHeading1
-	case 2:
-		return theme.MarkdownHeading2
-	case 3:
-		return theme.MarkdownHeading3
-	case 4:
-		return theme.MarkdownHeading4
-	case 5:
-		return theme.MarkdownHeading5
-	case 6:
-		return theme.MarkdownHeading6
-	default:
-		return theme.MarkdownHeading1
-	}
-}
-
-func (mr *MarkdownRenderer) RenderInline(text string) []render.StyledSegment {
-	var segments []render.StyledSegment
-	remaining := text
-
-	for len(remaining) > 0 {
-		if strings.HasPrefix(remaining, "**") {
-			end := strings.Index(remaining[2:], "**")
-			if end != -1 {
-				bold := remaining[2 : end+2]
-				segments = append(segments, render.StyledSegment{
-					Text:  bold,
-					Style: theme.MarkdownBold,
-				})
-				remaining = remaining[end+4:]
-				continue
-			}
-		}
-
-		if strings.HasPrefix(remaining, "*") && !strings.HasPrefix(remaining, "**") {
-			end := strings.Index(remaining[1:], "*")
-			if end != -1 {
-				italic := remaining[1 : end+1]
-				segments = append(segments, render.StyledSegment{
-					Text:  italic,
-					Style: theme.MarkdownItalic,
-				})
-				remaining = remaining[end+2:]
-				continue
-			}
-		}
-
-		if strings.HasPrefix(remaining, "~~") {
-			end := strings.Index(remaining[2:], "~~")
-			if end != -1 {
-				strike := remaining[2 : end+2]
-				segments = append(segments, render.StyledSegment{
-					Text:  strike,
-					Style: theme.MarkdownStrikethrough,
-				})
-				remaining = remaining[end+4:]
-				continue
-			}
-		}
-
-		if strings.HasPrefix(remaining, "`") {
-			end := strings.Index(remaining[1:], "`")
-			if end != -1 {
-				code := remaining[1 : end+1]
-				segments = append(segments, render.StyledSegment{
-					Text:  "`" + code + "`",
-					Style: theme.MarkdownCode,
-				})
-				remaining = remaining[end+2:]
-				continue
-			}
-		}
-
-		nextSpecial := len(remaining)
-		for _, prefix := range []string{"**", "*", "~~", "`"} {
-			idx := strings.Index(remaining, prefix)
-			if idx >= 0 && idx < nextSpecial {
-				nextSpecial = idx
-			}
-		}
-
-		if nextSpecial > 0 {
-			segments = append(segments, render.StyledSegment{
-				Text:  remaining[:nextSpecial],
-				Style: theme.MarkdownParagraph,
-			})
-			remaining = remaining[nextSpecial:]
-		} else {
-			segments = append(segments, render.StyledSegment{
-				Text:  remaining,
-				Style: theme.MarkdownParagraph,
-			})
-			break
-		}
-	}
-
-	return segments
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
+	return base.Foreground(c)
 }

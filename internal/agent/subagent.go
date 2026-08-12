@@ -229,7 +229,43 @@ func (t *SubagentTool) HandleStream(ctx context.Context, params map[string]any, 
 		return fmt.Sprintf("subagent %q started in background (run ID: %s)", t.name, runID), nil
 	}
 
-	return t.runStreamWithTracking(ctx, runner, child, run, prompt, callback)
+	if callback != nil {
+		if err := callback(StreamChunk{
+			SubagentStart: &SubagentStartInfo{Name: t.name, Prompt: prompt},
+		}); err != nil {
+			return "", err
+		}
+	}
+
+	tagged := func(chunk StreamChunk) error {
+		// Tag chunks with the sub-agent's NAME (not the run ID): the UI
+		// addresses sub-agent blocks by name. Nested delegations keep their
+		// own (inner) name; only tag chunks with no identity yet.
+		if chunk.SubagentID == "" {
+			chunk.SubagentID = t.name
+		}
+		return callback(chunk)
+	}
+
+	started := time.Now()
+	result, err := t.runStreamWithTracking(ctx, runner, child, run, prompt, tagged)
+	if callback != nil {
+		doneErr := callback(StreamChunk{
+			SubagentDone: &SubagentDoneInfo{
+				Name:     t.name,
+				Result:   result,
+				Error:    err,
+				Duration: time.Since(started),
+			},
+		})
+		if doneErr != nil {
+			return "", doneErr
+		}
+	}
+	if err != nil {
+		return "", fmt.Errorf("sub-agent %q failed: %w", t.name, err)
+	}
+	return result, nil
 }
 
 func (t *SubagentTool) runStreamWithTracking(ctx context.Context, runner *Runner, child Agent, run *SubagentRun, prompt string, callback StreamCallback) (string, error) {
