@@ -1,7 +1,7 @@
 package skill
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +14,7 @@ import (
 
 type Manager struct {
 	globalDir   string
+	extraDirs   []string
 	projectDir  string
 	projectRoot string
 	fs          *filesystem.FileSystem
@@ -32,26 +33,50 @@ func NewManager(projectRoot string, fs *filesystem.FileSystem) (*Manager, error)
 
 	return &Manager{
 		globalDir:   globalDir,
+		extraDirs:   agentSkillDirs(),
 		projectDir:  projectDir,
 		projectRoot: projectRoot,
 		fs:          fs,
 	}, nil
 }
 
+func agentSkillDirs() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for _, rel := range []string{
+		filepath.Join(home, ".agents", "skills"),
+		filepath.Join(home, ".agent", "skills"),
+		filepath.Join(home, ".claude", "skills"),
+		filepath.Join(home, ".config", "opencode", "skills"),
+	} {
+		if fi, err := os.Stat(rel); err == nil && fi.IsDir() {
+			dirs = append(dirs, rel)
+		}
+	}
+	return dirs
+}
+
 func (m *Manager) List() ([]Skill, error) {
 	skillMap := make(map[string]Skill)
 
-	globalSkills, err := m.loadSkillsFromDir(m.globalDir, LocationGlobal)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("failed to list global skills: %w", err)
-	}
-	for _, s := range globalSkills {
-		skillMap[s.Name] = s
+	for _, dir := range append([]string{m.globalDir}, m.extraDirs...) {
+		skills, err := m.loadSkillsFromDir(dir, LocationGlobal)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("failed to list global skills: %w", err)
+		}
+		for _, s := range skills {
+			if _, exists := skillMap[s.Name]; !exists {
+				skillMap[s.Name] = s
+			}
+		}
 	}
 
 	if m.projectDir != "" {
 		projectSkills, err := m.loadProjectSkillsFromDir(m.projectDir, LocationProject)
-		if err != nil && !os.IsNotExist(err) {
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("failed to list project skills: %w", err)
 		}
 		for _, s := range projectSkills {
@@ -84,19 +109,34 @@ func (m *Manager) Read(name string) (*Skill, error) {
 		}
 	}
 
-	path := filepath.Join(m.globalDir, name+".md")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("skill not found: %s", name)
+	for _, dir := range append([]string{m.globalDir}, m.extraDirs...) {
+		if s, ok := m.readFromDir(dir, name, LocationGlobal); ok {
+			return s, nil
+		}
 	}
 
-	return &Skill{
-		Name:        name,
-		Location:    LocationGlobal,
-		Path:        path,
-		Content:     string(data),
-		Description: extractDescription(string(data)),
-	}, nil
+	return nil, fmt.Errorf("skill not found: %s", name)
+}
+
+func (m *Manager) readFromDir(dir, name string, location SkillLocation) (*Skill, bool) {
+	paths := []string{
+		filepath.Join(dir, name+".md"),
+		filepath.Join(dir, name, "SKILL.md"),
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		return &Skill{
+			Name:        name,
+			Location:    location,
+			Path:        path,
+			Content:     string(data),
+			Description: extractDescription(string(data)),
+		}, true
+	}
+	return nil, false
 }
 
 func (m *Manager) Create(name, content string, location SkillLocation) (*Skill, error) {
@@ -157,9 +197,12 @@ func (m *Manager) Exists(name string) bool {
 		}
 	}
 
-	path := filepath.Join(m.globalDir, name+".md")
-	_, err := os.Stat(path)
-	return err == nil
+	for _, dir := range append([]string{m.globalDir}, m.extraDirs...) {
+		if _, ok := m.readFromDir(dir, name, LocationGlobal); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) Delete(name string, location SkillLocation) error {
@@ -192,6 +235,52 @@ func (m *Manager) loadSkillsFromDir(dir string, location SkillLocation) ([]Skill
 
 	var skills []Skill
 	for _, entry := range entries {
+		switch {
+		case !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md"):
+			name := strings.TrimSuffix(entry.Name(), ".md")
+			path := filepath.Join(dir, entry.Name())
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+
+			skills = append(skills, Skill{
+				Name:        name,
+				Location:    location,
+				Path:        path,
+				Content:     string(data),
+				Description: extractDescription(string(data)),
+			})
+
+		case entry.IsDir():
+			path := filepath.Join(dir, entry.Name(), "SKILL.md")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+
+			skills = append(skills, Skill{
+				Name:        entry.Name(),
+				Location:    location,
+				Path:        path,
+				Content:     string(data),
+				Description: extractDescription(string(data)),
+			})
+		}
+	}
+
+	return skills, nil
+}
+
+func (m *Manager) loadProjectSkillsFromDir(dir string, location SkillLocation) ([]Skill, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var skills []Skill
+	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
 			continue
 		}
@@ -216,66 +305,12 @@ func (m *Manager) loadSkillsFromDir(dir string, location SkillLocation) ([]Skill
 	return skills, nil
 }
 
-func (m *Manager) loadProjectSkillsFromDir(dir string, location SkillLocation) ([]Skill, error) {
-	relDir := dir
-	if m.fs != nil && filepath.IsAbs(dir) {
-		rel, err := filepath.Rel(m.fs.Root(), dir)
-		if err == nil {
-			relDir = rel
-		}
-	}
-
-	ctx := context.Background()
-	entries, err := m.fs.List(ctx, relDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var skills []Skill
-	for _, entry := range entries {
-		if entry.IsDir || !strings.HasSuffix(entry.Name, ".md") {
-			continue
-		}
-
-		name := strings.TrimSuffix(entry.Name, ".md")
-		path := filepath.Join(dir, entry.Name)
-
-		data, err := m.readProjectFile(path)
-		if err != nil {
-			continue
-		}
-
-		skills = append(skills, Skill{
-			Name:        name,
-			Location:    location,
-			Path:        path,
-			Content:     data,
-			Description: extractDescription(data),
-		})
-	}
-
-	return skills, nil
-}
-
 func (m *Manager) readProjectFile(path string) (string, error) {
-	if m.fs == nil {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
 	}
-
-	relPath := path
-	if filepath.IsAbs(path) {
-		rel, err := filepath.Rel(m.fs.Root(), path)
-		if err == nil {
-			relPath = rel
-		}
-	}
-
-	ctx := context.Background()
-	return m.fs.Read(ctx, relPath)
+	return string(data), nil
 }
 
 func extractDescription(content string) string {

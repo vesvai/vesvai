@@ -3,6 +3,7 @@ package skill
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/vesvai/vesvai/internal/filesystem"
@@ -263,5 +264,58 @@ func TestExtractDescription(t *testing.T) {
 				t.Errorf("extractDescription() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestManager_AgentSkillDirs(t *testing.T) {
+	tmp := t.TempDir()
+	agentDir := filepath.Join(tmp, ".agents", "skills")
+	os.MkdirAll(filepath.Join(agentDir, "writing-plans"), 0755)
+	os.WriteFile(filepath.Join(agentDir, "writing-plans", "SKILL.md"),
+		[]byte("---\ndescription: plan writing\n---\n\nPlan content"), 0644)
+	os.WriteFile(filepath.Join(agentDir, "flat-skill.md"), []byte("flat content"), 0644)
+
+	m := &Manager{
+		globalDir:  filepath.Join(tmp, "global"),
+		extraDirs:  []string{agentDir},
+		projectDir: filepath.Join(tmp, "project", ".vesvai", "skills"),
+	}
+
+	skills, err := m.List()
+	if err != nil {
+		t.Fatalf("List() with missing project dir must not error: %v", err)
+	}
+	if len(skills) != 2 {
+		t.Fatalf("List() = %d skills, want 2 (agent layout + flat): %v", len(skills), skills)
+	}
+	byName := map[string]Skill{}
+	for _, s := range skills {
+		byName[s.Name] = s
+	}
+	if s, ok := byName["writing-plans"]; !ok {
+		t.Fatalf("agent-layout skill missing: %v", byName)
+	} else if !strings.Contains(s.Content, "Plan content") {
+		t.Fatalf("writing-plans content = %q", s.Content)
+	}
+	if _, ok := byName["flat-skill"]; !ok {
+		t.Fatalf("flat skill in extra dir missing: %v", byName)
+	}
+
+	if !m.Exists("writing-plans") {
+		t.Fatal("Exists(writing-plans) = false")
+	}
+	if m.Exists("nope") {
+		t.Fatal("Exists(nope) = true")
+	}
+
+	read, err := m.Read("writing-plans")
+	if err != nil {
+		t.Fatalf("Read(writing-plans) error = %v", err)
+	}
+	if read.Description != "plan writing" {
+		t.Fatalf("description = %q, want 'plan writing'", read.Description)
+	}
+	if _, err := m.Read("nope"); err == nil {
+		t.Fatal("Read(nope) should error")
 	}
 }
