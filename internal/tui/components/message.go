@@ -75,7 +75,7 @@ func (v *MessageView) Lines(m *tui.Message, width int, pal *tui.Palette, now tim
 		switch p.Kind {
 		case tui.PartThinking:
 			start := len(lines)
-			lines = append(lines, v.thinking.Lines(p, width, pal, active, now)...)
+			lines = append(lines, v.thinking.Lines(p, width, pal, active && isActiveThinking(m.Parts, i), now)...)
 			blocks = append(blocks, Block{ID: tui.ThinkingPartID(m, th), Kind: "thinking", Start: start, End: len(lines)})
 			th++
 
@@ -135,7 +135,7 @@ func (v *MessageView) SubagentTranscript(sa *tui.Subagent, width int, pal *tui.P
 		switch p.Kind {
 		case tui.PartThinking:
 			start := len(lines)
-			lines = append(lines, v.thinking.Lines(p, width, pal, active, now)...)
+			lines = append(lines, v.thinking.Lines(p, width, pal, active && isActiveThinking(sa.Parts, i), now)...)
 			blocks = append(blocks, Block{
 				ID:    fmt.Sprintf("subthink:%d", th),
 				Kind:  "subthink",
@@ -164,6 +164,15 @@ func (v *MessageView) SubagentTranscript(sa *tui.Subagent, width int, pal *tui.P
 	}
 
 	return lines, blocks
+}
+
+func isActiveThinking(parts []tui.Part, i int) bool {
+	for j := i + 1; j < len(parts); j++ {
+		if parts[j].Kind == tui.PartThinking {
+			return false
+		}
+	}
+	return true
 }
 
 func userCardLines(m *tui.Message, width int, pal *tui.Palette) []tui.Line {

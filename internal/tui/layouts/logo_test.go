@@ -18,7 +18,7 @@ func TestViewportShowsLogoWhenEmpty(t *testing.T) {
 	rows := renderFrame(t, l, s)
 	joined := frameText(rows)
 
-	if !strings.Contains(joined, "██╗   ██╗") {
+	if !strings.Contains(joined, "░██    ░██") {
 		t.Fatalf("logo missing:\n%s", joined)
 	}
 	if !strings.Contains(joined, "AI-powered development assistant") {
@@ -57,7 +57,7 @@ func TestLogoDisappearsAfterFirstMessage(t *testing.T) {
 	rows := renderFrame(t, l, s)
 	joined := frameText(rows)
 
-	if strings.Contains(joined, "██╗   ██╗") {
+	if strings.Contains(joined, "░██    ░██") {
 		t.Fatalf("logo still shown after first message:\n%s", joined)
 	}
 	if !strings.Contains(joined, "hello agent") {
@@ -79,7 +79,7 @@ func TestLogoReappearsAfterNewSession(t *testing.T) {
 	l.NotifyModelChange()
 	rows := renderFrame(t, l, s)
 	joined := frameText(rows)
-	if !strings.Contains(joined, "██╗   ██╗") {
+	if !strings.Contains(joined, "░██    ░██") {
 		t.Fatalf("logo did not return after reset:\n%s", joined)
 	}
 }
@@ -105,7 +105,7 @@ func TestEmptyStateInputsDoNotPanic(t *testing.T) {
 	l.HandleEvent(tcell.NewEventMouse(40, 8, tcell.WheelUp, tcell.ModNone))
 
 	rows := renderFrame(t, l, s)
-	if !strings.Contains(frameText(rows), "██╗   ██╗") {
+	if !strings.Contains(frameText(rows), "░██    ░██") {
 		t.Fatalf("logo lost:\n%s", frameText(rows))
 	}
 	if l.menu != nil {
