@@ -78,6 +78,8 @@ func TestBuildMentionCatalogBounded(t *testing.T) {
 }
 
 func TestBuildSkillCatalogUsesManager(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
 	root := t.TempDir()
 	skillDir := filepath.Join(root, ".vesvai", "skills")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
@@ -108,12 +110,7 @@ func TestBuildSkillCatalogUsesManager(t *testing.T) {
 	}
 
 	catalog = buildSkillCatalog(nil)
-	if len(catalog) == 0 {
-		t.Fatal("expected fallback skill catalog")
-	}
-	for _, m := range catalog {
-		if m.Kind != "skill" {
-			t.Fatalf("fallback entry %q has kind %q", m.ID, m.Kind)
-		}
+	if len(catalog) != 0 {
+		t.Fatalf("expected empty fallback catalog, got %v", catalog)
 	}
 }

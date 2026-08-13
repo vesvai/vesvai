@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -112,8 +113,9 @@ func (d *AgentDriver) Run(ctx context.Context, req RunRequest, emit func(tui.Str
 		prompt = rest
 	}
 
+	var skillSystem []llm.Message
 	if d.skills != nil {
-		prompt = d.expandSkills(prompt)
+		prompt, skillSystem = d.extractSkills(prompt)
 	}
 
 	sessionID := agent.SessionIDFromContext(ctx)
@@ -123,6 +125,9 @@ func (d *AgentDriver) Run(ctx context.Context, req RunRequest, emit func(tui.Str
 	ctx = agent.WithAgentContext(ctx, agentName, sessionID)
 	if d.model != "" {
 		ctx = agent.WithModelContext(ctx, d.model)
+	}
+	if len(skillSystem) > 0 {
+		ctx = agent.WithExtraSystemContext(ctx, skillSystem)
 	}
 	if len(req.History) > 0 {
 		ctx = agent.WithHistoryContext(ctx, req.History)
@@ -235,7 +240,7 @@ func (d *AgentDriver) mapChunk(chunk agent.StreamChunk, usage *tui.Usage, emit f
 	}
 }
 
-func (d *AgentDriver) expandSkills(text string) string {
+func (d *AgentDriver) extractSkills(text string) (string, []llm.Message) {
 	names := map[string]bool{}
 	if list, err := d.skills.List(); err == nil {
 		for _, s := range list {
@@ -244,20 +249,24 @@ func (d *AgentDriver) expandSkills(text string) string {
 	}
 	fields := strings.Fields(text)
 	kept := make([]string, 0, len(fields))
-	var injections []string
+	var extra []llm.Message
 	for _, f := range fields {
-		if strings.HasPrefix(f, "/") && names[strings.TrimPrefix(f, "/")] {
-			if s, err := d.skills.Read(strings.TrimPrefix(f, "/")); err == nil {
-				injections = append(injections, s.Content)
+		if strings.HasPrefix(f, "/") {
+			name := strings.TrimPrefix(f, "/")
+			if names[name] {
+				if s, err := d.skills.Read(name); err == nil {
+					extra = append(extra, llm.SystemMessage(
+						fmt.Sprintf("[Skill: %s]\n%s", s.Name, s.Content)))
+				}
+				continue
 			}
-			continue
 		}
 		kept = append(kept, f)
 	}
-	if len(injections) == 0 {
-		return text
+	if len(extra) == 0 {
+		return text, nil
 	}
-	return strings.Join(kept, " ") + "\n\n[Skills to apply]\n" + strings.Join(injections, "\n\n---\n\n")
+	return strings.Join(kept, " "), extra
 }
 
 func (d *AgentDriver) reloadModels() {
@@ -315,6 +324,8 @@ type Backend interface {
 	CurrentHistory(conv *tui.Conversation) []llm.Message
 	ConnectProvider(name, apiKey string) error
 	SupportedProviders() []string
+	MentionAgents() []components.Mention
+	SlashCatalog() []components.Mention
 }
 
 func (d *AgentDriver) SupportedProviders() []string {
@@ -322,6 +333,35 @@ func (d *AgentDriver) SupportedProviders() []string {
 		return nil
 	}
 	return d.app.Providers.Supported()
+}
+
+func (d *AgentDriver) MentionAgents() []components.Mention {
+	if d.app == nil || d.app.AgentRegistry == nil {
+		return nil
+	}
+	names := make([]string, 0, len(d.app.AgentRegistry.All()))
+	for name := range d.app.AgentRegistry.All() {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]components.Mention, 0, len(names))
+	for _, name := range names {
+		out = append(out, components.Mention{ID: name, Kind: "agent", Label: name})
+	}
+	return out
+}
+
+func (d *AgentDriver) SlashCatalog() []components.Mention {
+	var out []components.Mention
+	if d.skills != nil {
+		if skills, err := d.skills.List(); err == nil {
+			for _, s := range skills {
+				out = append(out, components.Mention{ID: s.Name, Kind: "skill", Label: s.Name})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }
 
 func (d *AgentDriver) ApprovalRequests() <-chan permissionRequest {

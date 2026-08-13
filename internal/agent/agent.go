@@ -20,8 +20,22 @@ const modelKey contextKey = "model"
 
 const historyKey contextKey = "history"
 
-// WithHistoryContext seeds a run with prior conversation turns (session
-// continuation). The messages are prepended after the system prompt.
+const extraSystemKey contextKey = "extra_system"
+
+func WithExtraSystemContext(ctx context.Context, extra []llm.Message) context.Context {
+	if len(extra) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, extraSystemKey, extra)
+}
+
+func ExtraSystemFromContext(ctx context.Context) []llm.Message {
+	if e, ok := ctx.Value(extraSystemKey).([]llm.Message); ok {
+		return e
+	}
+	return nil
+}
+
 func WithHistoryContext(ctx context.Context, history []llm.Message) context.Context {
 	if len(history) == 0 {
 		return ctx
@@ -213,8 +227,6 @@ func (r *Runner) Run(ctx context.Context, agent Agent, userMessage string) (*Res
 		}
 		_ = time.Since(start)
 
-		// Content accumulates across steps so the returned response is the
-		// agent's full output, not just the final step's text.
 		stepContent := resp.GetContent()
 		if stepContent != "" {
 			if fullContent != "" {
@@ -298,8 +310,10 @@ func (r *Runner) buildMessages(agent Agent, userContent any, ctx context.Context
 		messages = append(messages, llm.SystemMessage(systemPrompt))
 	}
 
-	// Session continuation: prior turns seed the conversation after the
-	// system prompt (from WithHistoryContext).
+	if extra := ExtraSystemFromContext(ctx); len(extra) > 0 {
+		messages = append(messages, extra...)
+	}
+
 	if history := HistoryFromContext(ctx); len(history) > 0 {
 		messages = append(messages, history...)
 	}
@@ -351,9 +365,6 @@ func (r *Runner) executeTool(ctx context.Context, agent Agent, tc llm.ToolCall, 
 	var result string
 	var execErr error
 
-	// Streaming tools (e.g. sub-agent delegation) emit their own chunks
-	// through the callback so the UI sees the work live. The middleware
-	// chain (permissions, retry) wraps both paths.
 	err = r.middlewares.Execute(ctx, agent, func(ctx context.Context) error {
 		if st, ok := tool.(interface {
 			HandleStream(ctx context.Context, params map[string]any, callback StreamCallback) (string, error)
@@ -385,13 +396,11 @@ func (r *Runner) publishEvent(ctx context.Context, eventType AgentEventType, dat
 
 type StreamCallback func(chunk StreamChunk) error
 
-// SubagentStartInfo announces a delegation to a sub-agent.
 type SubagentStartInfo struct {
 	Name   string
 	Prompt string
 }
 
-// SubagentDoneInfo reports the outcome of a sub-agent run.
 type SubagentDoneInfo struct {
 	Name     string
 	Result   string
@@ -407,14 +416,10 @@ type StreamChunk struct {
 	ToolResult   *ToolResultInfo
 	FinishReason string
 	IsDone       bool
-	// Final marks the true terminal chunk of a run. Per-step IsDone chunks
-	// (between tool-call rounds in a multi-step run) are NOT final.
-	Final bool
-	Usage *llm.Usage
+	Final        bool
+	Usage        *llm.Usage
 
-	// SubagentID tags chunks produced by a sub-agent's own conversation.
-	SubagentID string
-	// SubagentStart/SubagentDone announce and conclude a sub-agent block.
+	SubagentID    string
 	SubagentStart *SubagentStartInfo
 	SubagentDone  *SubagentDoneInfo
 }
@@ -435,8 +440,6 @@ func (r *Runner) RunStream(ctx context.Context, agent Agent, userMessage string,
 	return r.RunStreamContent(ctx, agent, userMessage, callback)
 }
 
-// RunStreamContent is RunStream with a user content value: a plain string or
-// an llm.Content (text + attachments).
 func (r *Runner) RunStreamContent(ctx context.Context, agent Agent, userContent any, callback StreamCallback) (*Response, error) {
 	config := agent.Config()
 
@@ -457,8 +460,6 @@ func (r *Runner) RunStreamContent(ctx context.Context, agent Agent, userContent 
 	llmTools := r.buildLLMTools(agent)
 
 	var allToolCalls []ToolCallResult
-	// Content accumulates across steps so the returned response is the
-	// agent's full output, not just the final step's text.
 	var fullContent string
 	step := 0
 
@@ -555,8 +556,6 @@ func (r *Runner) RunStreamContent(ctx context.Context, agent Agent, userContent 
 			return nil, fmt.Errorf("llm stream failed: %w", err)
 		}
 
-		// Fold this step's text into the run-wide accumulation (separated so
-		// distinct utterances do not run together).
 		if stepContent != "" {
 			if fullContent != "" {
 				fullContent += "\n\n"
@@ -714,8 +713,6 @@ func parseToolArgsSafe(argsJSON string) map[string]any {
 	return params
 }
 
-// contentText extracts the plain text of a user content value (string or
-// llm.Content) for events and logging.
 func contentText(content any) string {
 	switch c := content.(type) {
 	case string:

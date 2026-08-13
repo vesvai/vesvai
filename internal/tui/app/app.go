@@ -126,12 +126,7 @@ func (a *App) Run() error {
 		a.permission = d.ApprovalRequests()
 	}
 
-	if cwd, err := os.Getwd(); err == nil {
-		if fsys, err := filesystem.New(filesystem.Config{RootDir: cwd, IgnoreDotfiles: true}); err == nil {
-			a.layout.Textarea().SetMentionCatalog(buildMentionCatalog(fsys))
-			a.layout.Textarea().SetSkillCatalog(buildSkillCatalog(fsys))
-		}
-	}
+	a.wireCatalogs()
 	a.layout.Layout(image.Rect(0, 0, sW, sH))
 
 	a.layout.Textarea().OnSubmit = a.submit
@@ -283,8 +278,42 @@ var errMentionWalkStop = errors.New("mention catalog cap reached")
 
 const maxMentionEntries = 300
 
+func (a *App) wireCatalogs() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	fsys, err := filesystem.New(filesystem.Config{RootDir: cwd, IgnoreDotfiles: true})
+	if err != nil {
+		return
+	}
+
+	if a.backend != nil {
+		mentions := append(a.backend.MentionAgents(), buildFileCatalog(fsys)...)
+		slash := a.backend.SlashCatalog()
+		if len(slash) == 0 {
+			slash = buildSkillCatalog(fsys)
+		}
+		a.layout.Textarea().SetMentionCatalog(mentions)
+		a.layout.Textarea().SetSkillCatalog(slash)
+		return
+	}
+
+	a.layout.Textarea().SetMentionCatalog(buildMentionCatalog(fsys))
+	a.layout.Textarea().SetSkillCatalog(buildSkillCatalog(fsys))
+}
+
 func buildMentionCatalog(fsys *filesystem.FileSystem) []components.Mention {
 	out := components.DefaultMentions()
+	out = append(out, buildFileCatalog(fsys)...)
+	return out
+}
+
+func buildFileCatalog(fsys *filesystem.FileSystem) []components.Mention {
+	if fsys == nil {
+		return nil
+	}
+	var out []components.Mention
 	count := 0
 	fsys.Walk(context.Background(), func(rel string, info filesystem.FileInfo) error {
 		if count >= maxMentionEntries {
@@ -302,23 +331,22 @@ func buildMentionCatalog(fsys *filesystem.FileSystem) []components.Mention {
 }
 
 func buildSkillCatalog(fsys *filesystem.FileSystem) []components.Mention {
-	if fsys != nil {
-		if mgr, err := skill.NewManager(fsys.Root(), fsys); err == nil {
-			if skills, err := mgr.List(); err == nil && len(skills) > 0 {
-				out := make([]components.Mention, 0, len(skills))
-				for _, s := range skills {
-					out = append(out, components.Mention{ID: s.Name, Kind: "skill", Label: s.Name})
-				}
-				return out
-			}
-		}
+	if fsys == nil {
+		return nil
 	}
-	return []components.Mention{
-		{ID: "graphify", Kind: "skill", Label: "graphify"},
-		{ID: "impeccable", Kind: "skill", Label: "impeccable"},
-		{ID: "refactor", Kind: "skill", Label: "refactor"},
-		{ID: "review", Kind: "skill", Label: "review"},
+	mgr, err := skill.NewManager(fsys.Root(), fsys)
+	if err != nil {
+		return nil
 	}
+	skills, err := mgr.List()
+	if err != nil {
+		return nil
+	}
+	out := make([]components.Mention, 0, len(skills))
+	for _, s := range skills {
+		out = append(out, components.Mention{ID: s.Name, Kind: "skill", Label: s.Name})
+	}
+	return out
 }
 
 func applyModel(m *tui.Model, info tui.ModelInfo) {

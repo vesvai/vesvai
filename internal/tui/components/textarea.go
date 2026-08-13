@@ -69,6 +69,10 @@ func (t *Textarea) SetMentionCatalog(catalog []Mention) {
 	t.mentionCatalog = catalog
 }
 
+func (t *Textarea) MentionCatalog() []Mention { return t.mentionCatalog }
+
+func (t *Textarea) SkillCatalog() []Mention { return t.skillCatalog }
+
 func (t *Textarea) SetSkillCatalog(catalog []Mention) {
 	t.skillCatalog = catalog
 	t.skillNames = make(map[string]bool, len(catalog))

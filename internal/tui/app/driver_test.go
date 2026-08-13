@@ -3,13 +3,17 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/vesvai/vesvai/internal/agent"
+	"github.com/vesvai/vesvai/internal/filesystem"
 	"github.com/vesvai/vesvai/internal/llm"
 	"github.com/vesvai/vesvai/internal/permission"
+	"github.com/vesvai/vesvai/internal/skill"
 	"github.com/vesvai/vesvai/internal/tui"
 )
 
@@ -207,6 +211,65 @@ func TestAgentDriverSeedsHistory(t *testing.T) {
 	}
 	if userCount != 2 {
 		t.Fatalf("user messages in request = %d, want 2 (history + prompt)", userCount)
+	}
+}
+
+func TestAgentDriverSkillAsSystemPrompt(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	fsys, err := filesystem.New(filesystem.Config{RootDir: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".vesvai", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".vesvai", "skills", "graphify.md"),
+		[]byte("---\ndescription: graph skills\n---\n\nGraph instructions here."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := skill.NewManager(root, fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p := newScriptedProvider(
+		[]llm.StreamChunk{{Content: "ok"}, {IsDone: true, FinishReason: llm.FinishReasonStop}},
+	)
+	d, _ := newTestDriver(t, p)
+	d.skills = mgr
+
+	collectEvents(t, d, RunRequest{Text: "/graphify do the thing"})
+
+	req := p.reqs[0]
+	var sysIdx, userIdx = -1, -1
+	for i, m := range req.Messages {
+		switch m.Role {
+		case llm.RoleSystem:
+			if content, ok := m.Content.(string); ok && strings.Contains(content, "Graph instructions here.") {
+				sysIdx = i
+			}
+		case llm.RoleUser:
+			if text, ok := m.Content.(string); ok && text == "do the thing" {
+				userIdx = i
+			}
+		}
+	}
+	if sysIdx < 0 {
+		t.Fatalf("skill system message missing from request: %+v", req.Messages)
+	}
+	if userIdx < 0 {
+		t.Fatalf("stripped user message missing: %+v", req.Messages)
+	}
+	if sysIdx > userIdx {
+		t.Fatalf("skill system message (%d) must precede the user message (%d)", sysIdx, userIdx)
+	}
+
+	collectEvents(t, d, RunRequest{Text: "keep /usr/local as-is"})
+	req = p.reqs[1]
+	last := req.Messages[len(req.Messages)-1]
+	if text, ok := last.Content.(string); !ok || !strings.Contains(text, "/usr/local") {
+		t.Fatalf("unknown slash token must stay in the prompt: %+v", req.Messages)
 	}
 }
 

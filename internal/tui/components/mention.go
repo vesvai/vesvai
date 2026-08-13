@@ -199,8 +199,6 @@ func (t *Textarea) drawMentionPicker(s tcell.Screen, pal *tui.Palette) {
 			glyph, glyphColor = '✦', pal.Mention
 		case "dir":
 			glyph, glyphColor = '▸', pal.Accent
-		case "skill":
-			glyph, glyphColor = '⚡', pal.SkillBlock
 		default:
 			glyph, glyphColor = '·', pal.TextDim
 		}

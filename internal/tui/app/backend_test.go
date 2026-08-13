@@ -35,6 +35,18 @@ func (s *stubBackend) ConnectProvider(name, key string) error         { return n
 func (s *stubBackend) SupportedProviders() []string {
 	return []string{"openrouter", "openai"}
 }
+func (s *stubBackend) MentionAgents() []components.Mention {
+	return []components.Mention{
+		{ID: "planner", Kind: "agent", Label: "planner"},
+		{ID: "explorer", Kind: "agent", Label: "explorer"},
+		{ID: "orchestrator", Kind: "agent", Label: "orchestrator"},
+	}
+}
+func (s *stubBackend) SlashCatalog() []components.Mention {
+	return []components.Mention{
+		{ID: "graphify", Kind: "skill", Label: "graphify"},
+	}
+}
 
 type stubDriver struct {
 	*stubBackend
