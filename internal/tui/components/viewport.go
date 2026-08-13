@@ -73,6 +73,9 @@ func NewViewport(conv *tui.Conversation) *Viewport {
 func (v *Viewport) setFollow(f bool) {
 	if v.follow != f {
 		v.follow = f
+		if !f {
+			v.scrollOffset = v.maxOffset()
+		}
 		v.RequestRender()
 	}
 }
@@ -403,28 +406,34 @@ func (v *Viewport) following() bool {
 	return v.follow
 }
 
+func (v *Viewport) Following() bool { return v.following() }
+
 func (v *Viewport) offset() int {
 	return v.scrollOffset
 }
+
+func (v *Viewport) Offset() int { return v.offset() }
 
 func (v *Viewport) maxOffset() int {
 	return tui.ClampScroll(v.lineCount()-v.Height(), v.lineCount())
 }
 
+func (v *Viewport) MaxOffset() int { return v.maxOffset() }
+
 func (v *Viewport) scrollBy(delta int) {
 	if v.flat == nil {
 		return
 	}
-	off := v.offset() + delta
 	if v.follow {
-		if off >= v.maxOffset() {
-			v.setFollow(true)
+		if delta >= 0 {
 			return
 		}
+		off := v.maxOffset() + delta
 		v.setFollow(false)
 		v.setOffset(off)
 		return
 	}
+	off := v.offset() + delta
 	if off >= v.maxOffset() {
 		v.setFollow(true)
 		return
@@ -643,3 +652,5 @@ func (v *Viewport) Tick(elapsed time.Duration) bool {
 	v.now = elapsed
 	return v.Hooks.Tick(elapsed)
 }
+
+func (v *Viewport) LineCountDebug() int { return v.lineCount() }
