@@ -61,8 +61,9 @@ type AgentDriver struct {
 	skills   *skill.Manager
 	approver *TUIApprover
 
-	model  string
-	models []tui.ModelInfo
+	model    string
+	provider string
+	models   []tui.ModelInfo
 }
 
 func NewAgentDriver(cfg AgentDriverConfig) *AgentDriver {
@@ -143,10 +144,15 @@ func (d *AgentDriver) Run(ctx context.Context, req RunRequest, emit func(tui.Str
 		target = orchestrator.New(agent.WithModel(d.model))
 	}
 
+	runner := d.runner
+	if r, err := d.runnerFor(); err == nil {
+		runner = r
+	}
+
 	emit(tui.StreamEvent{Kind: tui.EventStart})
 
 	usage := &tui.Usage{}
-	_, err := d.runner.RunStreamContent(ctx, target, content, func(chunk agent.StreamChunk) error {
+	_, err := runner.RunStreamContent(ctx, target, content, func(chunk agent.StreamChunk) error {
 		d.mapChunk(chunk, usage, emit)
 		return nil
 	})
@@ -455,6 +461,36 @@ func (d *AgentDriver) SetModel(name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.model = name
+}
+
+func (d *AgentDriver) SetProvider(name string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.provider = name
+}
+
+func (d *AgentDriver) runnerFor() (*agent.Runner, error) {
+	if d.app == nil {
+		return d.runner, nil
+	}
+
+	d.mu.Lock()
+	selected := d.provider
+	d.mu.Unlock()
+
+	name := selected
+	if name == "" {
+		name = d.app.DefaultProviderName()
+	}
+	if name == "" {
+		return d.runner, nil
+	}
+
+	provider, err := d.app.CreateProviderByName(name)
+	if err != nil {
+		return nil, err
+	}
+	return d.app.CreateRunnerWithApprover(provider, d.approver), nil
 }
 
 func (d *AgentDriver) CurrentHistory(conv *tui.Conversation) []llm.Message {

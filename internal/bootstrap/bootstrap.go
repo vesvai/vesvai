@@ -158,6 +158,25 @@ func (a *App) CreateProvider() (llm.Provider, error) {
 	return llm.CreateProviderFromConfig(a.Providers, a.Config)
 }
 
+func (a *App) DefaultProviderName() string {
+	if a.Config == nil || len(a.Config.Providers) == 0 {
+		return ""
+	}
+	return a.Config.Providers[0].Provider
+}
+
+func (a *App) CreateProviderByName(name string) (llm.Provider, error) {
+	if a.Config == nil || a.Providers == nil {
+		return nil, fmt.Errorf("provider registry not initialized")
+	}
+	for _, pc := range a.Config.Providers {
+		if pc.Provider == name {
+			return a.Providers.Create(pc)
+		}
+	}
+	return nil, fmt.Errorf("provider %q not configured", name)
+}
+
 func (a *App) Skills() *skill.Manager {
 	return a.skillsManager
 }

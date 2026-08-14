@@ -497,6 +497,9 @@ func (a *App) seedBackend(b Backend) {
 	if models := b.Models(); len(models) > 0 {
 		applyModel(a.model, models[0])
 		b.SetModel(models[0].Name)
+		if sp, ok := b.(interface{ SetProvider(string) }); ok {
+			sp.SetProvider(models[0].Provider)
+		}
 	}
 }
 
@@ -652,6 +655,9 @@ func (a *App) handleModelSelect(info tui.ModelInfo) {
 	applyModel(a.model, info)
 	if a.backend != nil {
 		a.backend.SetModel(info.Name)
+		if sp, ok := a.backend.(interface{ SetProvider(string) }); ok {
+			sp.SetProvider(info.Provider)
+		}
 	}
 	a.model.SetStatusMsg("model: " + info.Name)
 	a.layout.NotifyModelChange()

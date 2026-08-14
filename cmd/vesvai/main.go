@@ -127,6 +127,7 @@ func runTUI(args ...string) {
 func cmdRun(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	model := fs.String("model", "", "model to use for the run")
+	provider := fs.String("provider", "", "provider to route to (defaults to the first configured provider)")
 	fs.Parse(args)
 
 	prompt := strings.Join(fs.Args(), " ")
@@ -156,13 +157,22 @@ func cmdRun(args []string) {
 	}
 	defer app.Shutdown(ctx)
 
-	provider, err := app.CreateProvider()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "provider error: %v\n", err)
-		os.Exit(1)
+	var providerForRun llm.Provider
+	if *provider != "" {
+		providerForRun, err = app.CreateProviderByName(*provider)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "provider error: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		providerForRun, err = app.CreateProvider()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "provider error: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
-	runner := app.CreateRunnerWithApprover(provider, permission.TerminalApprover{})
+	runner := app.CreateRunnerWithApprover(providerForRun, permission.TerminalApprover{})
 
 	orchestratorAgent := orchestrator.New(agent.WithModel(*model))
 

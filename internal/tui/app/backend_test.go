@@ -12,10 +12,11 @@ import (
 )
 
 type stubBackend struct {
-	models  []tui.ModelInfo
-	chosen  string
-	sess    []components.Session
-	deleted []string
+	models   []tui.ModelInfo
+	chosen   string
+	provider string
+	sess     []components.Session
+	deleted  []string
 }
 
 func (s *stubBackend) ListSessions() ([]components.Session, error) { return s.sess, nil }
@@ -29,6 +30,7 @@ func (s *stubBackend) DeleteSession(id string) error {
 func (s *stubBackend) SaveSession(*session.Session) error             { return nil }
 func (s *stubBackend) Models() []tui.ModelInfo                        { return s.models }
 func (s *stubBackend) SetModel(name string)                           { s.chosen = name }
+func (s *stubBackend) SetProvider(name string)                        { s.provider = name }
 func (s *stubBackend) NewSessionID() string                           { return "session_test" }
 func (s *stubBackend) CurrentHistory(*tui.Conversation) []llm.Message { return nil }
 func (s *stubBackend) ConnectProvider(name, key string) error         { return nil }
@@ -101,5 +103,41 @@ func TestSeedBackendEmptyCatalogKeepsPickerEmpty(t *testing.T) {
 	}
 	if len(a.layout.Models()) != 0 {
 		t.Fatalf("picker catalog = %d, want 0", len(a.layout.Models()))
+	}
+}
+
+func TestHandleModelSelectSetsProvider(t *testing.T) {
+	b := &stubBackend{models: []tui.ModelInfo{{Name: "deepseek-v4-flash", Provider: "opencode"}}}
+	d := &stubDriver{stubBackend: b}
+	a := NewWithDriver(d)
+	a.backend = b
+	a.model = tui.NewModel("demo")
+	a.layout = layouts.NewMainLayout(a.model, tui.DefaultDark())
+
+	a.handleModelSelect(tui.ModelInfo{Name: "deepseek-v4-flash", Provider: "opencode"})
+
+	if b.chosen != "deepseek-v4-flash" {
+		t.Fatalf("model = %q, want deepseek-v4-flash", b.chosen)
+	}
+	if b.provider != "opencode" {
+		t.Fatalf("provider = %q, want opencode", b.provider)
+	}
+	if a.model.Provider != "opencode" {
+		t.Fatalf("model provider = %q, want opencode", a.model.Provider)
+	}
+}
+
+func TestAgentDriverRunnerForSelectedProvider(t *testing.T) {
+	d := NewAgentDriver(AgentDriverConfig{
+		Runner:   nil,
+		Approver: NewTUIApprover(),
+		App:      nil,
+	})
+
+	d.SetProvider("opencode")
+	d.SetModel("deepseek-v4-flash")
+
+	if d.provider != "opencode" || d.model != "deepseek-v4-flash" {
+		t.Fatalf("driver selection = %q/%q", d.provider, d.model)
 	}
 }
