@@ -33,35 +33,51 @@ func currentHooks() *hook.Hooks {
 }
 
 func (b *Builder) Tools(items ...string) *Builder {
-	if len(items) > 0 {
-		return b.bulletList("tools", items)
-	}
 	hs := currentHooks()
+	if len(items) > 0 {
+		return b.Section("tools", RenderToolsXMLByName(items, collectTools(hs)), OrderTools)
+	}
 	if hs == nil {
 		return b
 	}
-	value := hs.ApplyFilter(context.Background(), hook.HookToolsCollect, []agent.Tool{})
-	tools, _ := value.([]agent.Tool)
+	tools := collectTools(hs)
 	if len(tools) == 0 {
 		return b
 	}
 	return b.Section("tools", RenderToolsXML(tools), OrderTools)
 }
 
-func (b *Builder) Skills(items ...string) *Builder {
-	if len(items) > 0 {
-		return b.bulletList("skills", items)
+func collectTools(hs *hook.Hooks) []agent.Tool {
+	if hs == nil {
+		return nil
 	}
+	value := hs.ApplyFilter(context.Background(), hook.HookToolsCollect, []agent.Tool{})
+	tools, _ := value.([]agent.Tool)
+	return tools
+}
+
+func (b *Builder) Skills(items ...string) *Builder {
 	hs := currentHooks()
+	if len(items) > 0 {
+		return b.Section("skills", RenderSkillsXMLByName(items, collectSkills(hs)), OrderSkills)
+	}
 	if hs == nil {
 		return b
 	}
-	value := hs.ApplyFilter(context.Background(), hook.HookSkillsCollect, []skill.Skill{})
-	skills, _ := value.([]skill.Skill)
+	skills := collectSkills(hs)
 	if len(skills) == 0 {
 		return b
 	}
 	return b.Section("skills", RenderSkillsXML(skills), OrderSkills)
+}
+
+func collectSkills(hs *hook.Hooks) []skill.Skill {
+	if hs == nil {
+		return nil
+	}
+	value := hs.ApplyFilter(context.Background(), hook.HookSkillsCollect, []skill.Skill{})
+	skills, _ := value.([]skill.Skill)
+	return skills
 }
 
 type paramInfo struct {
@@ -115,31 +131,56 @@ func RenderToolsXML(tools []agent.Tool) string {
 	var sb strings.Builder
 	sb.WriteString("<tools>")
 	for _, t := range tools {
-		sb.WriteString(fmt.Sprintf("\n  <tool name=\"%s\">", xmlEscape(t.Name())))
-		if d := t.Description(); d != "" {
-			sb.WriteString("\n    <description>")
-			sb.WriteString(xmlEscape(d))
-			sb.WriteString("</description>")
-		}
-		if params := schemaParams(t.Schema()); len(params) > 0 {
-			sb.WriteString("\n    <parameters>")
-			for _, p := range params {
-				sb.WriteString(fmt.Sprintf("\n      <parameter name=\"%s\" type=\"%s\"",
-					xmlEscape(p.Name), xmlEscape(p.Type)))
-				if p.Required {
-					sb.WriteString(" required=\"true\"")
-				}
-				if p.Description != "" {
-					sb.WriteString(fmt.Sprintf(" description=\"%s\"", xmlEscape(p.Description)))
-				}
-				sb.WriteString(" />")
-			}
-			sb.WriteString("\n    </parameters>")
-		}
-		sb.WriteString("\n  </tool>")
+		writeToolXML(&sb, t)
 	}
 	sb.WriteString("\n</tools>")
 	return sb.String()
+}
+
+func RenderToolsXMLByName(names []string, tools []agent.Tool) string {
+	if len(names) == 0 {
+		return ""
+	}
+	byName := make(map[string]agent.Tool, len(tools))
+	for _, t := range tools {
+		byName[t.Name()] = t
+	}
+	var sb strings.Builder
+	sb.WriteString("<tools>")
+	for _, name := range names {
+		if t, ok := byName[name]; ok {
+			writeToolXML(&sb, t)
+		} else {
+			sb.WriteString(fmt.Sprintf("\n  <tool name=\"%s\" />", xmlEscape(name)))
+		}
+	}
+	sb.WriteString("\n</tools>")
+	return sb.String()
+}
+
+func writeToolXML(sb *strings.Builder, t agent.Tool) {
+	sb.WriteString(fmt.Sprintf("\n  <tool name=\"%s\">", xmlEscape(t.Name())))
+	if d := t.Description(); d != "" {
+		sb.WriteString("\n    <description>")
+		sb.WriteString(xmlEscape(d))
+		sb.WriteString("</description>")
+	}
+	if params := schemaParams(t.Schema()); len(params) > 0 {
+		sb.WriteString("\n    <parameters>")
+		for _, p := range params {
+			sb.WriteString(fmt.Sprintf("\n      <parameter name=\"%s\" type=\"%s\"",
+				xmlEscape(p.Name), xmlEscape(p.Type)))
+			if p.Required {
+				sb.WriteString(" required=\"true\"")
+			}
+			if p.Description != "" {
+				sb.WriteString(fmt.Sprintf(" description=\"%s\"", xmlEscape(p.Description)))
+			}
+			sb.WriteString(" />")
+		}
+		sb.WriteString("\n    </parameters>")
+	}
+	sb.WriteString("\n  </tool>")
 }
 
 func RenderSkillsXML(skills []skill.Skill) string {
@@ -149,16 +190,41 @@ func RenderSkillsXML(skills []skill.Skill) string {
 	var sb strings.Builder
 	sb.WriteString("<skills>")
 	for _, s := range skills {
-		sb.WriteString(fmt.Sprintf("\n  <skill name=\"%s\">", xmlEscape(s.Name)))
-		if s.Description != "" {
-			sb.WriteString("\n    <description>")
-			sb.WriteString(xmlEscape(s.Description))
-			sb.WriteString("</description>")
-		}
-		sb.WriteString("\n  </skill>")
+		writeSkillXML(&sb, s)
 	}
 	sb.WriteString("\n</skills>")
 	return sb.String()
+}
+
+func RenderSkillsXMLByName(names []string, skills []skill.Skill) string {
+	if len(names) == 0 {
+		return ""
+	}
+	byName := make(map[string]skill.Skill, len(skills))
+	for _, s := range skills {
+		byName[s.Name] = s
+	}
+	var sb strings.Builder
+	sb.WriteString("<skills>")
+	for _, name := range names {
+		if s, ok := byName[name]; ok {
+			writeSkillXML(&sb, s)
+		} else {
+			sb.WriteString(fmt.Sprintf("\n  <skill name=\"%s\" />", xmlEscape(name)))
+		}
+	}
+	sb.WriteString("\n</skills>")
+	return sb.String()
+}
+
+func writeSkillXML(sb *strings.Builder, s skill.Skill) {
+	sb.WriteString(fmt.Sprintf("\n  <skill name=\"%s\">", xmlEscape(s.Name)))
+	if s.Description != "" {
+		sb.WriteString("\n    <description>")
+		sb.WriteString(xmlEscape(s.Description))
+		sb.WriteString("</description>")
+	}
+	sb.WriteString("\n  </skill>")
 }
 
 func xmlEscape(s string) string {
