@@ -3,12 +3,13 @@ package openai
 import "encoding/json"
 
 type chatMessage struct {
-	Role       string          `json:"role"`
-	Content    json.RawMessage `json:"content"`
-	Reasoning  json.RawMessage `json:"reasoning,omitempty"`
-	Name       string          `json:"name,omitempty"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
-	ToolCalls  []chatToolCall  `json:"tool_calls,omitempty"`
+	Role             string          `json:"role"`
+	Content          json.RawMessage `json:"content"`
+	Reasoning        json.RawMessage `json:"reasoning,omitempty"`
+	ReasoningContent json.RawMessage `json:"reasoning_content,omitempty"`
+	Name             string          `json:"name,omitempty"`
+	ToolCallID       string          `json:"tool_call_id,omitempty"`
+	ToolCalls        []chatToolCall  `json:"tool_calls,omitempty"`
 }
 
 type chatToolCall struct {
@@ -62,11 +63,12 @@ type chatChoice struct {
 }
 
 type chatDelta struct {
-	Role      *string       `json:"role,omitempty"`
-	Content   *string       `json:"content,omitempty"`
-	Reasoning *string       `json:"reasoning,omitempty"`
-	ToolCalls []chatDeltaTC `json:"tool_calls,omitempty"`
-	Refusal   *string       `json:"refusal,omitempty"`
+	Role             *string       `json:"role,omitempty"`
+	Content          *string       `json:"content,omitempty"`
+	Reasoning        *string       `json:"reasoning,omitempty"`
+	ReasoningContent *string       `json:"reasoning_content,omitempty"`
+	ToolCalls        []chatDeltaTC `json:"tool_calls,omitempty"`
+	Refusal          *string       `json:"refusal,omitempty"`
 }
 
 type chatDeltaTC struct {

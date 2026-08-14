@@ -15,8 +15,7 @@ import (
 	"github.com/vesvai/vesvai/internal/filesystem"
 	"github.com/vesvai/vesvai/internal/hook"
 	"github.com/vesvai/vesvai/internal/llm"
-	"github.com/vesvai/vesvai/internal/llm/providers/openai"
-	"github.com/vesvai/vesvai/internal/llm/providers/openrouter"
+	allProviders "github.com/vesvai/vesvai/internal/llm/providers/all"
 	"github.com/vesvai/vesvai/internal/permission"
 	"github.com/vesvai/vesvai/internal/session"
 	"github.com/vesvai/vesvai/internal/skill"
@@ -419,10 +418,18 @@ func cmdConfigShow() {
 	}
 }
 
+func supportedProviders() string {
+	hooks := hook.New(nil)
+	allProviders.RegisterAll(hooks)
+	registry := llm.NewProviderRegistry()
+	hooks.ApplyFilter(context.Background(), llm.HookProviderRegistry, registry)
+	return strings.Join(registry.Supported(), ", ")
+}
+
 func cmdProvider(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: vesvai provider add <name> <api-key>")
-		fmt.Fprintln(os.Stderr, "supported providers: openrouter, openai")
+		fmt.Fprintln(os.Stderr, "supported providers: "+supportedProviders())
 		os.Exit(1)
 	}
 
@@ -430,7 +437,7 @@ func cmdProvider(args []string) {
 	case "add":
 		if len(args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: vesvai provider add <name> <api-key>")
-			fmt.Fprintln(os.Stderr, "supported providers: openrouter, openai")
+			fmt.Fprintln(os.Stderr, "supported providers: "+supportedProviders())
 			os.Exit(1)
 		}
 		cmdProviderAdd(args[1], args[2])
@@ -448,8 +455,7 @@ func cmdProviderAdd(name, apiKey string) {
 	}
 
 	hooks := hook.New(nil)
-	openrouter.RegisterHooks(hooks)
-	openai.RegisterHooks(hooks)
+	allProviders.RegisterAll(hooks)
 
 	registry := llm.NewProviderRegistry()
 	result := hooks.ApplyFilter(context.Background(), llm.HookProviderRegistry, registry)
@@ -459,7 +465,7 @@ func cmdProviderAdd(name, apiKey string) {
 
 	provider, err := registry.Create(providerCfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error creating provider: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n\nsupported providers: %s\n", err, strings.Join(registry.Supported(), ", "))
 		os.Exit(1)
 	}
 

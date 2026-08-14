@@ -13,8 +13,7 @@ import (
 	"github.com/vesvai/vesvai/internal/hook"
 	"github.com/vesvai/vesvai/internal/lifecycle"
 	"github.com/vesvai/vesvai/internal/llm"
-	"github.com/vesvai/vesvai/internal/llm/providers/openai"
-	"github.com/vesvai/vesvai/internal/llm/providers/openrouter"
+	"github.com/vesvai/vesvai/internal/llm/providers/all"
 	"github.com/vesvai/vesvai/internal/mcp"
 	"github.com/vesvai/vesvai/internal/memory"
 	"github.com/vesvai/vesvai/internal/permission"
@@ -48,8 +47,7 @@ func New(cfg *config.Config) *App {
 	toolRegistry := agent.NewToolRegistry()
 	providerRegistry := llm.NewProviderRegistry()
 
-	openrouter.RegisterHooks(hooks)
-	openai.RegisterHooks(hooks)
+	all.RegisterAll(hooks)
 
 	return &App{
 		Hooks:        hooks,

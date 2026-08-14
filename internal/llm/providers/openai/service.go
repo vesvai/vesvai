@@ -23,6 +23,7 @@ type ServiceConfig struct {
 	Timeout            time.Duration
 	ModifyRequest      func(body map[string]any)
 	IncludeStreamUsage *bool
+	PathFor            func(endpoint, model string) string
 }
 
 func NewService(name string, cfg ServiceConfig) *Service {
@@ -48,6 +49,20 @@ func NewService(name string, cfg ServiceConfig) *Service {
 
 func (s *Service) Name() string { return s.name }
 
+func (s *Service) chatPath(model string) string {
+	if s.cfg.PathFor != nil {
+		return s.cfg.PathFor("/chat/completions", model)
+	}
+	return "/chat/completions"
+}
+
+func (s *Service) modelsPath() string {
+	if s.cfg.PathFor != nil {
+		return s.cfg.PathFor("/models", "")
+	}
+	return "/models"
+}
+
 func (s *Service) Chat(ctx context.Context, req *llm.Request) (*llm.Response, error) {
 	body, err := s.buildBody(req, false)
 	if err != nil {
@@ -55,7 +70,7 @@ func (s *Service) Chat(ctx context.Context, req *llm.Request) (*llm.Response, er
 	}
 
 	var resp chatResponse
-	if err := s.httpClient.Do(ctx, "POST", "/chat/completions", body, &resp); err != nil {
+	if err := s.httpClient.Do(ctx, "POST", s.chatPath(req.Model), body, &resp); err != nil {
 		return nil, mapError(err)
 	}
 	return s.toLLMResponse(resp), nil
@@ -67,7 +82,7 @@ func (s *Service) ChatStream(ctx context.Context, req *llm.Request, handler llm.
 		return err
 	}
 
-	err = s.httpClient.DoStream(ctx, "/chat/completions", body, func(line []byte) error {
+	err = s.httpClient.DoStream(ctx, s.chatPath(req.Model), body, func(line []byte) error {
 		event, data := http.ParseSSEvent(line)
 		if event == "done" || len(data) == 0 {
 			return nil
@@ -91,7 +106,7 @@ func (s *Service) ChatStream(ctx context.Context, req *llm.Request, handler llm.
 
 func (s *Service) ListModels(ctx context.Context) ([]llm.Model, error) {
 	var resp chatModelsResponse
-	if err := s.httpClient.Do(ctx, "GET", "/models", nil, &resp); err != nil {
+	if err := s.httpClient.Do(ctx, "GET", s.modelsPath(), nil, &resp); err != nil {
 		return nil, mapError(err)
 	}
 
@@ -185,7 +200,7 @@ func (s *Service) toLLMResponse(resp chatResponse) *llm.Response {
 			msg = &llm.Message{
 				Role:      llm.Role(choice.Message.Role),
 				Content:   parseContent(choice.Message.Content),
-				Reasoning: parseRaw(choice.Message.Reasoning),
+				Reasoning: parseRaw(firstReasoning(choice.Message)),
 				Name:      choice.Message.Name,
 			}
 			if len(choice.Message.ToolCalls) > 0 {
@@ -237,6 +252,8 @@ func (s *Service) toStreamChunk(resp chatResponse) llm.StreamChunk {
 			}
 			if choice.Delta.Reasoning != nil {
 				chunk.Reasoning = *choice.Delta.Reasoning
+			} else if choice.Delta.ReasoningContent != nil {
+				chunk.Reasoning = *choice.Delta.ReasoningContent
 			}
 			for _, tc := range choice.Delta.ToolCalls {
 				chunk.ToolCalls = append(chunk.ToolCalls, llm.ToolCall{
@@ -368,6 +385,13 @@ func parseRaw(raw json.RawMessage) any {
 		return any
 	}
 	return string(raw)
+}
+
+func firstReasoning(m *chatMessage) json.RawMessage {
+	if len(m.Reasoning) > 0 {
+		return m.Reasoning
+	}
+	return m.ReasoningContent
 }
 
 func toLLMUsage(u chatUsage) llm.Usage {

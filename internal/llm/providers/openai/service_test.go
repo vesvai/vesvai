@@ -165,6 +165,31 @@ func TestToStreamChunk_NullFinishNotDone(t *testing.T) {
 	}
 }
 
+func TestToStreamChunk_ReasoningContent(t *testing.T) {
+	reasoning := "thinking hard"
+	resp := chatResponse{
+		Choices: []chatChoice{{
+			Index: 0,
+			Delta: &chatDelta{ReasoningContent: &reasoning},
+		}},
+	}
+	s := &Service{}
+	chunk := s.toStreamChunk(resp)
+	if chunk.Reasoning != "thinking hard" {
+		t.Errorf("reasoning = %q, want %q (reasoning_content alias)", chunk.Reasoning, reasoning)
+	}
+}
+
+func TestFirstReasoning_PrefersReasoning(t *testing.T) {
+	msg := &chatMessage{
+		Reasoning:        json.RawMessage(`"a"`),
+		ReasoningContent: json.RawMessage(`"b"`),
+	}
+	if got := string(firstReasoning(msg)); got != `"a"` {
+		t.Errorf("firstReasoning = %s, want %q", got, `"a"`)
+	}
+}
+
 func TestToStreamChunk_ToolCallDelta(t *testing.T) {
 	resp := chatResponse{
 		Choices: []chatChoice{{
@@ -237,4 +262,3 @@ func TestName(t *testing.T) {
 		t.Errorf("Name = %q, want openai", s.Name())
 	}
 }
-
