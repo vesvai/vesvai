@@ -2,11 +2,10 @@ package hook
 
 import (
 	"context"
-	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
-	"github.com/google/uuid"
 	"github.com/vesvai/vesvai/internal/event"
 )
 
@@ -75,6 +74,7 @@ type Hooks struct {
 	eventBus  event.EventBus
 	globalCtx context.Context
 	stats     *hookStats
+	seq       atomic.Uint64
 }
 
 type hookStats struct {
@@ -110,11 +110,8 @@ func (h *Hooks) AddFilterOnce(hookName string, callback FilterCallback, priority
 }
 
 func (h *Hooks) registerHook(hookName string, action ActionCallback, filter FilterCallback, priority int, once bool) *Callback {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
 	cb := &Callback{
-		ID:       uuid.New().String(),
+		ID:       strconv.FormatUint(h.seq.Add(1), 36),
 		Hook:     hookName,
 		Priority: priority,
 		Once:     once,
@@ -122,107 +119,74 @@ func (h *Hooks) registerHook(hookName string, action ActionCallback, filter Filt
 		filter:   filter,
 	}
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if action != nil {
-		if _, ok := h.actions[hookName]; !ok {
-			h.actions[hookName] = []*Callback{}
-		}
-		h.actions[hookName] = append(h.actions[hookName], cb)
-		h.sortHooks(h.actions, hookName)
+		h.actions[hookName] = insertSorted(h.actions[hookName], cb)
 	}
 
 	if filter != nil {
-		if _, ok := h.filters[hookName]; !ok {
-			h.filters[hookName] = []*Callback{}
-		}
-		h.filters[hookName] = append(h.filters[hookName], cb)
-		h.sortHooks(h.filters, hookName)
+		h.filters[hookName] = insertSorted(h.filters[hookName], cb)
 	}
 
 	h.stats.hooksRegistered.Add(1)
 
-	if h.eventBus != nil {
-		h.eventBus.Publish(h.globalCtx, event.NewSystemEvent(
-			event.EventSystemConfig,
-			map[string]interface{}{
-				"hook_registered": hookName,
-				"type":            h.getHookType(action),
-			},
-		))
-	}
-
 	return cb
 }
 
-func (h *Hooks) sortHooks(hooksMap map[string][]*Callback, hookName string) {
-	hooks := hooksMap[hookName]
-	sort.Slice(hooks, func(i, j int) bool {
-		return hooks[i].Priority > hooks[j].Priority
-	})
-}
-
-func (h *Hooks) getHookType(action ActionCallback) HookType {
-	if action != nil {
-		return HookTypeAction
+func insertSorted(callbacks []*Callback, cb *Callback) []*Callback {
+	pos := len(callbacks)
+	for i, c := range callbacks {
+		if cb.Priority > c.Priority {
+			pos = i
+			break
+		}
 	}
-	return HookTypeFilter
+	callbacks = append(callbacks, nil)
+	copy(callbacks[pos+1:], callbacks[pos:])
+	callbacks[pos] = cb
+	return callbacks
 }
 
-func (h *Hooks) RemoveAction(hookName string, callback ActionCallback) {
-	h.removeHook(hookName, func(cb *Callback) bool {
-		return cb.action != nil && &cb.action == &callback
-	})
+func (h *Hooks) RemoveAction(callback *Callback) {
+	h.removeCallback(callback)
 }
 
-func (h *Hooks) RemoveFilter(hookName string, callback FilterCallback) {
-	h.removeHook(hookName, func(cb *Callback) bool {
-		return cb.filter != nil && &cb.filter == &callback
-	})
+func (h *Hooks) RemoveFilter(callback *Callback) {
+	h.removeCallback(callback)
 }
 
 func (h *Hooks) RemoveCallback(id string) {
+	h.removeCallback(&Callback{ID: id})
+}
+
+func (h *Hooks) removeCallback(cb *Callback) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	for hookName, cbs := range h.actions {
-		for i, cb := range cbs {
-			if cb.ID == id {
-				h.actions[hookName] = append(cbs[:i], cbs[i+1:]...)
-				return
-			}
+		if i, ok := h.findIndex(cbs, cb.ID); ok {
+			h.actions[hookName] = append(cbs[:i], cbs[i+1:]...)
+			return
 		}
 	}
 
 	for hookName, cbs := range h.filters {
-		for i, cb := range cbs {
-			if cb.ID == id {
-				h.filters[hookName] = append(cbs[:i], cbs[i+1:]...)
-				return
-			}
+		if i, ok := h.findIndex(cbs, cb.ID); ok {
+			h.filters[hookName] = append(cbs[:i], cbs[i+1:]...)
+			return
 		}
 	}
 }
 
-func (h *Hooks) removeHook(hookName string, match func(*Callback) bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if cbs, ok := h.actions[hookName]; ok {
-		for i, cb := range cbs {
-			if match(cb) {
-				h.actions[hookName] = append(cbs[:i], cbs[i+1:]...)
-				return
-			}
+func (h *Hooks) findIndex(cbs []*Callback, id string) (int, bool) {
+	for i, cb := range cbs {
+		if cb.ID == id {
+			return i, true
 		}
 	}
-
-	if cbs, ok := h.filters[hookName]; ok {
-		for i, cb := range cbs {
-			if match(cb) {
-				h.filters[hookName] = append(cbs[:i], cbs[i+1:]...)
-				return
-			}
-		}
-	}
+	return 0, false
 }
 
 func (h *Hooks) HasAction(hookName string) bool {
@@ -309,15 +273,17 @@ func (h *Hooks) DoActionAsync(hookName string, args ...interface{}) {
 	callbacks := h.actions[hookName]
 	h.mu.RUnlock()
 
-	for _, cb := range callbacks {
-		go func(callback *Callback) {
-			defer func() {
-				if r := recover(); r != nil {
-				}
-			}()
-			callback.action(context.Background(), args...)
-		}(cb)
+	if len(callbacks) == 0 {
+		return
 	}
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+			}
+		}()
+		h.DoAction(context.Background(), hookName, args...)
+	}()
 }
 
 func (h *Hooks) GetActions(hookName string) []*Callback {

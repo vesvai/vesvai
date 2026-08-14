@@ -1,9 +1,11 @@
 package filesystem
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	iofs "io/fs"
 	"os"
 	"path/filepath"
@@ -13,10 +15,17 @@ import (
 	"sync"
 )
 
+const (
+	defaultMaxReadBytes = 16 << 20
+	maxGrepFileBytes    = 8 << 20
+	maxChecksums        = 4096
+)
+
 type FileSystem struct {
 	root          string
 	ignore        *IgnoreRules
 	ignoreDot     bool
+	maxReadBytes  int64
 	mu            sync.RWMutex
 	readChecksums map[string]string
 }
@@ -40,10 +49,16 @@ func New(cfg Config) (*FileSystem, error) {
 		return nil, fmt.Errorf("failed to load ignore rules: %w", err)
 	}
 
+	maxRead := cfg.MaxReadBytes
+	if maxRead <= 0 {
+		maxRead = defaultMaxReadBytes
+	}
+
 	return &FileSystem{
 		root:          absRoot,
 		ignore:        ignore,
 		ignoreDot:     cfg.IgnoreDotfiles,
+		maxReadBytes:  maxRead,
 		readChecksums: make(map[string]string),
 	}, nil
 }
@@ -161,7 +176,7 @@ func (fs *FileSystem) Read(ctx context.Context, relPath string) (string, error) 
 		return "", err
 	}
 
-	data, err := os.ReadFile(absPath)
+	data, truncated, err := fs.readCapped(absPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
@@ -170,11 +185,47 @@ func (fs *FileSystem) Read(ctx context.Context, relPath string) (string, error) 
 		return fmt.Sprintf("[Binary file: %s — cannot display content]", filepath.Base(relPath)), nil
 	}
 
-	fs.mu.Lock()
-	fs.readChecksums[relPath] = hashFromBytes(data)
-	fs.mu.Unlock()
+	if truncated {
+		fs.removeChecksum(relPath)
+		return string(data) + "\n...[truncated: file exceeds read limit]", nil
+	}
 
+	fs.storeChecksum(relPath, data)
 	return string(data), nil
+}
+
+func (fs *FileSystem) readCapped(absPath string) ([]byte, bool, error) {
+	f, err := os.Open(absPath)
+	if err != nil {
+		return nil, false, err
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(io.LimitReader(f, fs.maxReadBytes+1))
+	if err != nil {
+		return nil, false, err
+	}
+
+	if int64(len(data)) > fs.maxReadBytes {
+		return data[:fs.maxReadBytes], true, nil
+	}
+	return data, false, nil
+}
+
+func (fs *FileSystem) storeChecksum(relPath string, data []byte) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if len(fs.readChecksums) >= maxChecksums {
+		fs.readChecksums = make(map[string]string)
+	}
+	fs.readChecksums[relPath] = hashFromBytes(data)
+}
+
+func (fs *FileSystem) removeChecksum(relPath string) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	delete(fs.readChecksums, relPath)
 }
 
 func (fs *FileSystem) ReadRange(ctx context.Context, relPath string, start, end int) (string, error) {
@@ -584,23 +635,41 @@ func (fs *FileSystem) walkForGrep(absDir, relDir string, re *regexp.Regexp, resu
 }
 
 func (fs *FileSystem) grepFile(absPath, relPath string, re *regexp.Regexp, results *[]GrepResult) {
-	data, err := os.ReadFile(absPath)
+	f, err := os.Open(absPath)
 	if err != nil {
 		return
 	}
+	defer f.Close()
 
-	if IsBinary(data) {
+	fi, err := f.Stat()
+	if err != nil {
+		return
+	}
+	if fi.Size() > maxGrepFileBytes {
 		return
 	}
 
-	content := string(data)
-	lines := strings.Split(content, "\n")
+	head := make([]byte, 512)
+	n, _ := f.Read(head)
+	if IsBinary(head[:n]) {
+		return
+	}
 
-	for i, line := range lines {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return
+	}
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		line := scanner.Text()
 		if re.MatchString(line) {
 			*results = append(*results, GrepResult{
 				Path:    relPath,
-				Line:    i + 1,
+				Line:    lineNum,
 				Content: line,
 			})
 		}

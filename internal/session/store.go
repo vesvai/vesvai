@@ -29,6 +29,8 @@ type FileStore struct {
 	workspace string
 	index     *sessionIndex
 	closed    bool
+
+	lastIndexPersist time.Time
 }
 
 type sessionIndex struct {
@@ -36,6 +38,8 @@ type sessionIndex struct {
 	sessions []SessionMetadataIndex
 	dirty    bool
 }
+
+const indexPersistInterval = 5 * time.Second
 
 func NewFileStore(workspacePath string) (*FileStore, error) {
 	sessionsBase, err := config.GetSessionsDir()
@@ -131,7 +135,10 @@ func (s *FileStore) Save(session *Session) error {
 	}
 	s.index.dirty = true
 
-	return s.persistIndexLocked()
+	if s.closed || time.Since(s.lastIndexPersist) >= indexPersistInterval {
+		return s.persistIndexLocked()
+	}
+	return nil
 }
 
 func (s *FileStore) Load(id string) (*Session, error) {
@@ -187,7 +194,10 @@ func (s *FileStore) Delete(id string) error {
 		}
 	}
 
-	return s.persistIndexLocked()
+	if s.closed || time.Since(s.lastIndexPersist) >= indexPersistInterval {
+		return s.persistIndexLocked()
+	}
+	return nil
 }
 
 func (s *FileStore) List(opts ListOptions) (*ListResult, error) {
@@ -375,6 +385,7 @@ func (s *FileStore) persistIndexLocked() error {
 	}
 
 	s.index.dirty = false
+	s.lastIndexPersist = time.Now()
 	return nil
 }
 
@@ -390,6 +401,12 @@ func writeAtomically(path string, data interface{}) error {
 	encoder.SetIndent("", "")
 
 	if err := encoder.Encode(data); err != nil {
+		f.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+
+	if err := f.Sync(); err != nil {
 		f.Close()
 		os.Remove(tmpPath)
 		return err

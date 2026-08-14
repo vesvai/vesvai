@@ -116,9 +116,14 @@ func (s *Service) buildBody(req *llm.Request, stream bool) (any, error) {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	var body map[string]any
-	if err := json.Unmarshal(raw, &body); err != nil {
+	var rawBody map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &rawBody); err != nil {
 		return nil, fmt.Errorf("failed to normalise request: %w", err)
+	}
+
+	body := make(map[string]any, len(rawBody)+1)
+	for k, v := range rawBody {
+		body[k] = v
 	}
 
 	if len(req.Tools) > 0 {

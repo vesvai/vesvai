@@ -3,16 +3,25 @@ package memory
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/vesvai/vesvai/internal/filesystem"
 )
 
+const saveDebounce = 500 * time.Millisecond
+
 type Memory struct {
 	store  MemoryStore
 	memory *WorkspaceMemory
 	fs     *filesystem.FileSystem
+
+	mu    sync.Mutex
+	dirty bool
+	timer *time.Timer
+
+	dataMu sync.RWMutex
 }
 
 func New(store MemoryStore, fs *filesystem.FileSystem) *Memory {
@@ -22,7 +31,35 @@ func New(store MemoryStore, fs *filesystem.FileSystem) *Memory {
 	}
 }
 
+func (m *Memory) markDirty() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.dirty = true
+	if m.timer == nil {
+		m.timer = time.AfterFunc(saveDebounce, func() {
+			m.Flush()
+		})
+	}
+}
+
+func (m *Memory) Flush() {
+	m.mu.Lock()
+	if !m.dirty {
+		m.mu.Unlock()
+		return
+	}
+	m.dirty = false
+	m.timer = nil
+	m.mu.Unlock()
+
+	_ = m.Save()
+}
+
 func (m *Memory) Load() error {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+
 	memory, err := m.store.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load memory: %w", err)
@@ -32,6 +69,9 @@ func (m *Memory) Load() error {
 }
 
 func (m *Memory) Save() error {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+
 	if m.memory == nil {
 		return fmt.Errorf("memory not loaded")
 	}
@@ -39,6 +79,9 @@ func (m *Memory) Save() error {
 }
 
 func (m *Memory) Initialize(workspacePath string) error {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+
 	if m.store.Exists() {
 		return m.Load()
 	}
@@ -54,6 +97,9 @@ func (m *Memory) Initialize(workspacePath string) error {
 }
 
 func (m *Memory) AddFact(factType FactType, title, content string, confidence float64, tags []string, source string) (*Fact, error) {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+
 	if m.memory == nil {
 		return nil, fmt.Errorf("memory not loaded")
 	}
@@ -75,10 +121,14 @@ func (m *Memory) AddFact(factType FactType, title, content string, confidence fl
 	}
 
 	m.memory.Facts = append(m.memory.Facts, fact)
+	m.markDirty()
 	return &fact, nil
 }
 
 func (m *Memory) GetFact(id string) (*Fact, error) {
+	m.dataMu.RLock()
+	defer m.dataMu.RUnlock()
+
 	if m.memory == nil {
 		return nil, fmt.Errorf("memory not loaded")
 	}
@@ -93,6 +143,9 @@ func (m *Memory) GetFact(id string) (*Fact, error) {
 }
 
 func (m *Memory) UpdateFact(id string, updates map[string]interface{}) (*Fact, error) {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+
 	if m.memory == nil {
 		return nil, fmt.Errorf("memory not loaded")
 	}
@@ -118,6 +171,7 @@ func (m *Memory) UpdateFact(id string, updates map[string]interface{}) (*Fact, e
 			}
 
 			fact.UpdatedAt = time.Now()
+			m.markDirty()
 			return fact, nil
 		}
 	}
@@ -126,6 +180,9 @@ func (m *Memory) UpdateFact(id string, updates map[string]interface{}) (*Fact, e
 }
 
 func (m *Memory) DeleteFact(id string) error {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+
 	if m.memory == nil {
 		return fmt.Errorf("memory not loaded")
 	}
@@ -133,6 +190,7 @@ func (m *Memory) DeleteFact(id string) error {
 	for i := range m.memory.Facts {
 		if m.memory.Facts[i].ID == id {
 			m.memory.Facts = append(m.memory.Facts[:i], m.memory.Facts[i+1:]...)
+			m.markDirty()
 			return nil
 		}
 	}
@@ -141,6 +199,9 @@ func (m *Memory) DeleteFact(id string) error {
 }
 
 func (m *Memory) SearchFacts(query string, opts *SearchOptions) ([]Fact, error) {
+	m.dataMu.RLock()
+	defer m.dataMu.RUnlock()
+
 	if m.memory == nil {
 		return nil, fmt.Errorf("memory not loaded")
 	}
@@ -182,6 +243,9 @@ func (m *Memory) SearchFacts(query string, opts *SearchOptions) ([]Fact, error) 
 }
 
 func (m *Memory) ListFacts(opts *ListOptions) (*ListResult, error) {
+	m.dataMu.RLock()
+	defer m.dataMu.RUnlock()
+
 	if m.memory == nil {
 		return nil, fmt.Errorf("memory not loaded")
 	}
@@ -228,6 +292,9 @@ func (m *Memory) ListFacts(opts *ListOptions) (*ListResult, error) {
 }
 
 func (m *Memory) AddNote(title, content string, tags []string) (*Note, error) {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+
 	if m.memory == nil {
 		return nil, fmt.Errorf("memory not loaded")
 	}
@@ -246,10 +313,14 @@ func (m *Memory) AddNote(title, content string, tags []string) (*Note, error) {
 	}
 
 	m.memory.Notes = append(m.memory.Notes, note)
+	m.markDirty()
 	return &note, nil
 }
 
 func (m *Memory) GetNote(id string) (*Note, error) {
+	m.dataMu.RLock()
+	defer m.dataMu.RUnlock()
+
 	if m.memory == nil {
 		return nil, fmt.Errorf("memory not loaded")
 	}
@@ -264,6 +335,9 @@ func (m *Memory) GetNote(id string) (*Note, error) {
 }
 
 func (m *Memory) UpdateNote(id string, updates map[string]interface{}) (*Note, error) {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+
 	if m.memory == nil {
 		return nil, fmt.Errorf("memory not loaded")
 	}
@@ -283,6 +357,7 @@ func (m *Memory) UpdateNote(id string, updates map[string]interface{}) (*Note, e
 			}
 
 			note.UpdatedAt = time.Now()
+			m.markDirty()
 			return note, nil
 		}
 	}
@@ -291,6 +366,9 @@ func (m *Memory) UpdateNote(id string, updates map[string]interface{}) (*Note, e
 }
 
 func (m *Memory) DeleteNote(id string) error {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+
 	if m.memory == nil {
 		return fmt.Errorf("memory not loaded")
 	}
@@ -298,6 +376,7 @@ func (m *Memory) DeleteNote(id string) error {
 	for i := range m.memory.Notes {
 		if m.memory.Notes[i].ID == id {
 			m.memory.Notes = append(m.memory.Notes[:i], m.memory.Notes[i+1:]...)
+			m.markDirty()
 			return nil
 		}
 	}
@@ -306,6 +385,9 @@ func (m *Memory) DeleteNote(id string) error {
 }
 
 func (m *Memory) MergeFacts(newFact Fact) (*Fact, error) {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+
 	if m.memory == nil {
 		return nil, fmt.Errorf("memory not loaded")
 	}
@@ -318,6 +400,7 @@ func (m *Memory) MergeFacts(newFact Fact) (*Fact, error) {
 			existing.UpdatedAt = time.Now()
 
 			existing.Tags = mergeTags(existing.Tags, newFact.Tags)
+			m.markDirty()
 
 			return existing, nil
 		}
@@ -327,10 +410,14 @@ func (m *Memory) MergeFacts(newFact Fact) (*Fact, error) {
 	newFact.CreatedAt = time.Now()
 	newFact.UpdatedAt = time.Now()
 	m.memory.Facts = append(m.memory.Facts, newFact)
+	m.markDirty()
 	return &newFact, nil
 }
 
 func (m *Memory) GetFactsByType(factType FactType) ([]Fact, error) {
+	m.dataMu.RLock()
+	defer m.dataMu.RUnlock()
+
 	if m.memory == nil {
 		return nil, fmt.Errorf("memory not loaded")
 	}
@@ -346,6 +433,9 @@ func (m *Memory) GetFactsByType(factType FactType) ([]Fact, error) {
 }
 
 func (m *Memory) GetHighConfidenceFacts(threshold float64) ([]Fact, error) {
+	m.dataMu.RLock()
+	defer m.dataMu.RUnlock()
+
 	if m.memory == nil {
 		return nil, fmt.Errorf("memory not loaded")
 	}
@@ -361,6 +451,9 @@ func (m *Memory) GetHighConfidenceFacts(threshold float64) ([]Fact, error) {
 }
 
 func (m *Memory) GetStats() map[string]interface{} {
+	m.dataMu.RLock()
+	defer m.dataMu.RUnlock()
+
 	if m.memory == nil {
 		return nil
 	}

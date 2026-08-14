@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 var (
@@ -58,13 +57,13 @@ type eventBus struct {
 	requestSubs  map[EventType]*subscriptionList
 	asyncChan    chan asyncEvent
 	requestChan  chan *Request
-	workerPool   *workerPool
-	requestPool  *workerPool
+	stop         chan struct{}
 	deadEventBus *eventBus
 	closed       atomic.Bool
 	config       EventBusConfig
 	metrics      *busMetrics
 	loopWg       sync.WaitGroup
+	subSeq       atomic.Uint64
 }
 
 type subscriptionList struct {
@@ -87,48 +86,29 @@ type busMetrics struct {
 type PrePublishHook func(ctx context.Context, event Event) error
 type PostPublishHook func(ctx context.Context, event Event, err error)
 
+func newEventBus(config EventBusConfig) *eventBus {
+	return &eventBus{
+		subs:        make(map[EventType]*subscriptionList),
+		requestSubs: make(map[EventType]*subscriptionList),
+		asyncChan:   make(chan asyncEvent, config.AsyncQueueSize),
+		requestChan: make(chan *Request, config.AsyncQueueSize),
+		stop:        make(chan struct{}),
+		config:      config,
+		metrics:     &busMetrics{},
+	}
+}
+
 func NewEventBus(configs ...EventBusConfig) EventBus {
 	config := DefaultEventBusConfig()
 	if len(configs) > 0 {
 		config = configs[0]
 	}
 
-	bus := &eventBus{
-		subs:        make(map[EventType]*subscriptionList),
-		requestChan: make(chan *Request, config.AsyncQueueSize),
-		config:      config,
-		metrics:     &busMetrics{},
-	}
-
-	bus.asyncChan = make(chan asyncEvent, config.AsyncQueueSize)
-	bus.workerPool = newWorkerPool("async-worker", config.AsyncWorkers)
-	bus.requestPool = newWorkerPool("request-worker", config.RequestWorkers)
+	bus := newEventBus(config)
 
 	if config.EnableDeadEvent {
-		bus.deadEventBus = &eventBus{
-			subs:        make(map[EventType]*subscriptionList),
-			requestChan: make(chan *Request, config.AsyncQueueSize),
-			config:      config,
-			metrics:     &busMetrics{},
-		}
-		bus.deadEventBus.asyncChan = make(chan asyncEvent, config.AsyncQueueSize)
-		bus.deadEventBus.workerPool = newWorkerPool("dead-async-worker", config.AsyncWorkers)
-		bus.deadEventBus.requestPool = newWorkerPool("dead-request-worker", config.RequestWorkers)
-		bus.deadEventBus.workerPool.Start()
-		bus.deadEventBus.requestPool.Start()
-		bus.deadEventBus.loopWg.Add(2)
-		go func() {
-			defer bus.deadEventBus.loopWg.Done()
-			bus.deadEventBus.processAsyncEvents()
-		}()
-		go func() {
-			defer bus.deadEventBus.loopWg.Done()
-			bus.deadEventBus.processRequests()
-		}()
+		bus.deadEventBus = newEventBus(config)
 	}
-
-	bus.workerPool.Start()
-	bus.requestPool.Start()
 
 	bus.loopWg.Add(2)
 	go func() {
@@ -141,6 +121,10 @@ func NewEventBus(configs ...EventBusConfig) EventBus {
 	}()
 
 	return bus
+}
+
+func (b *eventBus) newID() string {
+	return strconv.FormatUint(b.subSeq.Add(1), 36)
 }
 
 func (b *eventBus) Publish(ctx context.Context, event Event) error {
@@ -167,6 +151,8 @@ func (b *eventBus) PublishAsync(ctx context.Context, event Event) error {
 	case b.asyncChan <- asyncEvent{ctx: ctx, event: event}:
 		b.metrics.publishCount.Add(1)
 		return nil
+	case <-b.stop:
+		return ErrBusClosed
 	default:
 		return errors.New("async channel full")
 	}
@@ -191,44 +177,39 @@ func (b *eventBus) publishToSubscribers(ctx context.Context, event Event) error 
 	copy(subs, list.subs)
 	list.mu.RUnlock()
 
-	var wg sync.WaitGroup
 	var firstErr error
-	var mu sync.Mutex
-
 	for _, sub := range subs {
 		if !sub.Active() {
 			continue
 		}
 
-		opts := b.getSubscriptionOptions(sub)
-		if opts != nil && opts.Filter != nil && !opts.Filter(event) {
+		if sub.Filter != nil && !sub.Filter(event) {
 			continue
 		}
 
-		wg.Add(1)
-		go func(s *Subscription) {
-			defer wg.Done()
-			if err := s.Handler.Handle(ctx, event); err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				mu.Unlock()
-			}
+		if err := safeHandle(sub.Handler, ctx, event); err != nil && firstErr == nil {
+			firstErr = err
+		}
 
-			if s.Once {
-				s.Deactive()
-			}
-		}(sub)
+		if sub.Once {
+			sub.Deactive()
+		}
 	}
 
-	wg.Wait()
 	return firstErr
 }
 
+func safeHandle(h Handler, ctx context.Context, event Event) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("event handler panic: %v", r)
+		}
+	}()
+	return h.Handle(ctx, event)
+}
+
 func (b *eventBus) handleDeadEvent(ctx context.Context, event Event) {
-	dead := GetDeadEvent()
-	dead.Event = event
+	dead := NewDeadEvent(event)
 
 	b.mu.RLock()
 	list := b.subs[event.Type()]
@@ -243,7 +224,20 @@ func (b *eventBus) handleDeadEvent(ctx context.Context, event Event) {
 
 	b.metrics.deadEventCount.Add(1)
 	b.deadEventBus.Publish(ctx, dead)
-	PutDeadEvent(dead)
+}
+
+func (b *eventBus) insertSorted(subs []*Subscription, sub *Subscription) []*Subscription {
+	pos := len(subs)
+	for i, s := range subs {
+		if sub.Priority > s.Priority {
+			pos = i
+			break
+		}
+	}
+	subs = append(subs, nil)
+	copy(subs[pos+1:], subs[pos:])
+	subs[pos] = sub
+	return subs
 }
 
 func (b *eventBus) Subscribe(eventType EventType, handler Handler, opts ...SubscriptionOption) (*Subscription, error) {
@@ -256,7 +250,7 @@ func (b *eventBus) Subscribe(eventType EventType, handler Handler, opts ...Subsc
 	}
 
 	sub := &Subscription{
-		ID:        uuid.New().String(),
+		ID:        b.newID(),
 		EventType: eventType,
 		Handler:   handler,
 		Priority:  PriorityNormal,
@@ -281,12 +275,10 @@ func (b *eventBus) Subscribe(eventType EventType, handler Handler, opts ...Subsc
 	b.mu.Unlock()
 
 	list.mu.Lock()
-	list.subs = append(list.subs, sub)
+	list.subs = b.insertSorted(list.subs, sub)
 	list.mu.Unlock()
 
 	b.metrics.subscribeCount.Add(1)
-
-	go b.sortSubscriptions(eventType)
 
 	return sub, nil
 }
@@ -301,7 +293,7 @@ func (b *eventBus) SubscribeRequest(eventType EventType, handler Handler, opts .
 	}
 
 	sub := &Subscription{
-		ID:        uuid.New().String(),
+		ID:        b.newID(),
 		EventType: eventType,
 		Handler:   handler,
 		Priority:  PriorityNormal,
@@ -324,10 +316,8 @@ func (b *eventBus) SubscribeRequest(eventType EventType, handler Handler, opts .
 	b.mu.Unlock()
 
 	list.mu.Lock()
-	list.subs = append(list.subs, sub)
+	list.subs = b.insertSorted(list.subs, sub)
 	list.mu.Unlock()
-
-	go b.sortRequestSubscriptions(eventType)
 
 	return sub, nil
 }
@@ -417,6 +407,9 @@ func (b *eventBus) Request(ctx context.Context, event Event, timeout time.Durati
 		return nil, err
 	}
 
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
 	select {
 	case resp := <-req.Response:
 		return resp, nil
@@ -424,7 +417,7 @@ func (b *eventBus) Request(ctx context.Context, event Event, timeout time.Durati
 		return nil, err
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case <-time.After(timeout):
+	case <-timer.C:
 		return nil, fmt.Errorf("request timeout after %v", timeout)
 	}
 }
@@ -437,6 +430,8 @@ func (b *eventBus) PublishRequest(ctx context.Context, req *Request) error {
 	select {
 	case b.requestChan <- req:
 		return nil
+	case <-b.stop:
+		return ErrBusClosed
 	default:
 		return errors.New("request channel full")
 	}
@@ -447,7 +442,7 @@ func (b *eventBus) processRequests() {
 		select {
 		case req := <-b.requestChan:
 			b.handleRequest(req)
-		case <-b.workerPool.Done():
+		case <-b.stop:
 			return
 		}
 	}
@@ -482,8 +477,8 @@ func (b *eventBus) handleRequest(req *Request) {
 			continue
 		}
 
-		err := sub.Handler.Handle(ctx, req.Event)
-		if err == nil {
+		if err := safeHandle(sub.Handler, ctx, req.Event); err == nil {
+			req.Response <- req.Event
 			return
 		}
 	}
@@ -498,7 +493,7 @@ func (b *eventBus) processAsyncEvents() {
 			if ae.event != nil {
 				b.publishToSubscribers(ae.ctx, ae.event)
 			}
-		case <-b.workerPool.Done():
+		case <-b.stop:
 			return
 		}
 	}
@@ -527,11 +522,7 @@ func (b *eventBus) HasSubscribers(eventType EventType) bool {
 
 func (b *eventBus) Close() error {
 	if b.closed.CompareAndSwap(false, true) {
-		close(b.asyncChan)
-		close(b.requestChan)
-
-		b.workerPool.Stop()
-		b.requestPool.Stop()
+		close(b.stop)
 
 		b.loopWg.Wait()
 

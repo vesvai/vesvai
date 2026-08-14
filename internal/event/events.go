@@ -29,6 +29,7 @@ const (
 	EventSystemShutdown SystemEventType = "system:shutdown"
 	EventSystemError    SystemEventType = "system:error"
 	EventSystemConfig   SystemEventType = "system:config"
+	EventSkillChanged   SystemEventType = "skill:changed"
 )
 
 type SystemEvent struct {

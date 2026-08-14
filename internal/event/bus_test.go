@@ -415,6 +415,24 @@ func TestEventBus_Request_Timeout(t *testing.T) {
 	}
 }
 
+func TestEventBus_Request_Success(t *testing.T) {
+	bus := NewEventBus()
+	defer bus.Close()
+
+	bus.SubscribeRequest("req.ok", EventHandlerFunc(func(ctx context.Context, event Event) error {
+		return nil
+	}))
+
+	start := time.Now()
+	_, err := bus.Request(context.Background(), newTestEvent("req.ok", ""), 5*time.Second)
+	if err != nil {
+		t.Fatalf("Request() error = %v, want nil", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("Request() took %v, want immediate response (not timeout)", elapsed)
+	}
+}
+
 func TestEventBus_Request_ContextCancelled(t *testing.T) {
 	bus := NewEventBus()
 	defer bus.Close()

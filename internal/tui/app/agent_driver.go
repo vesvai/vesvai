@@ -72,10 +72,8 @@ func NewAgentDriver(cfg AgentDriverConfig) *AgentDriver {
 		app:      cfg.App,
 		approver: cfg.Approver,
 	}
-	if cfg.App != nil && cfg.App.FileSystem != nil {
-		if mgr, err := skill.NewManager(cfg.App.FileSystem.Root(), cfg.App.FileSystem); err == nil {
-			d.skills = mgr
-		}
+	if cfg.App != nil {
+		d.skills = cfg.App.Skills()
 	}
 	d.reloadModels()
 	return d
@@ -359,6 +357,10 @@ func (d *AgentDriver) SupportedProviders() []string {
 		return nil
 	}
 	return d.app.Providers.Supported()
+}
+
+func (d *AgentDriver) Skills() *skill.Manager {
+	return d.skills
 }
 
 func (d *AgentDriver) MentionAgents() []components.Mention {

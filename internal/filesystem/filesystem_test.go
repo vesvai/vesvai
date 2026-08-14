@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -540,5 +541,46 @@ func TestGlobBaseDir(t *testing.T) {
 		if got := globBaseDir(c.pat); got != c.want {
 			t.Errorf("globBaseDir(%q) = %q, want %q", c.pat, got, c.want)
 		}
+	}
+}
+
+func TestRead_TruncatesAtLimit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "big.txt")
+	content := strings.Repeat("x", 1024*1024+100)
+	os.WriteFile(path, []byte(content), 0644)
+
+	fsys, err := New(Config{RootDir: dir, MaxReadBytes: 1024 * 1024})
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	got, err := fsys.Read(context.Background(), "big.txt")
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if !strings.Contains(got, "[truncated: file exceeds read limit]") {
+		t.Error("expected truncation marker for oversized file")
+	}
+	if len(got) > 1024*1024+256 {
+		t.Errorf("read result too large: %d bytes", len(got))
+	}
+}
+
+func TestRead_WithinLimit(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "small.txt"), []byte("hello"), 0644)
+
+	fsys, err := New(Config{RootDir: dir, MaxReadBytes: 1024})
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	got, err := fsys.Read(context.Background(), "small.txt")
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if got != "hello" {
+		t.Errorf("got %q, want %q", got, "hello")
 	}
 }

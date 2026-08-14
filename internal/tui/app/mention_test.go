@@ -94,7 +94,7 @@ func TestBuildSkillCatalogUsesManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalog := buildSkillCatalog(fsys)
+	catalog := buildSkillCatalog(nil, fsys)
 	got := map[string]bool{}
 	for _, m := range catalog {
 		if m.Kind != "skill" {
@@ -109,7 +109,7 @@ func TestBuildSkillCatalogUsesManager(t *testing.T) {
 		t.Fatalf("fallback demo skills leaked in with real skills: %v", got)
 	}
 
-	catalog = buildSkillCatalog(nil)
+	catalog = buildSkillCatalog(nil, nil)
 	if len(catalog) != 0 {
 		t.Fatalf("expected empty fallback catalog, got %v", catalog)
 	}

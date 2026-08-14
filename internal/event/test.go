@@ -129,16 +129,30 @@ func TestEventBus_PublishAsync_ChannelFull(t *testing.T) {
 	bus := NewEventBus(config)
 	defer bus.Close()
 
-	bus.Subscribe("fill.event", newTestHandler())
+	started := make(chan struct{})
+	release := make(chan struct{})
+	bus.Subscribe("fill.event", EventHandlerFunc(func(ctx context.Context, event Event) error {
+		close(started)
+		<-release
+		return nil
+	}))
 
-	for i := 0; i < 100; i++ {
-		err := bus.PublishAsync(context.Background(), newTestEvent("fill.event", ""))
-		if err != nil {
-			return
+	if err := bus.PublishAsync(context.Background(), newTestEvent("fill.event", "")); err != nil {
+		t.Fatalf("first PublishAsync() error = %v", err)
+	}
+	<-started
+
+	for i := 0; i < 2; i++ {
+		if err := bus.PublishAsync(context.Background(), newTestEvent("fill.event", "")); err != nil {
+			t.Fatalf("PublishAsync() %d error = %v", i, err)
 		}
 	}
 
-	t.Error("PublishAsync() should eventually error when channel full")
+	if err := bus.PublishAsync(context.Background(), newTestEvent("fill.event", "")); err == nil {
+		t.Error("PublishAsync() should error when channel full")
+	}
+
+	close(release)
 }
 
 func TestEventBus_PublishRequest_ChannelFull(t *testing.T) {
@@ -149,6 +163,14 @@ func TestEventBus_PublishRequest_ChannelFull(t *testing.T) {
 	bus := NewEventBus(config)
 	defer bus.Close()
 
+	started := make(chan struct{})
+	release := make(chan struct{})
+	bus.SubscribeRequest("full.req", EventHandlerFunc(func(ctx context.Context, event Event) error {
+		close(started)
+		<-release
+		return nil
+	}))
+
 	req1 := &Request{
 		Event:    newTestEvent("full.req", ""),
 		Response: make(chan Event, 1),
@@ -156,7 +178,10 @@ func TestEventBus_PublishRequest_ChannelFull(t *testing.T) {
 		Timeout:  5 * time.Second,
 	}
 
-	bus.PublishRequest(context.Background(), req1)
+	if err := bus.PublishRequest(context.Background(), req1); err != nil {
+		t.Fatalf("first PublishRequest() error = %v", err)
+	}
+	<-started
 
 	req2 := &Request{
 		Event:    newTestEvent("full.req", ""),
@@ -169,6 +194,8 @@ func TestEventBus_PublishRequest_ChannelFull(t *testing.T) {
 	if err == nil {
 		t.Error("PublishRequest() should error when channel full")
 	}
+
+	close(release)
 }
 
 func TestEventBus_Subscribe_MultipleEventTypes(t *testing.T) {

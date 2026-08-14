@@ -130,6 +130,12 @@ func writeAtomically(path string, data interface{}) error {
 		return fmt.Errorf("failed to encode data: %w", err)
 	}
 
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to sync tmp file: %w", err)
+	}
+
 	if err := f.Close(); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("failed to close tmp file: %w", err)

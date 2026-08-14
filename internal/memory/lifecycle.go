@@ -83,6 +83,7 @@ func (m *Manager) onUnmount(ctx context.Context, args ...interface{}) error {
 	defer m.mu.Unlock()
 
 	if m.memory != nil {
+		m.memory.Flush()
 		if err := m.memory.Save(); err != nil {
 			fmt.Printf("Memory: failed to save on unmount: %v\n", err)
 		}

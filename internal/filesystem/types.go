@@ -9,6 +9,7 @@ import (
 type Config struct {
 	RootDir        string
 	IgnoreDotfiles bool
+	MaxReadBytes   int64
 }
 
 type FileInfo struct {

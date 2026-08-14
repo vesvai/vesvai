@@ -10,7 +10,8 @@ import (
 )
 
 type IgnoreRules struct {
-	rules []IgnoreRule
+	rules   []IgnoreRule
+	sources []string
 }
 
 func LoadIgnoreRules(rootDir string) (*IgnoreRules, error) {
@@ -22,6 +23,7 @@ func LoadIgnoreRules(rootDir string) (*IgnoreRules, error) {
 		DirOnly: true,
 		Source:  "default",
 	})
+	ir.addSource("default")
 
 	gitignorePath := filepath.Join(rootDir, ".gitignore")
 	if err := ir.AddFromFile(gitignorePath, ".gitignore"); err != nil {
@@ -60,18 +62,24 @@ func (ir *IgnoreRules) AddFromFile(filePath, source string) error {
 		ir.rules = append(ir.rules, *rule)
 	}
 
+	ir.addSource(source)
+
 	return scanner.Err()
+}
+
+func (ir *IgnoreRules) addSource(source string) {
+	for _, s := range ir.sources {
+		if s == source {
+			return
+		}
+	}
+	ir.sources = append(ir.sources, source)
 }
 
 func (ir *IgnoreRules) IsIgnored(relPath string, isDir bool) bool {
 	relPath = cleanPath(relPath)
 
-	sources := make(map[string]bool)
-	for _, rule := range ir.rules {
-		sources[rule.Source] = true
-	}
-
-	for source := range sources {
+	for _, source := range ir.sources {
 		if ir.isIgnoredBySource(relPath, isDir, source) {
 			return true
 		}

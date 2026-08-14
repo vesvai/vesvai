@@ -78,7 +78,9 @@ func (a *App) Init(ctx context.Context) error {
 	prompt.SetHooks(a.Hooks)
 	if sm, err := skill.NewManager(cwd, fs); err == nil {
 		a.skillsManager = sm
+		sm.SetEventBus(a.EventBus)
 		skill.RegisterHooks(a.Hooks, sm)
+		skill.RegisterSkillTools(a.Hooks, sm)
 	}
 
 	a.registerCoreHooks(fs)
@@ -156,6 +158,10 @@ func (a *App) collectProviders(ctx context.Context) {
 
 func (a *App) CreateProvider() (llm.Provider, error) {
 	return llm.CreateProviderFromConfig(a.Providers, a.Config)
+}
+
+func (a *App) Skills() *skill.Manager {
+	return a.skillsManager
 }
 
 func (a *App) CreateRunner(provider llm.Provider, middlewares ...agent.Middleware) *agent.Runner {

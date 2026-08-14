@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/vesvai/vesvai/internal/event"
@@ -248,10 +249,12 @@ func (r *Runner) Run(ctx context.Context, agent Agent, userMessage string) (*Res
 		messages = append(messages, assistantMsg)
 
 		for _, tc := range toolCalls {
+			args := parseToolArgsSafe(tc.Function.Arguments)
+
 			r.publishEvent(ctx, EventAgentToolCall, &ToolEventData{
 				AgentID:  agentID,
 				ToolName: tc.Function.Name,
-				Args:     parseToolArgsSafe(tc.Function.Arguments),
+				Args:     args,
 			})
 
 			toolStart := time.Now()
@@ -268,7 +271,7 @@ func (r *Runner) Run(ctx context.Context, agent Agent, userMessage string) (*Res
 
 			allToolCalls = append(allToolCalls, ToolCallResult{
 				ToolName: tc.Function.Name,
-				Args:     parseToolArgsSafe(tc.Function.Arguments),
+				Args:     args,
 				Result:   result,
 				Error:    err,
 			})
@@ -440,7 +443,7 @@ func (r *Runner) RunStreamContent(ctx context.Context, agent Agent, userContent 
 	llmTools := r.buildLLMTools(agent)
 
 	var allToolCalls []ToolCallResult
-	var fullContent string
+	var fullBuf strings.Builder
 	step := 0
 
 	r.publishEvent(ctx, EventAgentStart, AgentInitEventData{
@@ -473,14 +476,15 @@ func (r *Runner) RunStreamContent(ctx context.Context, agent Agent, userContent 
 			MessageID: fmt.Sprintf("msg_%d_%d", time.Now().UnixNano(), step),
 		})
 
-		var stepContent string
+		var stepBuf strings.Builder
 		var finalUsage *llm.Usage
 		var toolCallIndex = make(map[int]*llm.ToolCall)
+		var toolArgBuilders = make(map[int]*strings.Builder)
 		var finishReason llm.FinishReason
 
 		err := r.provider.ChatStream(ctx, req, func(chunk llm.StreamChunk) error {
 			if chunk.Content != "" {
-				stepContent += chunk.Content
+				stepBuf.WriteString(chunk.Content)
 				if err := callback(StreamChunk{
 					Content: chunk.Content,
 					IsDone:  false,
@@ -514,7 +518,12 @@ func (r *Runner) RunStreamContent(ctx context.Context, agent Agent, userContent 
 					existing.Function.Name = tc.Function.Name
 				}
 				if tc.Function.Arguments != "" {
-					existing.Function.Arguments += tc.Function.Arguments
+					b, ok := toolArgBuilders[idx]
+					if !ok {
+						b = &strings.Builder{}
+						toolArgBuilders[idx] = b
+					}
+					b.WriteString(tc.Function.Arguments)
 				}
 			}
 
@@ -536,16 +545,20 @@ func (r *Runner) RunStreamContent(ctx context.Context, agent Agent, userContent 
 			return nil, fmt.Errorf("llm stream failed: %w", err)
 		}
 
+		stepContent := stepBuf.String()
 		if stepContent != "" {
-			if fullContent != "" {
-				fullContent += "\n\n"
+			if fullBuf.Len() > 0 {
+				fullBuf.WriteString("\n\n")
 			}
-			fullContent += stepContent
+			fullBuf.WriteString(stepContent)
 		}
 
 		var finalToolCalls []llm.ToolCall
 		for i := 0; i < len(toolCallIndex); i++ {
 			if tc, ok := toolCallIndex[i]; ok && tc.Function.Name != "" {
+				if b, ok := toolArgBuilders[i]; ok {
+					tc.Function.Arguments = b.String()
+				}
 				finalToolCalls = append(finalToolCalls, *tc)
 			}
 		}
@@ -573,7 +586,7 @@ func (r *Runner) RunStreamContent(ctx context.Context, agent Agent, userContent 
 				Status:  "completed",
 			})
 			return &Response{
-				Content:   fullContent,
+				Content:   fullBuf.String(),
 				ToolCalls: allToolCalls,
 				Usage:     getUsageOrDefault(finalUsage),
 				Steps:     step,

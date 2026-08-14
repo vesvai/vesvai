@@ -3,7 +3,6 @@ package skill
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/vesvai/vesvai/internal/filesystem"
@@ -294,8 +293,8 @@ func TestManager_AgentSkillDirs(t *testing.T) {
 	}
 	if s, ok := byName["writing-plans"]; !ok {
 		t.Fatalf("agent-layout skill missing: %v", byName)
-	} else if !strings.Contains(s.Content, "Plan content") {
-		t.Fatalf("writing-plans content = %q", s.Content)
+	} else if s.Description != "plan writing" {
+		t.Fatalf("writing-plans description = %q", s.Description)
 	}
 	if _, ok := byName["flat-skill"]; !ok {
 		t.Fatalf("flat skill in extra dir missing: %v", byName)

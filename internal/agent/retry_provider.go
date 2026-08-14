@@ -54,6 +54,7 @@ func (p *RetryableProvider) Chat(ctx context.Context, req *llm.Request) (*llm.Re
 
 func (p *RetryableProvider) ChatStream(ctx context.Context, req *llm.Request, handler llm.StreamHandler) error {
 	var lastErr error
+	delivered := false
 	for attempt := 0; attempt <= p.cfg.MaxRetries; attempt++ {
 		if attempt > 0 {
 			delay := p.calculateDelay(attempt - 1)
@@ -64,12 +65,15 @@ func (p *RetryableProvider) ChatStream(ctx context.Context, req *llm.Request, ha
 			}
 		}
 
-		err := p.inner.ChatStream(ctx, req, handler)
+		err := p.inner.ChatStream(ctx, req, func(chunk llm.StreamChunk) error {
+			delivered = true
+			return handler(chunk)
+		})
 		if err == nil {
 			return nil
 		}
 		lastErr = err
-		if !p.cfg.RetryOn(err) {
+		if delivered || !p.cfg.RetryOn(err) {
 			return err
 		}
 	}

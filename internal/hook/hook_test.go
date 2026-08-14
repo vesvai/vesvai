@@ -309,6 +309,38 @@ func TestHooks_RemoveCallback(t *testing.T) {
 	}
 }
 
+func TestHooks_RemoveAction_ByCallback(t *testing.T) {
+	h := New(nil)
+
+	callCount := 0
+	cb := h.AddAction("remove:cb", func(ctx context.Context, args ...interface{}) error {
+		callCount++
+		return nil
+	}, 10)
+
+	h.RemoveAction(cb)
+	h.DoAction(context.Background(), "remove:cb")
+	if callCount != 0 {
+		t.Errorf("callCount = %d, want 0 after RemoveAction", callCount)
+	}
+}
+
+func TestHooks_RemoveFilter_ByCallback(t *testing.T) {
+	h := New(nil)
+
+	filterCount := 0
+	cb := h.AddFilter("remove:filter:cb", func(ctx context.Context, value interface{}, args ...interface{}) interface{} {
+		filterCount++
+		return value
+	}, 10)
+
+	h.RemoveFilter(cb)
+	h.ApplyFilter(context.Background(), "remove:filter:cb", "val")
+	if filterCount != 0 {
+		t.Errorf("filterCount = %d, want 0 after RemoveFilter", filterCount)
+	}
+}
+
 func TestHooks_RemoveAll(t *testing.T) {
 	h := New(nil)
 

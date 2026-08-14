@@ -3,14 +3,53 @@ package tools
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vesvai/vesvai/internal/agent"
 )
+
+const maxOutputLen = 100000
+
+type cappedBuffer struct {
+	mu    sync.Mutex
+	buf   []byte
+	limit int
+	full  bool
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if !b.full && len(b.buf) < b.limit {
+		room := b.limit - len(b.buf)
+		if len(p) > room {
+			b.buf = append(b.buf, p[:room]...)
+			b.full = true
+		} else {
+			b.buf = append(b.buf, p...)
+		}
+	}
+
+	return len(p), nil
+}
+
+func (b *cappedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	s := string(b.buf)
+	if b.full {
+		s += "\n\n... (output truncated, exceeded 100KB)"
+	}
+	return s
+}
 
 func newBashTool(projectRoot string) agent.Tool {
 	return agent.NewFuncTool(
@@ -74,13 +113,35 @@ func newBashTool(projectRoot string) agent.Tool {
 			cmd := exec.CommandContext(ctx, "bash", "-c", command)
 			cmd.Dir = workdir
 
-			output, err := cmd.CombinedOutput()
-			outputStr := string(output)
-
-			const maxOutputLen = 100000
-			if len(outputStr) > maxOutputLen {
-				outputStr = outputStr[:maxOutputLen] + "\n\n... (output truncated, exceeded 100KB)"
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				return "", fmt.Errorf("failed to capture stdout: %w", err)
 			}
+			stderr, err := cmd.StderrPipe()
+			if err != nil {
+				return "", fmt.Errorf("failed to capture stderr: %w", err)
+			}
+
+			if err := cmd.Start(); err != nil {
+				return "", fmt.Errorf("failed to start command: %w", err)
+			}
+
+			out := &cappedBuffer{limit: maxOutputLen}
+			var wg sync.WaitGroup
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				io.Copy(out, stdout)
+			}()
+			go func() {
+				defer wg.Done()
+				io.Copy(out, stderr)
+			}()
+
+			err = cmd.Wait()
+			wg.Wait()
+
+			outputStr := out.String()
 
 			if err != nil {
 				if ctx.Err() == context.DeadlineExceeded {

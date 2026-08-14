@@ -24,10 +24,10 @@ type Todo struct {
 }
 
 type TodoStore struct {
-	mu       sync.RWMutex
-	todos    map[string]*Todo
-	relPath  string
-	fs       *filesystem.FileSystem
+	mu      sync.RWMutex
+	todos   map[string]*Todo
+	relPath string
+	fs      *filesystem.FileSystem
 }
 
 func NewTodoStore(sessionID string, fs *filesystem.FileSystem) (*TodoStore, error) {
@@ -43,6 +43,22 @@ func NewTodoStore(sessionID string, fs *filesystem.FileSystem) (*TodoStore, erro
 	}
 
 	return store, nil
+}
+
+var todoStores sync.Map
+
+func storeForSession(sessionID string, fs *filesystem.FileSystem) (*TodoStore, error) {
+	if v, ok := todoStores.Load(sessionID); ok {
+		return v.(*TodoStore), nil
+	}
+
+	s, err := NewTodoStore(sessionID, fs)
+	if err != nil {
+		return nil, err
+	}
+
+	actual, _ := todoStores.LoadOrStore(sessionID, s)
+	return actual.(*TodoStore), nil
 }
 
 func (s *TodoStore) load() error {
@@ -219,7 +235,7 @@ func newSetTodoTool(fs *filesystem.FileSystem) agent.Tool {
 				sessionID = "default"
 			}
 
-			store, err := NewTodoStore(sessionID, fs)
+			store, err := storeForSession(sessionID, fs)
 			if err != nil {
 				return "", fmt.Errorf("failed to create todo store: %w", err)
 			}
@@ -256,7 +272,7 @@ func newGetTodoTool(fs *filesystem.FileSystem) agent.Tool {
 				sessionID = "default"
 			}
 
-			store, err := NewTodoStore(sessionID, fs)
+			store, err := storeForSession(sessionID, fs)
 			if err != nil {
 				return "", fmt.Errorf("failed to create todo store: %w", err)
 			}
@@ -292,7 +308,7 @@ func newListTodosTool(fs *filesystem.FileSystem) agent.Tool {
 				sessionID = "default"
 			}
 
-			store, err := NewTodoStore(sessionID, fs)
+			store, err := storeForSession(sessionID, fs)
 			if err != nil {
 				return "", fmt.Errorf("failed to create todo store: %w", err)
 			}
@@ -359,7 +375,7 @@ func newUpdateTodoTool(fs *filesystem.FileSystem) agent.Tool {
 				sessionID = "default"
 			}
 
-			store, err := NewTodoStore(sessionID, fs)
+			store, err := storeForSession(sessionID, fs)
 			if err != nil {
 				return "", fmt.Errorf("failed to create todo store: %w", err)
 			}
@@ -399,7 +415,7 @@ func newDeleteTodoTool(fs *filesystem.FileSystem) agent.Tool {
 				sessionID = "default"
 			}
 
-			store, err := NewTodoStore(sessionID, fs)
+			store, err := storeForSession(sessionID, fs)
 			if err != nil {
 				return "", fmt.Errorf("failed to create todo store: %w", err)
 			}

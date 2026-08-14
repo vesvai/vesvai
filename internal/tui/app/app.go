@@ -60,6 +60,7 @@ type App struct {
 	stream chan tui.StreamEvent
 	input  chan tcell.Event
 	ticker *time.Ticker
+	saves  chan struct{}
 
 	backend Backend
 
@@ -86,6 +87,7 @@ func NewWithDriver(driver Driver) *App {
 		driver:    driver,
 		stream:    make(chan tui.StreamEvent, 512),
 		input:     make(chan tcell.Event, 128),
+		saves:     make(chan struct{}, 1),
 		interrupt: interruptGate{window: interruptWindow},
 	}
 }
@@ -184,6 +186,10 @@ func (a *App) Run() error {
 			if a.layout.Tick(elapsed) || a.model.Busy {
 				a.dirty = true
 			}
+
+		case <-a.saves:
+			a.refreshSessions()
+			a.dirty = true
 
 		case <-a.ctx.Done():
 			a.done = true
@@ -292,7 +298,7 @@ func (a *App) wireCatalogs() {
 		mentions := append(a.backend.MentionAgents(), buildFileCatalog(fsys)...)
 		slash := a.backend.SlashCatalog()
 		if len(slash) == 0 {
-			slash = buildSkillCatalog(fsys)
+			slash = buildSkillCatalog(a.skillsManager(), fsys)
 		}
 		a.layout.Textarea().SetMentionCatalog(mentions)
 		a.layout.Textarea().SetSkillCatalog(slash)
@@ -300,7 +306,14 @@ func (a *App) wireCatalogs() {
 	}
 
 	a.layout.Textarea().SetMentionCatalog(buildMentionCatalog(fsys))
-	a.layout.Textarea().SetSkillCatalog(buildSkillCatalog(fsys))
+	a.layout.Textarea().SetSkillCatalog(buildSkillCatalog(nil, fsys))
+}
+
+func (a *App) skillsManager() *skill.Manager {
+	if d, ok := a.backend.(interface{ Skills() *skill.Manager }); ok {
+		return d.Skills()
+	}
+	return nil
 }
 
 func buildMentionCatalog(fsys *filesystem.FileSystem) []components.Mention {
@@ -330,13 +343,16 @@ func buildFileCatalog(fsys *filesystem.FileSystem) []components.Mention {
 	return out
 }
 
-func buildSkillCatalog(fsys *filesystem.FileSystem) []components.Mention {
-	if fsys == nil {
-		return nil
-	}
-	mgr, err := skill.NewManager(fsys.Root(), fsys)
-	if err != nil {
-		return nil
+func buildSkillCatalog(mgr *skill.Manager, fsys *filesystem.FileSystem) []components.Mention {
+	if mgr == nil {
+		if fsys == nil {
+			return nil
+		}
+		var err error
+		mgr, err = skill.NewManager(fsys.Root(), fsys)
+		if err != nil {
+			return nil
+		}
 	}
 	skills, err := mgr.List()
 	if err != nil {
@@ -503,9 +519,14 @@ func (a *App) saveSession() {
 		Messages: msgs,
 		Parts:    ConvToSessionParts(a.model.Conv),
 	}
-	if err := a.backend.SaveSession(sess); err == nil {
-		a.refreshSessions()
-	}
+	go func() {
+		if err := a.backend.SaveSession(sess); err == nil {
+			select {
+			case a.saves <- struct{}{}:
+			default:
+			}
+		}
+	}()
 }
 
 func (a *App) showPermissionModal(req permissionRequest) {

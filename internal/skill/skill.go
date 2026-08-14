@@ -1,23 +1,43 @@
 package skill
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/vesvai/vesvai/internal/config"
+	"github.com/vesvai/vesvai/internal/event"
 	"github.com/vesvai/vesvai/internal/filesystem"
 )
 
+const descHeadSize = 8192
+
 type Manager struct {
+	mu          sync.RWMutex
 	globalDir   string
 	extraDirs   []string
 	projectDir  string
 	projectRoot string
 	fs          *filesystem.FileSystem
+	eventBus    event.EventBus
+
+	index     map[string]Skill
+	dirMTimes map[string]time.Time
+	descCache map[string]cachedDesc
+	scanned   bool
+}
+
+type cachedDesc struct {
+	size  int64
+	mtime time.Time
+	desc  string
 }
 
 func NewManager(projectRoot string, fs *filesystem.FileSystem) (*Manager, error) {
@@ -37,6 +57,9 @@ func NewManager(projectRoot string, fs *filesystem.FileSystem) (*Manager, error)
 		projectDir:  projectDir,
 		projectRoot: projectRoot,
 		fs:          fs,
+		index:       make(map[string]Skill),
+		dirMTimes:   make(map[string]time.Time),
+		descCache:   make(map[string]cachedDesc),
 	}, nil
 }
 
@@ -59,33 +82,31 @@ func agentSkillDirs() []string {
 	return dirs
 }
 
-func (m *Manager) List() ([]Skill, error) {
-	skillMap := make(map[string]Skill)
+func (m *Manager) globalDirs() []string {
+	dirs := make([]string, 0, 1+len(m.extraDirs))
+	dirs = append(dirs, m.globalDir)
+	dirs = append(dirs, m.extraDirs...)
+	return dirs
+}
 
-	for _, dir := range append([]string{m.globalDir}, m.extraDirs...) {
-		skills, err := m.loadSkillsFromDir(dir, LocationGlobal)
-		if err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("failed to list global skills: %w", err)
-		}
-		for _, s := range skills {
-			if _, exists := skillMap[s.Name]; !exists {
-				skillMap[s.Name] = s
-			}
-		}
-	}
-
+func (m *Manager) allDirs() []string {
+	dirs := m.globalDirs()
 	if m.projectDir != "" {
-		projectSkills, err := m.loadProjectSkillsFromDir(m.projectDir, LocationProject)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("failed to list project skills: %w", err)
-		}
-		for _, s := range projectSkills {
-			skillMap[s.Name] = s
-		}
+		dirs = append(dirs, m.projectDir)
+	}
+	return dirs
+}
+
+func (m *Manager) List() ([]Skill, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err := m.ensureScannedLocked(); err != nil {
+		return nil, err
 	}
 
-	skills := make([]Skill, 0, len(skillMap))
-	for _, s := range skillMap {
+	skills := make([]Skill, 0, len(m.index))
+	for _, s := range m.index {
 		skills = append(skills, s)
 	}
 	sort.Slice(skills, func(i, j int) bool {
@@ -95,48 +116,162 @@ func (m *Manager) List() ([]Skill, error) {
 	return skills, nil
 }
 
-func (m *Manager) Read(name string) (*Skill, error) {
+func (m *Manager) ensureScannedLocked() error {
+	if m.index == nil {
+		m.index = make(map[string]Skill)
+		m.dirMTimes = make(map[string]time.Time)
+		m.descCache = make(map[string]cachedDesc)
+	}
+
+	if m.scanned {
+		for _, dir := range m.allDirs() {
+			fi, err := os.Stat(dir)
+			if err != nil {
+				continue
+			}
+			if last, ok := m.dirMTimes[dir]; !ok || !fi.ModTime().Equal(last) {
+				return m.rescanLocked()
+			}
+		}
+		return nil
+	}
+
+	return m.rescanLocked()
+}
+
+func (m *Manager) rescanLocked() error {
+	index := make(map[string]Skill, len(m.index))
+
+	for _, dir := range m.globalDirs() {
+		if err := m.scanDir(dir, LocationGlobal, index, true, true); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to list global skills: %w", err)
+		}
+		m.recordDirMtime(dir)
+	}
+
 	if m.projectDir != "" {
-		path := filepath.Join(m.projectDir, name+".md")
-		if data, err := m.readProjectFile(path); err == nil {
-			return &Skill{
+		if err := m.scanDir(m.projectDir, LocationProject, index, false, false); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("failed to list project skills: %w", err)
+		}
+		m.recordDirMtime(m.projectDir)
+	}
+
+	m.index = index
+	m.scanned = true
+	return nil
+}
+
+func (m *Manager) recordDirMtime(dir string) {
+	if fi, err := os.Stat(dir); err == nil {
+		m.dirMTimes[dir] = fi.ModTime()
+	}
+}
+
+func (m *Manager) scanDir(dir string, location SkillLocation, index map[string]Skill, nested, firstWins bool) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		switch {
+		case !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md"):
+			name := strings.TrimSuffix(entry.Name(), ".md")
+			path := filepath.Join(dir, entry.Name())
+			if firstWins {
+				if _, exists := index[name]; exists {
+					continue
+				}
+			}
+			index[name] = Skill{
 				Name:        name,
-				Location:    LocationProject,
+				Location:    location,
 				Path:        path,
-				Content:     data,
-				Description: extractDescription(data),
-			}, nil
+				Description: m.descriptionOf(path),
+			}
+
+		case nested && entry.IsDir():
+			path := filepath.Join(dir, entry.Name(), "SKILL.md")
+			if _, err := os.Stat(path); err != nil {
+				continue
+			}
+			name := entry.Name()
+			if firstWins {
+				if _, exists := index[name]; exists {
+					continue
+				}
+			}
+			index[name] = Skill{
+				Name:        name,
+				Location:    location,
+				Path:        path,
+				Description: m.descriptionOf(path),
+			}
 		}
 	}
 
-	for _, dir := range append([]string{m.globalDir}, m.extraDirs...) {
-		if s, ok := m.readFromDir(dir, name, LocationGlobal); ok {
-			return s, nil
+	return nil
+}
+
+func (m *Manager) descriptionOf(path string) string {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	if c, ok := m.descCache[path]; ok && c.size == fi.Size() && c.mtime.Equal(fi.ModTime()) {
+		return c.desc
+	}
+
+	desc := m.extractDescriptionHead(path)
+	m.descCache[path] = cachedDesc{size: fi.Size(), mtime: fi.ModTime(), desc: desc}
+	return desc
+}
+
+func (m *Manager) extractDescriptionHead(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(io.LimitReader(f, descHeadSize))
+	if err != nil {
+		return ""
+	}
+	return extractDescription(string(data))
+}
+
+func (m *Manager) Read(name string) (*Skill, error) {
+	if m.projectDir != "" {
+		path := filepath.Join(m.projectDir, name+".md")
+		if data, err := os.ReadFile(path); err == nil {
+			return m.skillFromData(name, LocationProject, path, data), nil
+		}
+	}
+
+	for _, dir := range m.globalDirs() {
+		for _, path := range []string{
+			filepath.Join(dir, name+".md"),
+			filepath.Join(dir, name, "SKILL.md"),
+		} {
+			if data, err := os.ReadFile(path); err == nil {
+				return m.skillFromData(name, LocationGlobal, path, data), nil
+			}
 		}
 	}
 
 	return nil, fmt.Errorf("skill not found: %s", name)
 }
 
-func (m *Manager) readFromDir(dir, name string, location SkillLocation) (*Skill, bool) {
-	paths := []string{
-		filepath.Join(dir, name+".md"),
-		filepath.Join(dir, name, "SKILL.md"),
+func (m *Manager) skillFromData(name string, location SkillLocation, path string, data []byte) *Skill {
+	content := string(data)
+	return &Skill{
+		Name:        name,
+		Location:    location,
+		Path:        path,
+		Content:     content,
+		Description: extractDescription(content),
 	}
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		return &Skill{
-			Name:        name,
-			Location:    location,
-			Path:        path,
-			Content:     string(data),
-			Description: extractDescription(string(data)),
-		}, true
-	}
-	return nil, false
 }
 
 func (m *Manager) Create(name, content string, location SkillLocation) (*Skill, error) {
@@ -180,6 +315,9 @@ func (m *Manager) Create(name, content string, location SkillLocation) (*Skill, 
 		return nil, fmt.Errorf("failed to write skill file: %w", err)
 	}
 
+	m.Invalidate()
+	m.publishSkillChanged(name, "created")
+
 	return &Skill{
 		Name:        name,
 		Location:    location,
@@ -190,19 +328,14 @@ func (m *Manager) Create(name, content string, location SkillLocation) (*Skill, 
 }
 
 func (m *Manager) Exists(name string) bool {
-	if m.projectDir != "" {
-		path := filepath.Join(m.projectDir, name+".md")
-		if _, err := os.Stat(path); err == nil {
-			return true
-		}
-	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	for _, dir := range append([]string{m.globalDir}, m.extraDirs...) {
-		if _, ok := m.readFromDir(dir, name, LocationGlobal); ok {
-			return true
-		}
+	if err := m.ensureScannedLocked(); err != nil {
+		return false
 	}
-	return false
+	_, ok := m.index[name]
+	return ok
 }
 
 func (m *Manager) Delete(name string, location SkillLocation) error {
@@ -224,93 +357,47 @@ func (m *Manager) Delete(name string, location SkillLocation) error {
 		return fmt.Errorf("skill not found: %s", name)
 	}
 
-	return os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+
+	m.Invalidate()
+	m.publishSkillChanged(name, "deleted")
+
+	return nil
 }
 
-func (m *Manager) loadSkillsFromDir(dir string, location SkillLocation) ([]Skill, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	var skills []Skill
-	for _, entry := range entries {
-		switch {
-		case !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md"):
-			name := strings.TrimSuffix(entry.Name(), ".md")
-			path := filepath.Join(dir, entry.Name())
-
-			data, err := os.ReadFile(path)
-			if err != nil {
-				continue
-			}
-
-			skills = append(skills, Skill{
-				Name:        name,
-				Location:    location,
-				Path:        path,
-				Content:     string(data),
-				Description: extractDescription(string(data)),
-			})
-
-		case entry.IsDir():
-			path := filepath.Join(dir, entry.Name(), "SKILL.md")
-			data, err := os.ReadFile(path)
-			if err != nil {
-				continue
-			}
-
-			skills = append(skills, Skill{
-				Name:        entry.Name(),
-				Location:    location,
-				Path:        path,
-				Content:     string(data),
-				Description: extractDescription(string(data)),
-			})
-		}
-	}
-
-	return skills, nil
+func (m *Manager) Invalidate() {
+	m.mu.Lock()
+	m.scanned = false
+	m.mu.Unlock()
 }
 
-func (m *Manager) loadProjectSkillsFromDir(dir string, location SkillLocation) ([]Skill, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
+func (m *Manager) SetEventBus(bus event.EventBus) {
+	m.mu.Lock()
+	m.eventBus = bus
+	m.mu.Unlock()
+
+	if bus != nil {
+		bus.Subscribe(event.EventType(event.EventSkillChanged), event.EventHandlerFunc(func(ctx context.Context, e event.Event) error {
+			m.Invalidate()
+			return nil
+		}))
 	}
-
-	var skills []Skill
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
-		}
-
-		name := strings.TrimSuffix(entry.Name(), ".md")
-		path := filepath.Join(dir, entry.Name())
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		skills = append(skills, Skill{
-			Name:        name,
-			Location:    location,
-			Path:        path,
-			Content:     string(data),
-			Description: extractDescription(string(data)),
-		})
-	}
-
-	return skills, nil
 }
 
-func (m *Manager) readProjectFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
+func (m *Manager) publishSkillChanged(name, action string) {
+	m.mu.RLock()
+	bus := m.eventBus
+	m.mu.RUnlock()
+
+	if bus == nil {
+		return
 	}
-	return string(data), nil
+	bus.Publish(context.Background(), event.NewSystemEvent(event.EventSkillChanged, map[string]interface{}{
+		"name":   name,
+		"action": action,
+	}))
 }
 
 func StripFrontmatter(content string) string {
