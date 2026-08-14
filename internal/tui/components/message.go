@@ -8,6 +8,13 @@ import (
 	"github.com/vesvai/vesvai/internal/tui"
 )
 
+const contentRenderThrottle = 80 * time.Millisecond
+
+func shouldRenderContent(p *tui.Part) bool {
+	return p.ContentDirty() &&
+		(p.LastContentRender().IsZero() || time.Since(p.LastContentRender()) >= contentRenderThrottle)
+}
+
 type Block struct {
 	ID    string
 	Kind  string // "thinking" | "tool" | "subagent"
@@ -34,13 +41,14 @@ func (v *MessageView) Render(m *tui.Message, width int, pal *tui.Palette) bool {
 			p := &m.Parts[i]
 			switch p.Kind {
 			case tui.PartThinking:
-				if p.Thinking != "" && p.ThinkingDirty() {
-					p.SetRenderedThinking(tui.WrapText(p.Thinking, pal.Style(pal.Reasoning, pal.Background), width))
+				if p.ThinkingText() != "" && p.ThinkingDirty() {
+					p.SetRenderedThinking(tui.WrapText(p.ThinkingText(), pal.Style(pal.Reasoning, pal.Background), width))
 					changed = true
 				}
 			case tui.PartContent:
-				if p.ContentDirty() {
-					p.SetRenderedContent(v.md.Render(p.Content, width, pal))
+				if shouldRenderContent(p) {
+					p.SetRenderedContent(v.md.Render(p.ContentText(), width, pal))
+					p.MarkContentRendered()
 					changed = true
 				}
 			}
@@ -51,7 +59,7 @@ func (v *MessageView) Render(m *tui.Message, width int, pal *tui.Palette) bool {
 		if inner < 4 {
 			inner = 4
 		}
-		m.SetRenderedContent(tui.WrapText(m.Content, pal.Style(pal.Foreground, pal.UserBg), inner))
+		m.SetRenderedContent(tui.WrapText(m.ContentText(), pal.Style(pal.Foreground, pal.UserBg), inner))
 		changed = true
 	}
 	return changed
@@ -125,7 +133,7 @@ func (v *MessageView) SubagentTranscript(sa *tui.Subagent, width int, pal *tui.P
 	lines = append(lines, SubagentStatusLine(sa, pal, now))
 	lines = append(lines, nil)
 
-	if len(sa.Parts) == 0 && (sa.Thinking != "" || sa.Content != "" || len(sa.Tools) > 0) {
+	if len(sa.Parts) == 0 && (sa.ThinkingText() != "" || sa.ContentText() != "" || len(sa.Tools) > 0) {
 		sa.RebuildParts()
 	}
 	active := sa.Status == tui.StatusRunning
@@ -145,8 +153,9 @@ func (v *MessageView) SubagentTranscript(sa *tui.Subagent, width int, pal *tui.P
 			th++
 
 		case tui.PartContent:
-			if p.ContentDirty() {
-				p.SetRenderedContent(v.md.Render(p.Content, width, pal))
+			if shouldRenderContent(p) {
+				p.SetRenderedContent(v.md.Render(p.ContentText(), width, pal))
+				p.MarkContentRendered()
 			}
 			lines = append(lines, p.RenderedContent()...)
 

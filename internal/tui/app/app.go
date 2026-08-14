@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -61,6 +62,8 @@ type App struct {
 	input  chan tcell.Event
 	ticker *time.Ticker
 	saves  chan struct{}
+
+	saveWG sync.WaitGroup
 
 	backend Backend
 
@@ -248,6 +251,7 @@ func (a *App) submit(text string) {
 		a.layout.NotifyModelChange()
 		return
 	}
+	a.model.Busy = true
 	a.layout.Viewport().BackToMain()
 
 	req := RunRequest{
@@ -500,7 +504,7 @@ func (a *App) saveSession() {
 	if title == "" {
 		for _, m := range a.model.Conv.Messages {
 			if m.Role == tui.RoleUser {
-				title = titleFromText(m.Content)
+				title = titleFromText(m.ContentText())
 				break
 			}
 		}
@@ -519,7 +523,9 @@ func (a *App) saveSession() {
 		Messages: msgs,
 		Parts:    ConvToSessionParts(a.model.Conv),
 	}
+	a.saveWG.Add(1)
 	go func() {
+		defer a.saveWG.Done()
 		if err := a.backend.SaveSession(sess); err == nil {
 			select {
 			case a.saves <- struct{}{}:
@@ -600,7 +606,7 @@ func (a *App) handleUserAction(actionID string, m *tui.Message) {
 			a.model.SetStatusMsg(actionID + "ed session")
 		}
 	case "copy":
-		a.layout.Textarea().SetClipboard(m.Content)
+		a.layout.Textarea().SetClipboard(m.ContentText())
 		a.model.SetStatusMsg("message copied")
 	}
 	a.layout.NotifyModelChange()
@@ -623,6 +629,15 @@ func (a *App) interruptRun() {
 func (a *App) quit() {
 	a.driver.Cancel()
 	a.saveSession()
+	done := make(chan struct{})
+	go func() {
+		a.saveWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+	}
 	a.cancel()
 	a.done = true
 }

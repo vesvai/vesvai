@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -70,6 +71,11 @@ type Part struct {
 	renderContent  []Line
 	thinkingDirty  bool
 	contentDirty   bool
+
+	thinkBuf *strings.Builder
+	contBuf  *strings.Builder
+
+	lastContentRender time.Time
 }
 
 func (p *Part) RenderedThinking() []Line     { return p.renderThinking }
@@ -79,6 +85,48 @@ func (p *Part) ThinkingDirty() bool          { return p.thinkingDirty }
 func (p *Part) RenderedContent() []Line     { return p.renderContent }
 func (p *Part) SetRenderedContent(l []Line) { p.renderContent = l; p.contentDirty = false }
 func (p *Part) ContentDirty() bool          { return p.contentDirty }
+
+func (p *Part) ThinkingText() string {
+	if p.thinkBuf != nil {
+		p.Thinking = p.thinkBuf.String()
+		p.thinkBuf = nil
+	}
+	return p.Thinking
+}
+
+func (p *Part) LastContentRender() time.Time { return p.lastContentRender }
+
+func (p *Part) MarkContentRendered() { p.lastContentRender = time.Now() }
+
+func (p *Part) ContentText() string {
+	if p.contBuf != nil {
+		p.Content = p.contBuf.String()
+		p.contBuf = nil
+	}
+	return p.Content
+}
+
+func (p *Part) appendThinking(delta string) {
+	if p.thinkBuf == nil {
+		p.thinkBuf = &strings.Builder{}
+		if p.Thinking != "" {
+			p.thinkBuf.WriteString(p.Thinking)
+			p.Thinking = ""
+		}
+	}
+	p.thinkBuf.WriteString(delta)
+}
+
+func (p *Part) appendContent(delta string) {
+	if p.contBuf == nil {
+		p.contBuf = &strings.Builder{}
+		if p.Content != "" {
+			p.contBuf.WriteString(p.Content)
+			p.Content = ""
+		}
+	}
+	p.contBuf.WriteString(delta)
+}
 
 func ThinkingPart(text string) Part {
 	return Part{Kind: PartThinking, Thinking: text, thinkingDirty: true}
@@ -98,11 +146,34 @@ type Subagent struct {
 	Result   string
 	Duration time.Duration
 
+	BlockID string
+
 	Tools []*ToolCall
 	Parts []Part
+
+	thinkBuf *strings.Builder
+	contBuf  *strings.Builder
+}
+
+func (sa *Subagent) ContentText() string {
+	if sa.contBuf != nil {
+		sa.Content = sa.contBuf.String()
+		sa.contBuf = nil
+	}
+	return sa.Content
+}
+
+func (sa *Subagent) ThinkingText() string {
+	if sa.thinkBuf != nil {
+		sa.Thinking = sa.thinkBuf.String()
+		sa.thinkBuf = nil
+	}
+	return sa.Thinking
 }
 
 func (sa *Subagent) RebuildParts() {
+	sa.ThinkingText()
+	sa.ContentText()
 	sa.Parts = nil
 	if sa.Thinking != "" {
 		sa.Parts = append(sa.Parts, Part{Kind: PartThinking, Thinking: sa.Thinking, thinkingDirty: true})
@@ -135,6 +206,47 @@ type Message struct {
 
 	renderContent []Line
 	contentDirty  bool
+
+	thinkBuf *strings.Builder
+	contBuf  *strings.Builder
+}
+
+func (m *Message) ContentText() string {
+	if m.contBuf != nil {
+		m.Content = m.contBuf.String()
+		m.contBuf = nil
+	}
+	return m.Content
+}
+
+func (m *Message) ThinkingText() string {
+	if m.thinkBuf != nil {
+		m.Thinking = m.thinkBuf.String()
+		m.thinkBuf = nil
+	}
+	return m.Thinking
+}
+
+func (m *Message) appendThinking(delta string) {
+	if m.thinkBuf == nil {
+		m.thinkBuf = &strings.Builder{}
+		if m.Thinking != "" {
+			m.thinkBuf.WriteString(m.Thinking)
+			m.Thinking = ""
+		}
+	}
+	m.thinkBuf.WriteString(delta)
+}
+
+func (m *Message) appendContent(delta string) {
+	if m.contBuf == nil {
+		m.contBuf = &strings.Builder{}
+		if m.Content != "" {
+			m.contBuf.WriteString(m.Content)
+			m.Content = ""
+		}
+	}
+	m.contBuf.WriteString(delta)
 }
 
 func (m *Message) Height() int {
@@ -167,6 +279,8 @@ func (m *Message) SetRenderedContent(l []Line) { m.renderContent = l; m.contentD
 func (m *Message) ContentDirty() bool          { return m.contentDirty }
 
 func (m *Message) RebuildParts() {
+	m.ThinkingText()
+	m.ContentText()
 	m.Parts = nil
 	if m.Thinking != "" {
 		m.Parts = append(m.Parts, Part{Kind: PartThinking, Thinking: m.Thinking, thinkingDirty: true})
@@ -234,10 +348,10 @@ func (c *Conversation) AppendContent(delta string) {
 	if m == nil {
 		return
 	}
-	m.Content += delta
+	m.appendContent(delta)
 	if n := len(m.Parts); n > 0 && m.Parts[n-1].Kind == PartContent {
 		p := &m.Parts[n-1]
-		p.Content += delta
+		p.appendContent(delta)
 		p.contentDirty = true
 	} else {
 		m.Parts = append(m.Parts, Part{Kind: PartContent, Content: delta, contentDirty: true})
@@ -250,10 +364,10 @@ func (c *Conversation) AppendThinking(delta string) {
 	if m == nil {
 		return
 	}
-	m.Thinking += delta
+	m.appendThinking(delta)
 	if n := len(m.Parts); n > 0 && m.Parts[n-1].Kind == PartThinking {
 		p := &m.Parts[n-1]
-		p.Thinking += delta
+		p.appendThinking(delta)
 		p.thinkingDirty = true
 	} else {
 		m.Parts = append(m.Parts, Part{Kind: PartThinking, Thinking: delta, thinkingDirty: true})
@@ -295,16 +409,16 @@ func (c *Conversation) AddSubagent(name, prompt string) (*Subagent, string) {
 	}
 	sa := &Subagent{Name: name, Prompt: prompt, Status: StatusRunning}
 	m.Subagents = append(m.Subagents, sa)
+	sa.BlockID = SubagentBlockID(m, len(m.Subagents)-1)
 	m.Parts = append(m.Parts, Part{Kind: PartSubagent, Subagent: sa})
-	id := SubagentBlockID(m, len(m.Subagents)-1)
 	c.revision++
-	return sa, id
+	return sa, sa.BlockID
 }
 
 func (c *Conversation) SubagentByBlockID(id string) *Subagent {
 	for _, m := range c.Messages {
 		for i, sa := range m.Subagents {
-			if SubagentBlockID(m, i) == id {
+			if sa.BlockID == id || (sa.BlockID == "" && SubagentBlockID(m, i) == id) {
 				return sa
 			}
 		}
@@ -318,7 +432,7 @@ func (c *Conversation) SubagentByID(id string) *Subagent {
 		return nil
 	}
 	for i, sa := range m.Subagents {
-		if SubagentBlockID(m, i) == id {
+		if sa.BlockID == id || (sa.BlockID == "" && SubagentBlockID(m, i) == id) {
 			return sa
 		}
 	}
@@ -334,10 +448,17 @@ func (c *Conversation) AppendSubagentContent(sa *Subagent, delta string) {
 	if sa == nil {
 		return
 	}
-	sa.Content += delta
+	if sa.contBuf == nil {
+		sa.contBuf = &strings.Builder{}
+		if sa.Content != "" {
+			sa.contBuf.WriteString(sa.Content)
+			sa.Content = ""
+		}
+	}
+	sa.contBuf.WriteString(delta)
 	if n := len(sa.Parts); n > 0 && sa.Parts[n-1].Kind == PartContent {
 		p := &sa.Parts[n-1]
-		p.Content += delta
+		p.appendContent(delta)
 		p.contentDirty = true
 	} else {
 		sa.Parts = append(sa.Parts, Part{Kind: PartContent, Content: delta, contentDirty: true})
@@ -349,10 +470,17 @@ func (c *Conversation) AppendSubagentThinking(sa *Subagent, delta string) {
 	if sa == nil {
 		return
 	}
-	sa.Thinking += delta
+	if sa.thinkBuf == nil {
+		sa.thinkBuf = &strings.Builder{}
+		if sa.Thinking != "" {
+			sa.thinkBuf.WriteString(sa.Thinking)
+			sa.Thinking = ""
+		}
+	}
+	sa.thinkBuf.WriteString(delta)
 	if n := len(sa.Parts); n > 0 && sa.Parts[n-1].Kind == PartThinking {
 		p := &sa.Parts[n-1]
-		p.Thinking += delta
+		p.appendThinking(delta)
 		p.thinkingDirty = true
 	} else {
 		sa.Parts = append(sa.Parts, Part{Kind: PartThinking, Thinking: delta, thinkingDirty: true})

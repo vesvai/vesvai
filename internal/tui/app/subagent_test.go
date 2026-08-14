@@ -78,11 +78,11 @@ func TestSubagentStreamingToTUI(t *testing.T) {
 		t.Fatalf("subagent blocks = %d, want 1", len(cur.Subagents))
 	}
 	sa := cur.Subagents[0]
-	if sa.Content == "" || !strings.Contains(sa.Content, "scanning the layout") {
-		t.Fatalf("subagent content = %q, want child's streamed content", sa.Content)
+	if sa.ContentText() == "" || !strings.Contains(sa.ContentText(), "scanning the layout") {
+		t.Fatalf("subagent content = %q, want child's streamed content", sa.ContentText())
 	}
-	if sa.Thinking != "child thinking…" {
-		t.Fatalf("subagent thinking = %q, want 'child thinking…'", sa.Thinking)
+	if sa.ThinkingText() != "child thinking…" {
+		t.Fatalf("subagent thinking = %q, want 'child thinking…'", sa.ThinkingText())
 	}
 	if len(sa.Tools) != 1 || sa.Tools[0].Name != "read" {
 		t.Fatalf("subagent tools = %+v, want [read]", sa.Tools)

@@ -18,8 +18,8 @@ func (v *ThinkingView) Lines(p *tui.Part, width int, pal *tui.Palette, active bo
 	header := v.headerLine(p, pal, active, now)
 	lines = append(lines, header)
 
-	if expanded && p.Thinking != "" {
-		body := tui.WrapText(p.Thinking, pal.Style(pal.Reasoning, pal.Background), width)
+	if expanded && p.ThinkingText() != "" {
+		body := tui.WrapText(p.ThinkingText(), pal.Style(pal.Reasoning, pal.Background), width)
 		lines = append(lines, body...)
 	}
 	return lines

@@ -49,8 +49,8 @@ func TestModelApplyFullLifecycle(t *testing.T) {
 	if m.Conv.Current().Status != StatusDone {
 		t.Fatal("expected done status")
 	}
-	if m.Conv.Current().Content != "hello world" {
-		t.Fatalf("content = %q", m.Conv.Current().Content)
+	if m.Conv.Current().ContentText() != "hello world" {
+		t.Fatalf("content = %q", m.Conv.Current().ContentText())
 	}
 	if m.Usage.TotalTokens != 3 || m.Usage.PromptTokens != 1 {
 		t.Fatalf("usage = %+v", m.Usage)
@@ -123,11 +123,11 @@ func TestPartsFollowArrivalOrder(t *testing.T) {
 			t.Fatalf("part[%d] = %v, want %v (all: %v)", i, kinds[i], k, kinds)
 		}
 	}
-	if cur.Parts[0].Thinking != "first thoughts continue" {
-		t.Fatalf("merged thinking = %q", cur.Parts[0].Thinking)
+	if cur.Parts[0].ThinkingText() != "first thoughts continue" {
+		t.Fatalf("merged thinking = %q", cur.Parts[0].ThinkingText())
 	}
-	if cur.Parts[2].Thinking != "more thinking" {
-		t.Fatalf("second thinking = %q", cur.Parts[2].Thinking)
+	if cur.Parts[2].ThinkingText() != "more thinking" {
+		t.Fatalf("second thinking = %q", cur.Parts[2].ThinkingText())
 	}
 	if !m.Conv.TogglePartByID(ThinkingPartID(cur, 1)) {
 		t.Fatal("toggle did not match thinking part 1")
@@ -179,8 +179,8 @@ func TestSubagentLifecycle(t *testing.T) {
 	if sa.Status != StatusRunning {
 		t.Fatalf("subagent status = %v, want running", sa.Status)
 	}
-	if sa.Content != "found the bug" {
-		t.Fatalf("subagent content = %q", sa.Content)
+	if sa.ContentText() != "found the bug" {
+		t.Fatalf("subagent content = %q", sa.ContentText())
 	}
 	if len(sa.Tools) != 1 || sa.Tools[0].Name != "read" || sa.Tools[0].State != ToolSuccess {
 		t.Fatalf("subagent tools = %+v", sa.Tools)

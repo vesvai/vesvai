@@ -26,20 +26,20 @@ func ConvToMessages(conv *tui.Conversation) []llm.Message {
 	for i, m := range conv.Messages {
 		switch m.Role {
 		case tui.RoleUser:
-			var content any = m.Content
+			var content any = m.ContentText()
 			if len(m.Attachments) > 0 {
-				content = llm.ContentWithAttachments(m.Content, toLLMAttachments(m.Attachments))
+				content = llm.ContentWithAttachments(m.ContentText(), toLLMAttachments(m.Attachments))
 			}
 			out = append(out, llm.NewMessage(llm.RoleUser, content))
 
 		case tui.RoleAssistant:
 			msg := llm.Message{
 				Role:      llm.RoleAssistant,
-				Content:   m.Content,
+				Content:   m.ContentText(),
 				ToolCalls: nil,
 			}
-			if m.Thinking != "" {
-				msg.Reasoning = m.Thinking
+			if m.ThinkingText() != "" {
+				msg.Reasoning = m.ThinkingText()
 			}
 			if len(m.Tools) > 0 {
 				toolCalls := make([]llm.ToolCall, 0, len(m.Tools))
@@ -183,8 +183,8 @@ func ApplySessionParts(conv *tui.Conversation, mparts []session.MessageParts) {
 		m.Parts = nil
 		m.Subagents = nil
 
-		thinkRunes := []rune(m.Thinking)
-		contentRunes := []rune(m.Content)
+		thinkRunes := []rune(m.ThinkingText())
+		contentRunes := []rune(m.ContentText())
 		thPos, tcPos := 0, 0
 		for _, rec := range records {
 			switch rec.Kind {
@@ -231,10 +231,10 @@ func ConvToSessionParts(conv *tui.Conversation) []session.MessageParts {
 				switch p.Kind {
 				case tui.PartThinking:
 					rec.Kind = session.PartThinking
-					rec.TextLen = utf8.RuneCountInString(p.Thinking)
+					rec.TextLen = utf8.RuneCountInString(p.ThinkingText())
 				case tui.PartContent:
 					rec.Kind = session.PartContent
-					rec.TextLen = utf8.RuneCountInString(p.Content)
+					rec.TextLen = utf8.RuneCountInString(p.ContentText())
 				case tui.PartTool:
 					rec.Kind = session.PartTool
 					rec.ToolIdx = tj
@@ -258,8 +258,8 @@ func subagentToRecord(sa *tui.Subagent) *session.SubagentRecord {
 	rec := &session.SubagentRecord{
 		Name:       sa.Name,
 		Prompt:     sa.Prompt,
-		Thinking:   sa.Thinking,
-		Content:    sa.Content,
+		Thinking:   sa.ThinkingText(),
+		Content:    sa.ContentText(),
 		Result:     sa.Result,
 		DurationMs: sa.Duration.Milliseconds(),
 	}
@@ -285,10 +285,10 @@ func subagentToRecord(sa *tui.Subagent) *session.SubagentRecord {
 		switch p.Kind {
 		case tui.PartThinking:
 			pr.Kind = session.PartThinking
-			pr.TextLen = utf8.RuneCountInString(p.Thinking)
+			pr.TextLen = utf8.RuneCountInString(p.ThinkingText())
 		case tui.PartContent:
 			pr.Kind = session.PartContent
-			pr.TextLen = utf8.RuneCountInString(p.Content)
+			pr.TextLen = utf8.RuneCountInString(p.ContentText())
 		case tui.PartTool:
 			pr.Kind = session.PartTool
 			pr.ToolIdx = tj
