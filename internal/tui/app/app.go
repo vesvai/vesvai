@@ -5,7 +5,9 @@ import (
 	"errors"
 	"image"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -20,6 +22,8 @@ import (
 )
 
 const tickInterval = 50 * time.Millisecond
+
+const sessionSaveInterval = 3 * time.Second
 
 const interruptWindow = 500 * time.Millisecond
 
@@ -63,7 +67,11 @@ type App struct {
 	ticker *time.Ticker
 	saves  chan struct{}
 
-	saveWG sync.WaitGroup
+	saveWG       sync.WaitGroup
+	saveMu       sync.Mutex
+	saveInFlight bool
+	saveQueued   *session.Session
+	lastSave     time.Time
 
 	backend Backend
 
@@ -145,6 +153,10 @@ func (a *App) Run() error {
 	defer a.cancel()
 	a.start = time.Now()
 
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigCh)
+
 	go func() {
 		for {
 			ev := s.PollEvent()
@@ -189,6 +201,13 @@ func (a *App) Run() error {
 			if a.layout.Tick(elapsed) || a.model.Busy {
 				a.dirty = true
 			}
+			if a.model.Busy && now.Sub(a.lastSave) >= sessionSaveInterval {
+				a.lastSave = now
+				a.saveSessionBestEffort()
+			}
+
+		case <-sigCh:
+			a.quit()
 
 		case <-a.saves:
 			a.refreshSessions()
@@ -496,6 +515,23 @@ func (a *App) saveSession() {
 	if a.backend == nil || len(a.model.Conv.Messages) == 0 {
 		return
 	}
+	a.enqueueSave(a.buildSessionSnapshot())
+}
+
+func (a *App) saveSessionBestEffort() {
+	if a.backend == nil || len(a.model.Conv.Messages) == 0 {
+		return
+	}
+	a.saveMu.Lock()
+	inFlight := a.saveInFlight
+	a.saveMu.Unlock()
+	if inFlight {
+		return
+	}
+	a.enqueueSave(a.buildSessionSnapshot())
+}
+
+func (a *App) buildSessionSnapshot() *session.Session {
 	if a.sessionID == "" {
 		a.sessionID = a.backend.NewSessionID()
 	}
@@ -510,7 +546,7 @@ func (a *App) saveSession() {
 		}
 	}
 	a.model.SessionName = title
-	sess := &session.Session{
+	return &session.Session{
 		ID:    a.sessionID,
 		Title: title,
 		Metadata: session.SessionMetadata{
@@ -523,16 +559,42 @@ func (a *App) saveSession() {
 		Messages: msgs,
 		Parts:    ConvToSessionParts(a.model.Conv),
 	}
+}
+
+func (a *App) enqueueSave(sess *session.Session) {
+	a.saveMu.Lock()
+	if a.saveInFlight {
+		a.saveQueued = sess
+		a.saveMu.Unlock()
+		return
+	}
+	a.saveInFlight = true
+	a.saveMu.Unlock()
+
 	a.saveWG.Add(1)
-	go func() {
-		defer a.saveWG.Done()
-		if err := a.backend.SaveSession(sess); err == nil {
-			select {
-			case a.saves <- struct{}{}:
-			default:
-			}
+	go a.runSave(sess)
+}
+
+func (a *App) runSave(sess *session.Session) {
+	defer a.saveWG.Done()
+
+	if err := a.backend.SaveSession(sess); err == nil {
+		select {
+		case a.saves <- struct{}{}:
+		default:
 		}
-	}()
+	}
+
+	a.saveMu.Lock()
+	a.saveInFlight = false
+	next := a.saveQueued
+	a.saveQueued = nil
+	a.saveMu.Unlock()
+
+	if next != nil {
+		a.saveWG.Add(1)
+		go a.runSave(next)
+	}
 }
 
 func (a *App) showPermissionModal(req permissionRequest) {
@@ -622,6 +684,7 @@ func (a *App) interruptRun() {
 	a.driver.Cancel()
 	a.stream = make(chan tui.StreamEvent, 512)
 	a.model.Apply(tui.StreamEvent{Kind: tui.EventError, Error: errInterrupted})
+	a.saveSession()
 	a.model.SetStatusMsg("interrupted")
 	a.layout.NotifyModelChange()
 }

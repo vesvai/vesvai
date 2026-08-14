@@ -41,9 +41,17 @@ func ConvToMessages(conv *tui.Conversation) []llm.Message {
 			if m.ThinkingText() != "" {
 				msg.Reasoning = m.ThinkingText()
 			}
-			if len(m.Tools) > 0 {
-				toolCalls := make([]llm.ToolCall, 0, len(m.Tools))
-				for j, tc := range m.Tools {
+
+			var finished []*tui.ToolCall
+			for _, tc := range m.Tools {
+				if tc.State == tui.ToolRunning && tc.Result == "" && tc.Error == nil {
+					continue
+				}
+				finished = append(finished, tc)
+			}
+			if len(finished) > 0 {
+				toolCalls := make([]llm.ToolCall, 0, len(finished))
+				for j, tc := range finished {
 					argsJSON := "{}"
 					if b, err := json.Marshal(tc.Args); err == nil {
 						argsJSON = string(b)
@@ -61,7 +69,7 @@ func ConvToMessages(conv *tui.Conversation) []llm.Message {
 			}
 			out = append(out, msg)
 
-			for j, tc := range m.Tools {
+			for j, tc := range finished {
 				result := tc.Result
 				if tc.Error != nil {
 					result = "Error: " + tc.Error.Error()
@@ -139,6 +147,15 @@ func MessagesToConv(conv *tui.Conversation, msgs []llm.Message) {
 			}
 			if target != nil && target.State == tui.ToolRunning {
 				conv.FinishToolCall(target, toolMessageText(m.Content), nil, 0)
+			}
+		}
+	}
+
+	if pendingTools != nil {
+		for _, t := range pendingTools {
+			if t.State == tui.ToolRunning {
+				t.State = tui.ToolError
+				t.Error = errors.New("interrupted")
 			}
 		}
 	}
