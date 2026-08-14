@@ -159,8 +159,6 @@ func (b *Builder) Metadata(text ...string) *Builder {
 }
 
 func (b *Builder) Context(items ...string) *Builder      { return b.bulletList("context", items) }
-func (b *Builder) Skills(items ...string) *Builder       { return b.bulletList("skills", items) }
-func (b *Builder) Tools(items ...string) *Builder        { return b.bulletList("tools", items) }
 func (b *Builder) Constraints(items ...string) *Builder  { return b.bulletList("constraints", items) }
 func (b *Builder) Limitations(items ...string) *Builder  { return b.bulletList("limitations", items) }
 func (b *Builder) Warnings(items ...string) *Builder     { return b.bulletList("warnings", items) }

@@ -11,29 +11,31 @@ type Agent struct {
 	config agent.AgentConfig
 }
 
+var plannerTools = []string{
+	"read",
+	"glob",
+	"grep",
+	"list",
+	"bash",
+	"set-todo",
+	"get-todo",
+	"list-todos",
+	"update-todo",
+	"delete-todo",
+	"list-facts",
+	"get-fact",
+	"search-facts",
+	"get-note",
+	"get-stats",
+}
+
 func New(opts ...agent.AgentOption) *Agent {
 	config := agent.DefaultConfig()
 	config.ID = "planner"
 	config.SystemPrompt = Prompt().Build()
 	config.MaxSteps = agent.MaxStepsFromEnv()
 	config.Temperature = 0.3
-	config.ToolNames = []string{
-		"read",
-		"glob",
-		"grep",
-		"list",
-		"bash",
-		"set-todo",
-		"get-todo",
-		"list-todos",
-		"update-todo",
-		"delete-todo",
-		"list-facts",
-		"get-fact",
-		"search-facts",
-		"get-note",
-		"get-stats",
-	}
+	config.ToolNames = plannerTools
 	agent.ApplyOptions(&config, opts...)
 
 	return &Agent{
@@ -111,5 +113,7 @@ func Prompt() *prompt.Builder {
 				},
 			},
 		).
-		Warnings("REMEMBER: You can ONLY explore and plan.")
+		Warnings("REMEMBER: You can ONLY explore and plan.").
+		Tools(plannerTools...).
+		Skills()
 }

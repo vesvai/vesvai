@@ -12,29 +12,31 @@ type Agent struct {
 	config agent.AgentConfig
 }
 
+var explorerTools = []string{
+	"read",
+	"glob",
+	"grep",
+	"list",
+	"bash",
+	"set-todo",
+	"get-todo",
+	"list-todos",
+	"update-todo",
+	"delete-todo",
+	"list-facts",
+	"get-fact",
+	"search-facts",
+	"get-note",
+	"get-stats",
+}
+
 func New(opts ...agent.AgentOption) *Agent {
 	config := agent.DefaultConfig()
 	config.ID = "explorer"
 	config.SystemPrompt = Prompt().Build()
 	config.MaxSteps = agent.MaxStepsFromEnv()
 	config.Temperature = 0.2
-	config.ToolNames = []string{
-		"read",
-		"glob",
-		"grep",
-		"list",
-		"bash",
-		"set-todo",
-		"get-todo",
-		"list-todos",
-		"update-todo",
-		"delete-todo",
-		"list-facts",
-		"get-fact",
-		"search-facts",
-		"get-note",
-		"get-stats",
-	}
+	config.ToolNames = explorerTools
 	agent.ApplyOptions(&config, opts...)
 
 	return &Agent{
@@ -95,5 +97,7 @@ func Prompt() *prompt.Builder {
 			"- Make efficient use of the tools that you have at your disposal: be smart about how you search for files and implementations",
 			"- Wherever possible you should try to spawn multiple parallel tool calls for grepping and reading files",
 		}, "\n")).
-		Goal("Complete the user's search request efficiently and report your findings clearly.")
+		Goal("Complete the user's search request efficiently and report your findings clearly.").
+		Tools(explorerTools...).
+		Skills()
 }

@@ -313,6 +313,21 @@ func (m *Manager) readProjectFile(path string) (string, error) {
 	return string(data), nil
 }
 
+func StripFrontmatter(content string) string {
+	trimmed := strings.TrimLeft(content, " \t\r\n")
+	if !strings.HasPrefix(trimmed, "---") {
+		return content
+	}
+	rest := trimmed
+	if idx := strings.Index(rest, "\n"); idx >= 0 {
+		rest = rest[idx+1:]
+	}
+	if parts := strings.SplitN(rest, "\n---", 2); len(parts) == 2 {
+		return strings.TrimLeft(parts[1], "\r\n")
+	}
+	return content
+}
+
 func extractDescription(content string) string {
 	if strings.HasPrefix(content, "---") {
 		parts := strings.SplitN(content, "---", 3)

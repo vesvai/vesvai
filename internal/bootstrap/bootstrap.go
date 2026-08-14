@@ -19,6 +19,8 @@ import (
 	"github.com/vesvai/vesvai/internal/memory"
 	"github.com/vesvai/vesvai/internal/permission"
 	"github.com/vesvai/vesvai/internal/plugin"
+	"github.com/vesvai/vesvai/internal/prompt"
+	"github.com/vesvai/vesvai/internal/skill"
 	"github.com/vesvai/vesvai/internal/tools"
 )
 
@@ -36,6 +38,7 @@ type App struct {
 	mcpManager      *mcp.Manager
 	memoryManager   *memory.Manager
 	pluginLifecycle *plugin.LifecycleManager
+	skillsManager   *skill.Manager
 }
 
 func New(cfg *config.Config) *App {
@@ -71,6 +74,12 @@ func (a *App) Init(ctx context.Context) error {
 	a.FileSystem = fs
 
 	a.Permissions = permission.NewManager(cwd)
+
+	prompt.SetHooks(a.Hooks)
+	if sm, err := skill.NewManager(cwd, fs); err == nil {
+		a.skillsManager = sm
+		skill.RegisterHooks(a.Hooks, sm)
+	}
 
 	a.registerCoreHooks(fs)
 

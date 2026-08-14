@@ -319,3 +319,20 @@ func TestManager_AgentSkillDirs(t *testing.T) {
 		t.Fatal("Read(nope) should error")
 	}
 }
+
+func TestStripFrontmatter(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"---\ndescription: x\n---\n\nBody here", "Body here"},
+		{"---\ndescription: x\n---\nBody line 1\nBody line 2", "Body line 1\nBody line 2"},
+		{"no frontmatter", "no frontmatter"},
+		{"", ""},
+		{"---\nbroken (no closing)\n", "---\nbroken (no closing)\n"},
+	}
+	for _, c := range cases {
+		if got := StripFrontmatter(c.in); got != c.want {
+			t.Errorf("StripFrontmatter(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

@@ -9,35 +9,37 @@ type Agent struct {
 	config agent.AgentConfig
 }
 
+var orchestratorTools = []string{
+	"planner",
+	"explorer",
+	"message",
+	"collect-messages",
+	"read",
+	"glob",
+	"grep",
+	"list",
+	"bash",
+	"edit",
+	"write",
+	"set-todo",
+	"get-todo",
+	"list-todos",
+	"update-todo",
+	"delete-todo",
+	"list-facts",
+	"get-fact",
+	"search-facts",
+	"get-note",
+	"get-stats",
+}
+
 func New(opts ...agent.AgentOption) *Agent {
 	config := agent.DefaultConfig()
 	config.ID = "orchestrator"
 	config.SystemPrompt = Prompt().Build()
 	config.MaxSteps = agent.MaxStepsFromEnv()
 	config.Temperature = 0.4
-	config.ToolNames = []string{
-		"planner",
-		"explorer",
-		"message",
-		"collect-messages",
-		"read",
-		"glob",
-		"grep",
-		"list",
-		"bash",
-		"edit",
-		"write",
-		"set-todo",
-		"get-todo",
-		"list-todos",
-		"update-todo",
-		"delete-todo",
-		"list-facts",
-		"get-fact",
-		"search-facts",
-		"get-note",
-		"get-stats",
-	}
+	config.ToolNames = orchestratorTools
 	agent.ApplyOptions(&config, opts...)
 
 	return &Agent{
@@ -104,5 +106,7 @@ func Prompt() *prompt.Builder {
 			"If a task is too complex, break it down further before delegating.",
 		).
 		Warnings("Never assume. Always verify. Speed is important, but correctness is non-negotiable.").
-		Goal("Deliver a complete, working solution that satisfies all requirements with minimal risk.")
+		Goal("Deliver a complete, working solution that satisfies all requirements with minimal risk.").
+		Tools(orchestratorTools...).
+		Skills()
 }

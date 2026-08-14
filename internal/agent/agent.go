@@ -20,22 +20,6 @@ const modelKey contextKey = "model"
 
 const historyKey contextKey = "history"
 
-const extraSystemKey contextKey = "extra_system"
-
-func WithExtraSystemContext(ctx context.Context, extra []llm.Message) context.Context {
-	if len(extra) == 0 {
-		return ctx
-	}
-	return context.WithValue(ctx, extraSystemKey, extra)
-}
-
-func ExtraSystemFromContext(ctx context.Context) []llm.Message {
-	if e, ok := ctx.Value(extraSystemKey).([]llm.Message); ok {
-		return e
-	}
-	return nil
-}
-
 func WithHistoryContext(ctx context.Context, history []llm.Message) context.Context {
 	if len(history) == 0 {
 		return ctx
@@ -308,10 +292,6 @@ func (r *Runner) buildMessages(agent Agent, userContent any, ctx context.Context
 	}
 	if systemPrompt != "" {
 		messages = append(messages, llm.SystemMessage(systemPrompt))
-	}
-
-	if extra := ExtraSystemFromContext(ctx); len(extra) > 0 {
-		messages = append(messages, extra...)
 	}
 
 	if history := HistoryFromContext(ctx); len(history) > 0 {

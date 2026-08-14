@@ -113,9 +113,8 @@ func (d *AgentDriver) Run(ctx context.Context, req RunRequest, emit func(tui.Str
 		prompt = rest
 	}
 
-	var skillSystem []llm.Message
 	if d.skills != nil {
-		prompt, skillSystem = d.extractSkills(prompt)
+		prompt = d.expandSkills(prompt)
 	}
 
 	sessionID := agent.SessionIDFromContext(ctx)
@@ -126,11 +125,9 @@ func (d *AgentDriver) Run(ctx context.Context, req RunRequest, emit func(tui.Str
 	if d.model != "" {
 		ctx = agent.WithModelContext(ctx, d.model)
 	}
-	if len(skillSystem) > 0 {
-		ctx = agent.WithExtraSystemContext(ctx, skillSystem)
-	}
 	if len(req.History) > 0 {
-		ctx = agent.WithHistoryContext(ctx, req.History)
+		history := d.expandSkillHistory(req.History)
+		ctx = agent.WithHistoryContext(ctx, history)
 	}
 
 	var content any = prompt
@@ -240,33 +237,62 @@ func (d *AgentDriver) mapChunk(chunk agent.StreamChunk, usage *tui.Usage, emit f
 	}
 }
 
-func (d *AgentDriver) extractSkills(text string) (string, []llm.Message) {
+func (d *AgentDriver) expandSkillHistory(history []llm.Message) []llm.Message {
+	if d.skills == nil {
+		return history
+	}
+	out := make([]llm.Message, 0, len(history))
+	for _, m := range history {
+		if m.Role == llm.RoleUser {
+			switch c := m.Content.(type) {
+			case string:
+				m.Content = d.expandSkills(c)
+			case llm.Content:
+				c.Text = d.expandSkills(c.Text)
+				m.Content = c
+			case *llm.Content:
+				if c != nil {
+					c.Text = d.expandSkills(c.Text)
+					m.Content = c
+				}
+			}
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func (d *AgentDriver) expandSkills(text string) string {
 	names := map[string]bool{}
 	if list, err := d.skills.List(); err == nil {
 		for _, s := range list {
 			names[s.Name] = true
 		}
 	}
-	fields := strings.Fields(text)
-	kept := make([]string, 0, len(fields))
-	var extra []llm.Message
-	for _, f := range fields {
-		if strings.HasPrefix(f, "/") {
-			name := strings.TrimPrefix(f, "/")
-			if names[name] {
-				if s, err := d.skills.Read(name); err == nil {
-					extra = append(extra, llm.SystemMessage(
-						fmt.Sprintf("[Skill: %s]\n%s", s.Name, s.Content)))
-				}
+	var b strings.Builder
+	runes := []rune(text)
+	for i := 0; i < len(runes); {
+		if runes[i] != '/' {
+			b.WriteRune(runes[i])
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(runes) && isMentionRune(runes[j]) {
+			j++
+		}
+		name := string(runes[i+1 : j])
+		if j > i+1 && names[name] {
+			if s, err := d.skills.Read(name); err == nil {
+				b.WriteString(skill.StripFrontmatter(s.Content))
+				i = j
 				continue
 			}
 		}
-		kept = append(kept, f)
+		b.WriteRune(runes[i])
+		i++
 	}
-	if len(extra) == 0 {
-		return text, nil
-	}
-	return strings.Join(kept, " "), extra
+	return b.String()
 }
 
 func (d *AgentDriver) reloadModels() {

@@ -13,6 +13,7 @@ const (
 	HookToolsCollect     = "tools:collect"
 	HookAgentsCollect    = "agents:collect"
 	HookProvidersCollect = "providers:collect"
+	HookSkillsCollect    = "skills:collect"
 )
 
 type HookContext struct {

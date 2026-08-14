@@ -214,7 +214,7 @@ func TestAgentDriverSeedsHistory(t *testing.T) {
 	}
 }
 
-func TestAgentDriverSkillAsSystemPrompt(t *testing.T) {
+func TestAgentDriverSkillReplacedInPlace(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
 	fsys, err := filesystem.New(filesystem.Config{RootDir: root})
@@ -224,8 +224,9 @@ func TestAgentDriverSkillAsSystemPrompt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".vesvai", "skills"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	skillContent := "---\ndescription: graph skills\n---\n\nGraph instructions here."
 	if err := os.WriteFile(filepath.Join(root, ".vesvai", "skills", "graphify.md"),
-		[]byte("---\ndescription: graph skills\n---\n\nGraph instructions here."), 0o644); err != nil {
+		[]byte(skillContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	mgr, err := skill.NewManager(root, fsys)
@@ -239,37 +240,82 @@ func TestAgentDriverSkillAsSystemPrompt(t *testing.T) {
 	d, _ := newTestDriver(t, p)
 	d.skills = mgr
 
-	collectEvents(t, d, RunRequest{Text: "/graphify do the thing"})
+	collectEvents(t, d, RunRequest{Text: "Hello, do it now /graphify then finish"})
 
 	req := p.reqs[0]
-	var sysIdx, userIdx = -1, -1
-	for i, m := range req.Messages {
-		switch m.Role {
-		case llm.RoleSystem:
+	last := req.Messages[len(req.Messages)-1]
+	text, ok := last.Content.(string)
+	if !ok {
+		t.Fatalf("user content not a string: %T", last.Content)
+	}
+	if want := "Hello, do it now Graph instructions here. then finish"; text != want {
+		t.Fatalf("user message = %q, want %q", text, want)
+	}
+	if strings.Contains(text, "---") {
+		t.Fatalf("frontmatter leaked into the prompt: %q", text)
+	}
+
+	for _, m := range req.Messages {
+		if m.Role == llm.RoleSystem {
 			if content, ok := m.Content.(string); ok && strings.Contains(content, "Graph instructions here.") {
-				sysIdx = i
-			}
-		case llm.RoleUser:
-			if text, ok := m.Content.(string); ok && text == "do the thing" {
-				userIdx = i
+				t.Fatalf("skill must not be a system message: %+v", req.Messages)
 			}
 		}
 	}
-	if sysIdx < 0 {
-		t.Fatalf("skill system message missing from request: %+v", req.Messages)
+
+	collectEvents(t, d, RunRequest{Text: "keep /usr/local and /graphifyx"})
+	req = p.reqs[1]
+	last = req.Messages[len(req.Messages)-1]
+	if text, ok := last.Content.(string); !ok || !strings.Contains(text, "/usr/local") || !strings.Contains(text, "/graphifyx") {
+		t.Fatalf("unknown slash tokens must stay in the prompt: %q", text)
 	}
-	if userIdx < 0 {
-		t.Fatalf("stripped user message missing: %+v", req.Messages)
+}
+
+func TestAgentDriverSkillExpandedInHistory(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	fsys, err := filesystem.New(filesystem.Config{RootDir: root})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if sysIdx > userIdx {
-		t.Fatalf("skill system message (%d) must precede the user message (%d)", sysIdx, userIdx)
+	if err := os.MkdirAll(filepath.Join(root, ".vesvai", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skillContent := "---\ndescription: graph skills\n---\n\nGraph instructions here."
+	if err := os.WriteFile(filepath.Join(root, ".vesvai", "skills", "graphify.md"),
+		[]byte(skillContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := skill.NewManager(root, fsys)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	collectEvents(t, d, RunRequest{Text: "keep /usr/local as-is"})
-	req = p.reqs[1]
-	last := req.Messages[len(req.Messages)-1]
-	if text, ok := last.Content.(string); !ok || !strings.Contains(text, "/usr/local") {
-		t.Fatalf("unknown slash token must stay in the prompt: %+v", req.Messages)
+	p := newScriptedProvider(
+		[]llm.StreamChunk{{Content: "ok"}, {IsDone: true, FinishReason: llm.FinishReasonStop}},
+	)
+	d, _ := newTestDriver(t, p)
+	d.skills = mgr
+
+	collectEvents(t, d, RunRequest{Text: "hello /graphify world"})
+
+	history := []llm.Message{llm.UserMessage("hello /graphify world")}
+	collectEvents(t, d, RunRequest{Text: "continue please", History: history})
+
+	req := p.reqs[1]
+	histUser := req.Messages[1]
+	text, ok := histUser.Content.(string)
+	if !ok {
+		t.Fatalf("history user content not a string: %T", histUser.Content)
+	}
+	if !strings.Contains(text, "Graph instructions here.") {
+		t.Fatalf("history user message not expanded: %q", text)
+	}
+	if strings.Contains(text, "/graphify") {
+		t.Fatalf("raw skill token leaked into the loop: %q", text)
+	}
+	if !strings.Contains(text, "hello") || !strings.Contains(text, "world") {
+		t.Fatalf("history text mangled: %q", text)
 	}
 }
 
