@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -174,6 +175,15 @@ func (p *Prompt) MustBuild(format Format) string {
 		panic(err)
 	}
 	return out
+}
+
+func (p *Prompt) AgentsMd() *Prompt {
+	content, err := os.ReadFile("AGENTS.md")
+	if err != nil || len(content) == 0 {
+		return p
+	}
+	return p.Add(Heading(1, "Project Instructions")).
+		Add(Raw(string(content)))
 }
 
 func Render(text string, vars Vars) (string, error) {

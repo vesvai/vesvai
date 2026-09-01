@@ -94,7 +94,8 @@ func SharedPromptBuilder() *prompt.Prompt {
 			prompt.Heading(1, "Available Skills"),
 			prompt.Paragraph("You can load a skill into the conversation by including `/<skill-name>` in your input or in a subagent task message. Its instructions are injected automatically."),
 			prompt.SkillsList(skillInfos()),
-		))
+		)).
+		AgentsMd()
 }
 
 func skillInfos() []prompt.SkillInfo {
