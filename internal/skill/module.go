@@ -12,20 +12,17 @@ import (
 	"github.com/vesvai/vesvai/internal/core/config"
 )
 
-//go:embed skills
+//go:embed builtin
 var embedded embed.FS
 
-const (
-	builtinDir      = "builtin"
-	agentsSkillsDir = ".agents/skills"
-)
+const agentsSkillsDir = ".agents/skills"
 
 func SkillModule() error {
 	vesvaiSkills, err := config.GetConfigPath("skills")
 	if err != nil {
 		return err
 	}
-	if err := MaterializeTo(filepath.Join(vesvaiSkills, builtinDir)); err != nil {
+	if err := MaterializeTo(vesvaiSkills); err != nil {
 		return err
 	}
 	home, err := os.UserHomeDir()
@@ -43,7 +40,7 @@ func SkillModule() error {
 }
 
 func MaterializeTo(root string) error {
-	entries, err := fs.ReadDir(embedded, "skills")
+	entries, err := fs.ReadDir(embedded, "builtin")
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
@@ -54,7 +51,7 @@ func MaterializeTo(root string) error {
 		if !e.IsDir() {
 			continue
 		}
-		if err := copyDir(filepath.Join("skills", e.Name()), filepath.Join(root, e.Name())); err != nil {
+		if err := copyDir(filepath.Join("builtin", e.Name()), filepath.Join(root, e.Name())); err != nil {
 			return err
 		}
 	}
