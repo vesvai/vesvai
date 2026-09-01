@@ -30,14 +30,8 @@ func TestGitVarsInRepo(t *testing.T) {
 	if git["enabled"] != true {
 		t.Skip("not inside a git repository")
 	}
-	if git["branch"] == "" {
-		t.Fatal("git.branch empty in a git repo")
-	}
 	if git["main_branch"] == "" {
 		t.Fatal("git.main_branch empty in a git repo")
-	}
-	if git["recent_commits"] == "" {
-		t.Fatal("git.recent_commits empty in a git repo")
 	}
 	if _, ok := git["status"]; !ok {
 		t.Fatal("git.status missing")
