@@ -61,12 +61,12 @@ var defaultSensitiveKeys = []string{
 }
 
 var (
-	privateKeyRe = regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----.*?-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----`)
-	jwtRe        = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`)
-	bearerRe     = regexp.MustCompile(`(?i)(\bbearer\s+)([A-Za-z0-9._~+/=-]{10,})`)
-	urlCredsRe   = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s:@]+@`)
-	netrcGateRe  = regexp.MustCompile(`(?im)^\s*(machine\s+\S+|default)\b`)
-	netrcPassRe  = regexp.MustCompile(`(?i)(\bpassword\s+)(\S+)`)
+	privateKeyRe  = regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----.*?-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----`)
+	jwtRe         = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`)
+	bearerRe      = regexp.MustCompile(`(?i)(\bbearer\s+)([A-Za-z0-9._~+/=-]{10,})`)
+	urlCredsRe    = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s:@]+@`)
+	netrcGateRe   = regexp.MustCompile(`(?im)^\s*(machine\s+\S+|default)\b`)
+	netrcPassRe   = regexp.MustCompile(`(?i)(\bpassword\s+)(\S+)`)
 	highEntropyRe = regexp.MustCompile(`[A-Za-z0-9+/=_-]{8,}`)
 
 	knownTokenRes = []*regexp.Regexp{
@@ -118,12 +118,18 @@ func WithSensitiveKeys(keys ...string) RedactionOption {
 	}
 }
 
-func WithDisableKeyValue() RedactionOption    { return func(r *redactor) { r.keyValueEnabled = false } }
-func WithDisableKnownTokens() RedactionOption { return func(r *redactor) { r.knownTokensEnabled = false } }
-func WithDisablePrivateKeys() RedactionOption { return func(r *redactor) { r.privateKeysEnabled = false } }
-func WithDisableURLs() RedactionOption        { return func(r *redactor) { r.urlsEnabled = false } }
-func WithDisableNetrc() RedactionOption       { return func(r *redactor) { r.netrcEnabled = false } }
-func WithDisableHighEntropy() RedactionOption { return func(r *redactor) { r.highEntropyEnabled = false } }
+func WithDisableKeyValue() RedactionOption { return func(r *redactor) { r.keyValueEnabled = false } }
+func WithDisableKnownTokens() RedactionOption {
+	return func(r *redactor) { r.knownTokensEnabled = false }
+}
+func WithDisablePrivateKeys() RedactionOption {
+	return func(r *redactor) { r.privateKeysEnabled = false }
+}
+func WithDisableURLs() RedactionOption  { return func(r *redactor) { r.urlsEnabled = false } }
+func WithDisableNetrc() RedactionOption { return func(r *redactor) { r.netrcEnabled = false } }
+func WithDisableHighEntropy() RedactionOption {
+	return func(r *redactor) { r.highEntropyEnabled = false }
+}
 
 func WithHighEntropyMinLength(n int) RedactionOption {
 	return func(r *redactor) {
@@ -143,15 +149,15 @@ func WithHighEntropyMinEntropy(f float64) RedactionOption {
 
 func newRedactor(opts ...RedactionOption) *redactor {
 	r := &redactor{
-		sensitiveKeys:          make(map[string]struct{}),
-		keyValueEnabled:        true,
-		knownTokensEnabled:     true,
-		privateKeysEnabled:     true,
-		urlsEnabled:            true,
-		netrcEnabled:           true,
-		highEntropyEnabled:     true,
-		highEntropyMinLength:   24,
-		highEntropyMinEntropy:  4.2,
+		sensitiveKeys:         make(map[string]struct{}),
+		keyValueEnabled:       true,
+		knownTokensEnabled:    true,
+		privateKeysEnabled:    true,
+		urlsEnabled:           true,
+		netrcEnabled:          true,
+		highEntropyEnabled:    true,
+		highEntropyMinLength:  24,
+		highEntropyMinEntropy: 4.2,
 	}
 	for _, k := range defaultSensitiveKeys {
 		r.sensitiveKeys[k] = struct{}{}

@@ -61,13 +61,13 @@ type renderLine struct {
 }
 
 type Chat struct {
-	items      []*ChatItem
-	sel        int
-	scroll     int
-	autoScroll bool
+	items       []*ChatItem
+	sel         int
+	scroll      int
+	autoScroll  bool
 	wasAtBottom bool
-	back       bool
-	hasMore    bool
+	back        bool
+	hasMore     bool
 
 	onActivate func(*ChatItem)
 	onBack     func()

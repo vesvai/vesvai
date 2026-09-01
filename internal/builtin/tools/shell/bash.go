@@ -68,20 +68,36 @@ func bashTool(fs *vfs.VFS) tool.Tool {
 			ctx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 
-			cmd := exec.CommandContext(ctx, "sh", "-c", params.Command)
+			cmd := exec.Command("sh", "-c", params.Command)
 			cmd.Dir = workdir
+			setProcessGroup(cmd)
 
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
 
-			err := cmd.Run()
+			if err := cmd.Start(); err != nil {
+				return "", fmt.Errorf("bash: %w", err)
+			}
+
+			done := make(chan error, 1)
+			go func() { done <- cmd.Wait() }()
+
+			var timedOut bool
+			var err error
+			select {
+			case <-ctx.Done():
+				timedOut = true
+				killProcessGroup(cmd)
+			case err = <-done:
+			}
+
+			if timedOut {
+				return fmt.Sprintf("Command timed out after %s.\nstdout:\n%s\nstderr:\n%s\n", timeout, stdout.String(), stderr.String()), nil
+			}
 
 			exitCode := 0
 			if err != nil {
-				if ctx.Err() != nil {
-					return fmt.Sprintf("Command timed out after %s.\nstdout:\n%s\nstderr:\n%s\n", timeout, stdout.String(), stderr.String()), nil
-				}
 				if exitErr, ok := err.(*exec.ExitError); ok {
 					exitCode = exitErr.ExitCode()
 				} else {

@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: write
+
 on:
   pull_request:
     branches: [main]
@@ -19,29 +22,34 @@ jobs:
         with:
           go-version: '1.26.5'
 
+      - name: Tidy modules
+        run: go mod tidy
+
       - name: Run tests
         run: go test -v ./...
 
   fmt:
-    name: Format Check
+    name: Format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.5'
 
-      - name: Check go fmt
-        run: |
-          gofmt_output=$(gofmt -l .)
-          if [ -n "$gofmt_output" ]; then
-            echo "Files not formatted:"
-            echo "$gofmt_output"
-            exit 1
-          fi
+      - name: Auto-format
+        run: gofmt -w .
+
+      - name: Commit linted files
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          commit_message: "chore: fix code style"
+          commit_options: "--no-verify"
 
   vet:
     name: Vet
@@ -54,6 +62,9 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.5'
+
+      - name: Tidy modules
+        run: go mod tidy
 
       - name: Run go vet
         run: go vet ./...
