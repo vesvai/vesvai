@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: write
+
 on:
   pull_request:
     branches: [main]
@@ -23,16 +26,38 @@ jobs:
         run: go mod tidy
 
       - name: Run tests
-        run: go test -v ./...
+        run: |
+          set +e
+
+          failed=0
+
+          for pkg in $(go list ./...); do
+            echo ""
+            echo "======================================"
+            echo "TESTING: $pkg"
+            echo "======================================"
+
+            go test -v "$pkg"
+            status=$?
+
+            echo "EXIT CODE: $status"
+
+            if [ "$status" -ne 0 ]; then
+              echo "FAILED PACKAGE: $pkg"
+              failed=1
+            fi
+          done
+
+          exit $failed
 
   fmt:
     name: Format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
-          ref: ${{ github.ref }}
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -42,15 +67,11 @@ jobs:
       - name: Auto-format
         run: gofmt -w .
 
-      - name: Commit changes if any
-        run: |
-          if [ -n "$(git diff)" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add -A
-            git commit -m "ci: auto-format code"
-            git push
-          fi
+      - name: Commit linted files
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          commit_message: "chore: fix code style"
+          commit_options: "--no-verify"
 
   vet:
     name: Vet
