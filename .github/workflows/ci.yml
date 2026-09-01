@@ -26,29 +26,7 @@ jobs:
         run: go mod tidy
 
       - name: Run tests
-        run: |
-          set +e
-
-          failed=0
-
-          for pkg in $(go list ./...); do
-            echo ""
-            echo "======================================"
-            echo "TESTING: $pkg"
-            echo "======================================"
-
-            go test -v "$pkg"
-            status=$?
-
-            echo "EXIT CODE: $status"
-
-            if [ "$status" -ne 0 ]; then
-              echo "FAILED PACKAGE: $pkg"
-              failed=1
-            fi
-          done
-
-          exit $failed
+        run: go test -v ./...
 
   fmt:
     name: Format
