@@ -6,7 +6,7 @@ import (
 )
 
 type NamedMiddleware struct {
-	Name      string
+	Name       string
 	Middleware Middleware
 }
 

@@ -107,9 +107,9 @@ func (p *Page) SetModel(m string) {
 
 func (p *Page) SetSession(title string) { p.status.SetSession(title) }
 
-func (p *Page) SetRunning(r bool)              { p.status.SetRunning(r) }
-func (p *Page) SetUsage(u llm.Usage)           { p.status.SetUsage(u) }
-func (p *Page) SetMaxInputTokens(n int)        { p.status.SetMaxInputTokens(n) }
+func (p *Page) SetRunning(r bool)       { p.status.SetRunning(r) }
+func (p *Page) SetUsage(u llm.Usage)    { p.status.SetUsage(u) }
+func (p *Page) SetMaxInputTokens(n int) { p.status.SetMaxInputTokens(n) }
 
 func (p *Page) SessionTitle() string { return p.status.Session() }
 
