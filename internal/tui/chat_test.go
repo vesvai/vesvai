@@ -314,10 +314,10 @@ func TestAppSkillPickerHasBuiltinSkills(t *testing.T) {
 	hp.HandleKey(tcell.NewEventKey(tcell.KeyRune, '/', 0))
 	hp.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'g', 0))
 	if hp.PickCount() == 0 {
-		t.Error("builtin skills should appear in the picker (found go-development)")
+		t.Error("builtin skills should appear in the picker (found init)")
 	}
-	if it, ok := hp.Picker().Selected(); ok && it.Label != "go-development" {
-		t.Errorf("selected = %q, want go-development", it.Label)
+	if it, ok := hp.Picker().Selected(); ok && it.Label != "init" {
+		t.Errorf("selected = %q, want init", it.Label)
 	}
 }
 
