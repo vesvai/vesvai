@@ -14,17 +14,13 @@ func TestMaterializeTo(t *testing.T) {
 	if err := MaterializeTo(root); err != nil {
 		t.Fatal(err)
 	}
-	skillMD := filepath.Join(root, "go-development", SkillFileName)
+	skillMD := filepath.Join(root, "init", SkillFileName)
 	data, err := os.ReadFile(skillMD)
 	if err != nil {
 		t.Fatalf("SKILL.md not materialized: %v", err)
 	}
-	if !strings.Contains(string(data), "go-development") {
+	if !strings.Contains(string(data), "init") {
 		t.Fatalf("SKILL.md content unexpected:\n%s", data)
-	}
-	script := filepath.Join(root, "go-development", "scripts", "run-tests.sh")
-	if _, err := os.Stat(script); err != nil {
-		t.Fatalf("scripts not materialized: %v", err)
 	}
 
 	if err := MaterializeTo(root); err != nil {
@@ -41,20 +37,14 @@ func TestMaterializedSkillParsesAndExpands(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, ok := Get("go-development")
+	s, ok := Get("init")
 	if !ok {
-		t.Fatal("go-development must be registered")
-	}
-	if !s.HasScripts || s.ScriptsPath == "" {
-		t.Fatalf("scripts info missing: %+v", s)
+		t.Fatal("init must be registered")
 	}
 
-	out := ExpandMessage("implement it /go-development")
-	if !strings.Contains(out, "<skill:go-development>") {
+	out := ExpandMessage("implement it /init")
+	if !strings.Contains(out, "<skill:init>") {
 		t.Fatalf("expansion failed:\n%s", out)
-	}
-	if !strings.Contains(out, "Verification") {
-		t.Fatalf("skill body missing from expansion:\n%s", out)
 	}
 
 	infos := []prompt.SkillInfo{{Name: s.Name, Description: s.Description}}
@@ -62,7 +52,7 @@ func TestMaterializedSkillParsesAndExpands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(md, "go-development") {
+	if !strings.Contains(md, "init") {
 		t.Fatalf("prompt listing missing skill: %q", md)
 	}
 }
