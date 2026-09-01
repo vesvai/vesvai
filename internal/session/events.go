@@ -1,0 +1,62 @@
+package session
+
+const (
+	TopicSessionCreated        = "session.created"
+	TopicSessionDeleted        = "session.deleted"
+	TopicSessionUpdated        = "session.updated"
+	TopicSessionMessageAdded   = "session.message.added"
+	TopicSessionForked         = "session.forked"
+	TopicSessionReverted       = "session.reverted"
+	TopicSessionRestored       = "session.restored"
+	TopicSessionCurrentChanged = "session.current.changed"
+	TopicSessionResume         = "session.resume"
+	TopicSessionAttached       = "session.attached"
+)
+
+type SessionResume struct {
+	AgentID   string
+	SessionID string
+}
+
+type SessionAttached struct {
+	AgentID   string
+	SessionID string
+}
+
+type SessionCreated struct {
+	SessionID string
+}
+
+type SessionDeleted struct {
+	SessionID string
+}
+
+type SessionUpdated struct {
+	SessionID string
+}
+
+type SessionMessageAdded struct {
+	SessionID string
+	Message   Message
+}
+
+type SessionForked struct {
+	SessionID       string
+	ParentID        string
+	ParentMessageID string
+}
+
+type SessionReverted struct {
+	SessionID   string
+	ToMessageID string
+	SnapshotID  string
+}
+
+type SessionRestored struct {
+	SessionID  string
+	SnapshotID string
+}
+
+type SessionCurrentChanged struct {
+	SessionID string
+}

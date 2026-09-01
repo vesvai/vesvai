@@ -1,0 +1,230 @@
+package settings
+
+import (
+	"os"
+	"testing"
+
+	"github.com/gdamore/tcell/v2"
+
+	"github.com/vesvai/vesvai/internal/core/event"
+	"github.com/vesvai/vesvai/internal/core/logger"
+	"github.com/vesvai/vesvai/internal/llm"
+	"github.com/vesvai/vesvai/internal/session"
+)
+
+type sessDiscardHandler struct{}
+
+func (sessDiscardHandler) Write(logger.Record) error { return nil }
+func (sessDiscardHandler) Close() error              { return nil }
+
+func newSessionManager(t *testing.T) (*session.Manager, *session.SQLiteStore) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	store, err := session.NewSQLiteStore()
+	if err != nil {
+		t.Fatalf("open session store: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	bus := event.New()
+	mgr := session.NewManager(store, bus, logger.New(logger.LevelDebug, sessDiscardHandler{}))
+	return mgr, store
+}
+
+func TestSessionTabDisabledWithoutActive(t *testing.T) {
+	s := New(Deps{})
+	st := s.session
+	if !st.rowEnabled(0) || !st.rowEnabled(1) {
+		t.Error("load/new should always be enabled")
+	}
+	if st.rowEnabled(2) || st.rowEnabled(3) {
+		t.Error("delete/title should be disabled without an active session")
+	}
+	s.tab = tabSession
+	s.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, 0))
+	s.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, 0))
+	s.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+	if s.sub != nil {
+		t.Error("Enter on disabled delete row should not open a modal")
+	}
+}
+
+func TestSessionTabNewClears(t *testing.T) {
+	s := New(Deps{})
+	s.active = &SessionInfo{ID: "x", Title: "old"}
+	cleared := false
+	s.SetOnSessionClear(func() { cleared = true })
+
+	s.tab = tabSession
+	s.session.index = 1
+	s.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+
+	if !cleared {
+		t.Error("new session should fire onSessionClear")
+	}
+	if s.active != nil {
+		t.Error("new session should clear the active session")
+	}
+}
+
+func TestSessionTabLoadAndDelete(t *testing.T) {
+	mgr, _ := newSessionManager(t)
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := mgr.Create(session.CreateOptions{Title: "Test Sess", Provider: "p", Model: "m", ProjectDir: dir})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if _, err := mgr.AppendMessage(sess.ID, llm.Message{Role: llm.RoleUser, Content: "hello"}); err != nil {
+		t.Fatalf("append message: %v", err)
+	}
+
+	s := New(Deps{Sessions: mgr})
+	var loaded SessionInfo
+	var cleared int
+	s.SetOnSessionChange(func(info SessionInfo) { loaded = info })
+	s.SetOnSessionClear(func() { cleared++ })
+
+	s.tab = tabSession
+	s.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+	if s.sub == nil {
+		t.Fatal("session list should open")
+	}
+	s.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+	if s.sub != nil {
+		t.Fatal("list should close after selection")
+	}
+	if loaded.ID != sess.ID || loaded.Title != "Test Sess" {
+		t.Errorf("loaded = %+v", loaded)
+	}
+	if len(loaded.Messages) != 1 || loaded.Messages[0].Content != "hello" {
+		t.Errorf("loaded messages = %+v", loaded.Messages)
+	}
+	if s.active == nil {
+		t.Fatal("active session should be set")
+	}
+
+	s.session.index = 2
+	s.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+	if s.sub == nil {
+		t.Fatal("confirm modal should open")
+	}
+	s.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+	if s.active != nil {
+		t.Error("active session should clear after delete")
+	}
+	if cleared != 1 {
+		t.Errorf("onSessionClear calls = %d, want 1", cleared)
+	}
+	if _, err := mgr.Get(sess.ID); err == nil {
+		t.Error("session should be gone from the store")
+	}
+}
+
+func TestSessionTabSaveTitle(t *testing.T) {
+	mgr, _ := newSessionManager(t)
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := mgr.Create(session.CreateOptions{Title: "Old Title", Provider: "p", Model: "m", ProjectDir: dir})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	s := New(Deps{Sessions: mgr})
+	s.SetActiveSession(&SessionInfo{ID: sess.ID, Title: "Old Title"})
+	var updated SessionInfo
+	s.SetOnSessionChange(func(info SessionInfo) { updated = info })
+
+	s.tab = tabSession
+	s.session.index = 3
+	s.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+	if s.sub == nil {
+		t.Fatal("title modal should open")
+	}
+	if fm, ok := s.sub.(*fieldModal); ok {
+		fm.field.Focus()
+		fm.field.SetText("")
+		for _, r := range []rune("New Title") {
+			fm.field.HandleKey(tcell.NewEventKey(tcell.KeyRune, r, 0))
+		}
+		fm.field.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+	} else {
+		t.Fatalf("sub is %T, want fieldModal", s.sub)
+	}
+
+	if s.sub != nil {
+		t.Fatal("title modal should close after save")
+	}
+	if updated.Title != "New Title" {
+		t.Errorf("updated title = %q, want New Title", updated.Title)
+	}
+	got, err := mgr.Get(sess.ID)
+	if err != nil || got.Title != "New Title" {
+		t.Errorf("persisted title = %+v, err = %v", got, err)
+	}
+}
+
+func TestSessionTabNavigation(t *testing.T) {
+	s := New(Deps{})
+	st := s.session
+	st.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, 0))
+	if st.index != 1 {
+		t.Errorf("after Down index = %d, want 1", st.index)
+	}
+	for i := 0; i < 10; i++ {
+		st.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, 0))
+	}
+	if st.index != sessionRowCount-1 {
+		t.Errorf("index should clamp at %d, got %d", sessionRowCount-1, st.index)
+	}
+	st.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, 0))
+	if st.index != sessionRowCount-2 {
+		t.Errorf("after Up index = %d, want %d", st.index, sessionRowCount-2)
+	}
+}
+
+func TestSessionTabLoadClosesModal(t *testing.T) {
+	mgr, _ := newSessionManager(t)
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := mgr.Create(session.CreateOptions{Title: "T", Provider: "p", Model: "m", ProjectDir: dir})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	s := New(Deps{Sessions: mgr})
+	closed := false
+	s.SetOnClose(func() { closed = true })
+
+	s.tab = tabSession
+	s.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+	s.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+	if !closed {
+		t.Error("loading a session should close the settings modal")
+	}
+	if s.active == nil || s.active.ID != sess.ID {
+		t.Errorf("session should still be active: %+v", s.active)
+	}
+}
+
+func TestSessionTabNewClosesModal(t *testing.T) {
+	s := New(Deps{})
+	s.active = &SessionInfo{ID: "x", Title: "old"}
+	closed := false
+	s.SetOnClose(func() { closed = true })
+
+	s.tab = tabSession
+	s.session.index = 1
+	s.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+	if !closed {
+		t.Error("new session should close the settings modal")
+	}
+	if s.active != nil {
+		t.Error("active session should be cleared")
+	}
+}

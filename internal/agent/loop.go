@@ -1,0 +1,468 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/vesvai/vesvai/internal/agent/tool"
+	"github.com/vesvai/vesvai/internal/llm"
+)
+
+type runState struct {
+	agent        *Agent
+	history      []llm.Message
+	iterations   int
+	usage        llm.Usage
+	output       string
+	finishReason llm.FinishReason
+	modelID      string
+	provider     string
+	stream       StreamHandler
+}
+
+func (a *Agent) run(ctx context.Context, input string, stream StreamHandler) (*RunResult, error) {
+	if strings.TrimSpace(input) == "" {
+		return nil, a.fail(ctx, ErrEmptyInput)
+	}
+	input = expandInput(input)
+	if a.Provider == nil {
+		return nil, a.fail(ctx, ErrNoProvider)
+	}
+	if err := a.resolveToolNames(); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+	if err := a.resolveMiddlewareNames(); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+
+	ctx = WithAgent(ctx, a)
+	state := &runState{agent: a, stream: stream}
+	a.debugf("agent %q started run", a.Name)
+	a.publish(TopicAgentStarted, AgentStarted{
+		AgentID:   a.ID,
+		AgentName: a.Name,
+		Model:     a.Model,
+		Provider:  a.Provider,
+	})
+	a.publish(TopicAgentInput, AgentInput{
+		AgentID:     a.ID,
+		AgentName:   a.Name,
+		Model:       a.Model,
+		Input:       input,
+		Attachments: a.Attachments,
+	})
+
+	if err := a.chain.BeforeRun(ctx, a.Name, input); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+
+	prov := a.Provider
+	state.modelID = a.Model.ID
+	state.provider = prov.Name()
+
+	if a.SystemPrompt != "" {
+		state.history = append(state.history, llm.SystemMessage(a.SystemPrompt))
+	}
+	state.history = append(state.history, a.userMessage(input))
+
+	return a.loop(ctx, state, prov)
+}
+
+func (a *Agent) resume(ctx context.Context, input string, history []llm.Message, stream StreamHandler) (*RunResult, error) {
+	if strings.TrimSpace(input) == "" {
+		return nil, a.fail(ctx, ErrEmptyInput)
+	}
+	input = expandInput(input)
+	if a.Provider == nil {
+		return nil, a.fail(ctx, ErrNoProvider)
+	}
+	if err := a.resolveToolNames(); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+	if err := a.resolveMiddlewareNames(); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+
+	ctx = WithAgent(ctx, a)
+	state := &runState{agent: a, stream: stream}
+	a.debugf("agent %q resumed run", a.Name)
+	a.publish(TopicAgentStarted, AgentStarted{
+		AgentID:   a.ID,
+		AgentName: a.Name,
+		Model:     a.Model,
+		Provider:  a.Provider,
+	})
+	a.publish(TopicAgentInput, AgentInput{
+		AgentID:     a.ID,
+		AgentName:   a.Name,
+		Model:       a.Model,
+		Input:       input,
+		Attachments: a.Attachments,
+	})
+
+	if err := a.chain.BeforeRun(ctx, a.Name, input); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+
+	prov := a.Provider
+	state.modelID = a.Model.ID
+	state.provider = prov.Name()
+
+	state.history = append(state.history, history...)
+	state.history = append(state.history, a.userMessage(input))
+
+	return a.loop(ctx, state, prov)
+}
+
+func (a *Agent) loop(ctx context.Context, state *runState, prov llm.Provider) (*RunResult, error) {
+	finished := false
+	for state.iterations < a.MaxIterations {
+		state.iterations++
+		msg, calls, err := a.iterate(ctx, state, prov)
+		if err != nil {
+			return nil, a.fail(ctx, err)
+		}
+		state.history = append(state.history, msg)
+		a.publish(TopicAgentMessage, AgentMessage{
+			AgentID:   a.ID,
+			AgentName: a.Name,
+			Model:     a.Model,
+			Message:   msg,
+		})
+		if len(calls) > 0 {
+			for _, call := range calls {
+				if err := a.executeTool(ctx, state, call); err != nil {
+					return nil, a.fail(ctx, err)
+				}
+			}
+			continue
+		}
+		finished = true
+		break
+	}
+
+	result := &RunResult{
+		AgentName:    a.Name,
+		Model:        a.Model,
+		Provider:     state.provider,
+		Output:       state.output,
+		History:      state.history,
+		Usage:        state.usage,
+		Iterations:   state.iterations,
+		FinishReason: state.finishReason,
+	}
+
+	if !finished {
+		err := fmt.Errorf("%w (%d iterations)", ErrMaxIterations, state.iterations)
+		a.debugf("agent %q hit max iterations", a.Name)
+		a.publish(TopicAgentError, AgentError{AgentID: a.ID, AgentName: a.Name, Model: a.Model, Err: err})
+		_ = a.chain.OnError(ctx, err)
+		return result, err
+	}
+
+	if err := a.chain.AfterRun(ctx, a.Name, result, nil); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+	a.publish(TopicAgentFinished, AgentFinished{
+		AgentID:      a.ID,
+		AgentName:    a.Name,
+		Model:        a.Model,
+		Output:       result.Output,
+		Usage:        result.Usage,
+		Iterations:   result.Iterations,
+		FinishReason: result.FinishReason,
+	})
+	a.debugf("agent %q finished run in %d iterations", a.Name, state.iterations)
+	return result, nil
+}
+
+func (a *Agent) userMessage(input string) llm.Message {
+	if len(a.Attachments) == 0 {
+		return llm.UserMessage(input)
+	}
+	return llm.UserMessage(llm.ContentWithAttachments(input, a.Attachments))
+}
+
+func (a *Agent) iterate(ctx context.Context, state *runState, prov llm.Provider) (llm.Message, []llm.ToolCall, error) {
+	req := a.buildRequest(state)
+	if err := a.chain.BeforeLLM(ctx, req); err != nil {
+		return llm.Message{}, nil, err
+	}
+	if state.stream != nil {
+		return a.iterateStream(ctx, state, prov, req)
+	}
+
+	resp, err := prov.Chat(ctx, req)
+	if err != nil {
+		return llm.Message{}, nil, err
+	}
+	if err := a.chain.AfterLLM(ctx, req, resp); err != nil {
+		return llm.Message{}, nil, err
+	}
+
+	state.accumulateUsage(resp.Usage)
+	a.publish(TopicAgentUsage, AgentUsage{
+		AgentID:   a.ID,
+		AgentName: a.Name,
+		Model:     a.Model,
+		Usage:     state.usage,
+	})
+	state.output = resp.GetContent()
+	state.finishReason = resp.GetFinishReason()
+
+	msg := llm.AssistantMessage(state.output)
+	if reasoning := resp.GetReasoning(); reasoning != "" {
+		msg.Reasoning = reasoning
+	}
+	calls := resp.GetToolCalls()
+	if len(calls) > 0 {
+		msg.ToolCalls = calls
+	}
+	return msg, calls, nil
+}
+
+func (a *Agent) iterateStream(ctx context.Context, state *runState, prov llm.Provider, req *llm.Request) (llm.Message, []llm.ToolCall, error) {
+	acc := newStreamAccumulator()
+	err := prov.ChatStream(ctx, req, func(chunk llm.StreamChunk) error {
+		acc.append(chunk)
+		if chunk.Usage != nil {
+			state.accumulateUsage(*chunk.Usage)
+			a.publish(TopicAgentUsage, AgentUsage{
+				AgentID:   a.ID,
+				AgentName: a.Name,
+				Model:     a.Model,
+				Usage:     state.usage,
+			})
+		}
+		if chunk.FinishReason != "" {
+			state.finishReason = chunk.FinishReason
+		}
+		if chunk.Content != "" {
+			if err := state.stream(StreamEvent{
+				Type:      StreamToken,
+				AgentID:   a.ID,
+				AgentName: a.Name,
+				Content:   chunk.Content,
+			}); err != nil {
+				return err
+			}
+			a.publish(TopicAgentToken, AgentToken{
+				AgentID:   a.ID,
+				AgentName: a.Name,
+				Model:     a.Model,
+				Content:   chunk.Content,
+			})
+		}
+		if chunk.Reasoning != "" {
+			if err := state.stream(StreamEvent{
+				Type:      StreamReasoning,
+				AgentID:   a.ID,
+				AgentName: a.Name,
+				Reasoning: chunk.Reasoning,
+			}); err != nil {
+				return err
+			}
+			a.publish(TopicAgentToken, AgentToken{
+				AgentID:   a.ID,
+				AgentName: a.Name,
+				Model:     a.Model,
+				Reasoning: chunk.Reasoning,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return llm.Message{}, nil, err
+	}
+
+	state.output = acc.content
+	msg := llm.AssistantMessage(acc.content)
+	if acc.reasoning != "" {
+		msg.Reasoning = acc.reasoning
+	}
+	calls := acc.toolCalls()
+	if len(calls) > 0 {
+		msg.ToolCalls = calls
+	}
+
+	resp := &llm.Response{
+		Model:   req.Model,
+		Choices: []llm.Choice{{Index: 0, Message: &msg, FinishReason: &state.finishReason}},
+		Usage:   state.usage,
+	}
+	if err := a.chain.AfterLLM(ctx, req, resp); err != nil {
+		return llm.Message{}, nil, err
+	}
+
+	for _, call := range calls {
+		callCopy := call
+		if err := state.stream(StreamEvent{
+			Type:      StreamToolCall,
+			AgentID:   a.ID,
+			AgentName: a.Name,
+			ToolCall:  &callCopy,
+		}); err != nil {
+			return llm.Message{}, nil, err
+		}
+	}
+	if err := state.stream(StreamEvent{
+		Type:      StreamDone,
+		AgentID:   a.ID,
+		AgentName: a.Name,
+		Model:     a.Model,
+		Content:   acc.content,
+		Usage:     &state.usage,
+	}); err != nil {
+		return llm.Message{}, nil, err
+	}
+	return msg, calls, nil
+}
+
+func (a *Agent) executeTool(ctx context.Context, state *runState, call llm.ToolCall) error {
+	a.debugf("agent %q tool call %q (%s)", a.Name, call.Function.Name, call.ID)
+	a.publish(TopicAgentToolCall, AgentToolCall{
+		AgentID:   a.ID,
+		AgentName: a.Name,
+		Model:     a.Model,
+		Call:      call,
+	})
+
+	if err := a.chain.BeforeTool(ctx, call); err != nil {
+		output := fmt.Sprintf("Error: tool call aborted by middleware: %v", err)
+		state.history = append(state.history, llm.ToolMessage(output, call.ID))
+		a.emitToolResult(state, call, output, err)
+		return nil
+	}
+
+	t, ok := a.Tools.Get(call.Function.Name)
+	var output string
+	var toolErr error
+	if !ok {
+		output = fmt.Sprintf("Error: tool %q is not registered", call.Function.Name)
+		toolErr = fmt.Errorf("%w: %s", tool.ErrNotFound, call.Function.Name)
+	} else {
+		output, toolErr = t.Execute(ctx, call.Function.Arguments)
+		if toolErr != nil {
+			output = fmt.Sprintf("Error: %v", toolErr)
+			toolErr = fmt.Errorf("%w: %s: %v", ErrToolExecutionFailed, t.Name(), toolErr)
+		}
+	}
+
+	_ = a.chain.AfterTool(ctx, call, output, toolErr)
+	state.history = append(state.history, llm.ToolMessage(output, call.ID))
+	a.emitToolResult(state, call, output, toolErr)
+	return nil
+}
+
+func (a *Agent) emitToolResult(state *runState, call llm.ToolCall, output string, toolErr error) {
+	a.publish(TopicAgentToolResult, AgentToolResult{
+		AgentID:   a.ID,
+		AgentName: a.Name,
+		Model:     a.Model,
+		CallID:    call.ID,
+		ToolName:  call.Function.Name,
+		Output:    output,
+		Err:       toolErr,
+	})
+	if state.stream != nil {
+		callCopy := call
+		_ = state.stream(StreamEvent{
+			Type:       StreamToolResult,
+			AgentID:    a.ID,
+			AgentName:  a.Name,
+			ToolCall:   &callCopy,
+			ToolOutput: output,
+			ToolErr:    toolErr,
+		})
+	}
+}
+
+func (a *Agent) buildRequest(state *runState) *llm.Request {
+	req := llm.NewRequest(state.modelID, state.history)
+	if a.Temperature != 0 {
+		req.Temperature = a.Temperature
+	}
+	if a.TopP != 0 {
+		req.TopP = a.TopP
+	}
+	if a.MaxTokens != 0 {
+		req.MaxTokens = a.MaxTokens
+	}
+	if tools := a.Tools.LLMTools(); len(tools) > 0 {
+		req.Tools = tools
+	}
+	return req
+}
+
+func (a *Agent) fail(ctx context.Context, err error) error {
+	a.debugf("agent %q failed: %v", a.Name, err)
+	a.publish(TopicAgentError, AgentError{AgentID: a.ID, AgentName: a.Name, Model: a.Model, Err: err})
+	_ = a.chain.OnError(ctx, err)
+	return err
+}
+
+func (s *runState) accumulateUsage(u llm.Usage) {
+	s.usage.PromptTokens += u.PromptTokens
+	s.usage.CompletionTokens += u.CompletionTokens
+	s.usage.TotalTokens += u.TotalTokens
+	s.usage.Cost += u.Cost
+}
+
+type accToolCall struct {
+	id        string
+	name      string
+	typ       string
+	arguments string
+}
+
+type streamAccumulator struct {
+	content   string
+	reasoning string
+	calls     map[int]*accToolCall
+	order     []int
+}
+
+func newStreamAccumulator() *streamAccumulator {
+	return &streamAccumulator{calls: make(map[int]*accToolCall)}
+}
+
+func (a *streamAccumulator) append(chunk llm.StreamChunk) {
+	a.content += chunk.Content
+	a.reasoning += chunk.Reasoning
+	for _, tc := range chunk.ToolCalls {
+		acc, ok := a.calls[tc.Index]
+		if !ok {
+			acc = &accToolCall{}
+			a.calls[tc.Index] = acc
+			a.order = append(a.order, tc.Index)
+		}
+		if tc.ID != "" {
+			acc.id = tc.ID
+		}
+		if tc.Type != "" {
+			acc.typ = tc.Type
+		}
+		if tc.Function.Name != "" {
+			acc.name = tc.Function.Name
+		}
+		acc.arguments += tc.Function.Arguments
+	}
+}
+
+func (a *streamAccumulator) toolCalls() []llm.ToolCall {
+	calls := make([]llm.ToolCall, 0, len(a.order))
+	for _, idx := range a.order {
+		acc := a.calls[idx]
+		calls = append(calls, llm.ToolCall{
+			Index: idx,
+			ID:    acc.id,
+			Type:  acc.typ,
+			Function: llm.Function{
+				Name:      acc.name,
+				Arguments: acc.arguments,
+			},
+		})
+	}
+	return calls
+}

@@ -1,0 +1,86 @@
+package agent
+
+import "github.com/vesvai/vesvai/internal/llm"
+
+const (
+	TopicAgentStarted    = "agent.started"
+	TopicAgentInput      = "agent.input"
+	TopicAgentMessage    = "agent.message"
+	TopicAgentToken      = "agent.token"
+	TopicAgentToolCall   = "agent.tool.call"
+	TopicAgentToolResult = "agent.tool.result"
+	TopicAgentUsage      = "agent.usage"
+	TopicAgentFinished   = "agent.finished"
+	TopicAgentError      = "agent.error"
+)
+
+type AgentInput struct {
+	AgentID     string
+	AgentName   string
+	Model       llm.Model
+	Input       string
+	Attachments []llm.Attachment
+}
+
+type AgentStarted struct {
+	AgentID   string
+	AgentName string
+	Model     llm.Model
+	Provider  llm.Provider
+}
+
+type AgentMessage struct {
+	AgentID   string
+	AgentName string
+	Model     llm.Model
+	Message   llm.Message
+}
+
+type AgentToken struct {
+	AgentID   string
+	AgentName string
+	Model     llm.Model
+	Content   string
+	Reasoning string
+}
+
+type AgentToolCall struct {
+	AgentID   string
+	AgentName string
+	Model     llm.Model
+	Call      llm.ToolCall
+}
+
+type AgentToolResult struct {
+	AgentID   string
+	AgentName string
+	Model     llm.Model
+	CallID    string
+	ToolName  string
+	Output    string
+	Err       error
+}
+
+type AgentUsage struct {
+	AgentID   string
+	AgentName string
+	Model     llm.Model
+	Usage     llm.Usage
+}
+
+type AgentFinished struct {
+	AgentID      string
+	AgentName    string
+	Model        llm.Model
+	Output       string
+	Usage        llm.Usage
+	Iterations   int
+	FinishReason llm.FinishReason
+}
+
+type AgentError struct {
+	AgentID   string
+	AgentName string
+	Model     llm.Model
+	Err       error
+}
