@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -744,4 +745,75 @@ func TestHeadingLevelClamp(t *testing.T) {
 	if strings.Contains(got, `level="7"`) {
 		t.Fatalf("level 7 was not clamped: %q", got)
 	}
+}
+
+func TestAgentsMd(t *testing.T) {
+	t.Run("with content", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(dir+"/AGENTS.md", []byte("# Rules\nBe concise."), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		orig, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(orig)
+
+		p := New().
+			Paragraph("before").
+			AgentsMd().
+			Paragraph("after")
+
+		got, err := p.Build(FormatMarkdown)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "before\n\n# Project Instructions\n\n# Rules\nBe concise.\n\nafter"
+		if got != want {
+			t.Fatalf("markdown:\ngot:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("file not found", func(t *testing.T) {
+		dir := t.TempDir()
+		orig, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(orig)
+
+		p := New().
+			Paragraph("before").
+			AgentsMd().
+			Paragraph("after")
+
+		got, err := p.Build(FormatMarkdown)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "before\n\nafter"
+		if got != want {
+			t.Fatalf("markdown:\ngot:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("empty file", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(dir+"/AGENTS.md", []byte(""), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		orig, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(orig)
+
+		p := New().
+			Paragraph("before").
+			AgentsMd().
+			Paragraph("after")
+
+		got, err := p.Build(FormatMarkdown)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "before\n\nafter"
+		if got != want {
+			t.Fatalf("markdown:\ngot:\n%s\nwant:\n%s", got, want)
+		}
+	})
 }
