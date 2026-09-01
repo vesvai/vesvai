@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/vesvai/vesvai/internal/agent/agents"
+	"github.com/vesvai/vesvai/internal/core/cache"
 	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/core/event"
 	"github.com/vesvai/vesvai/internal/core/hook"
@@ -30,17 +31,19 @@ type CLI struct {
 	mcpMgr   *mcp.Manager
 	lspMgr   *lsp.Manager
 	fs       *vfs.VFS
+	cache    cache.Cache
 	root     *cobra.Command
 	commands hook.Hook[[]*cobra.Command]
 	picker   func(items []string, label string) (int, error)
 }
 
-func New(bus event.Bus, cfg *config.Config, log *logger.Logger, vfs *vfs.VFS, sessions *session.Manager, llmMgr *llm.Manager, mcpMgr *mcp.Manager, lspMgr *lsp.Manager) *CLI {
+func New(bus event.Bus, cfg *config.Config, log *logger.Logger, vfs *vfs.VFS, sessions *session.Manager, llmMgr *llm.Manager, mcpMgr *mcp.Manager, lspMgr *lsp.Manager, cache cache.Cache) *CLI {
 	c := &CLI{
 		bus:      bus,
 		cfg:      cfg,
 		log:      log,
 		fs:       vfs,
+		cache:    cache,
 		sessions: sessions,
 		llmMgr:   llmMgr,
 		mcpMgr:   mcpMgr,
@@ -125,6 +128,7 @@ func (c *CLI) tuiDeps() (settings.Deps, error) {
 		Agent:    orch,
 		Bus:      c.bus,
 		VFS:      c.fs,
+		Cache:    c.cache,
 	}, nil
 }
 

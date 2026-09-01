@@ -2,6 +2,7 @@ package settings
 
 import (
 	"github.com/vesvai/vesvai/internal/agent"
+	"github.com/vesvai/vesvai/internal/core/cache"
 	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/core/event"
 	"github.com/vesvai/vesvai/internal/llm"
@@ -18,4 +19,5 @@ type Deps struct {
 	Agent    *agent.Agent
 	Bus      event.Bus
 	VFS      *vfs.VFS
+	Cache    cache.Cache
 }

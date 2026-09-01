@@ -15,7 +15,6 @@ import (
 
 	"github.com/vesvai/vesvai/internal/agent"
 	"github.com/vesvai/vesvai/internal/agent/agents"
-	"github.com/vesvai/vesvai/internal/core/cache"
 	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/core/event"
 	"github.com/vesvai/vesvai/internal/core/update"
@@ -235,13 +234,7 @@ func (a *App) checkForUpdates() {
 		return
 	}
 
-	cacheStore, err := cache.CacheModule(a.deps.Config.Cache)
-	if err != nil {
-		return
-	}
-	defer cacheStore.Close()
-
-	dismissed := update.GetDismissedVersion(cacheStore)
+	dismissed := update.GetDismissedVersion(a.deps.Cache)
 	if dismissed == rel.Version {
 		return
 	}
@@ -256,7 +249,7 @@ func (a *App) checkForUpdates() {
 			os.Exit(0)
 		},
 		func() {
-			update.SetDismissedVersion(cacheStore, rel.Version)
+			update.SetDismissedVersion(a.deps.Cache, rel.Version)
 			a.setOverlay(nil)
 		},
 	)
