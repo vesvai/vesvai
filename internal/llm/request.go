@@ -44,6 +44,7 @@ type Request struct {
 	PresencePenalty   float64         `json:"presence_penalty,omitempty"`
 	FrequencyPenalty  float64         `json:"frequency_penalty,omitempty"`
 	User              string          `json:"user,omitempty"`
+	ReasoningEffort   string          `json:"reasoning_effort,omitempty"`
 }
 
 func NewRequest(model string, messages []Message) *Request {
@@ -129,5 +130,10 @@ func (r *Request) WithFrequencyPenalty(penalty float64) *Request {
 
 func (r *Request) WithUser(user string) *Request {
 	r.User = user
+	return r
+}
+
+func (r *Request) WithReasoningEffort(effort string) *Request {
+	r.ReasoningEffort = effort
 	return r
 }

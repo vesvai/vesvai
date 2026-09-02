@@ -14,10 +14,9 @@ import (
 
 func TestLookupModelConfig(t *testing.T) {
 	prices := map[string]ModelConfig{
-		"openai/gpt-4o":                        {Mode: "chat", LitellmProvider: "openai", MaxInputTokens: 128000},
-		"gpt-4o-mini":                          {Mode: "chat", LitellmProvider: "openai"},
-		"groq/llama-3.3-70b":                   {Mode: "chat", LitellmProvider: "groq"},
-		"anthropic/claude-3-5-sonnet-20241022": {Mode: "chat", LitellmProvider: "anthropic"},
+		"openai/gpt-4o":      {MaxInputTokens: 128000, Family: "gpt"},
+		"gpt-4o-mini":        {Family: "gpt"},
+		"groq/llama-3.3-70b": {Family: "llama"},
 	}
 
 	t.Run("provider/model exact", func(t *testing.T) {
@@ -35,17 +34,17 @@ func TestLookupModelConfig(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.LitellmProvider != "openai" {
+		if cfg.Family != "gpt" {
 			t.Fatalf("cfg = %+v", cfg)
 		}
 	})
 
 	t.Run("contains fallback", func(t *testing.T) {
-		cfg, err := lookupModelConfig(prices, "openai", "claude-3-5-sonnet")
+		cfg, err := lookupModelConfig(prices, "openai", "llama-3.3-70b")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.LitellmProvider != "anthropic" {
+		if cfg.Family != "llama" {
 			t.Fatalf("cfg = %+v", cfg)
 		}
 	})
@@ -57,34 +56,40 @@ func TestLookupModelConfig(t *testing.T) {
 	})
 }
 
-func TestReasoningEffortsFor(t *testing.T) {
-	cases := []struct {
-		key  string
-		want []string
-	}{
-		{"o1", []string{"low", "medium", "high"}},
-		{"openai/o1", []string{"low", "medium", "high"}},
-		{"gpt-5.2-2025-12-11", []string{"none", "low", "medium", "high", "xhigh"}},
-		{"openai/gpt-5.2-codex", []string{"low", "medium", "high", "xhigh"}},
-		{"gemini-3.5-flash", []string{"minimal", "low", "medium", "high"}},
-		{"gemini-3-pro-preview", []string{"low", "high"}},
-		{"gpt-4o", nil},
-		{"random-model", nil},
-	}
-	for _, tc := range cases {
-		got := reasoningEffortsFor(tc.key)
-		if !reflect.DeepEqual(got, tc.want) {
-			t.Fatalf("reasoningEffortsFor(%q) = %v, want %v", tc.key, got, tc.want)
-		}
-	}
-}
-
 func TestFetchPricesFrom(t *testing.T) {
 	body := `{
-		"openai/gpt-4o": {"mode": "chat", "litellm_provider": "openai", "max_input_tokens": 128000, "input_cost_per_token": 0.0000025},
-		"openai/o1": {"mode": "chat", "litellm_provider": "openai"},
-		"text-embedding-3-small": {"mode": "embedding", "litellm_provider": "openai"},
-		"dall-e-3": {"mode": "image_generation", "litellm_provider": "openai"}
+		"openai": {
+			"id": "openai",
+			"name": "OpenAI",
+			"models": {
+				"gpt-4o": {
+					"id": "gpt-4o",
+					"name": "GPT-4o",
+					"description": "Omni GPT",
+					"family": "gpt",
+					"reasoning": false,
+					"tool_call": true,
+					"structured_output": true,
+					"temperature": true,
+					"open_weights": false,
+					"limit": {"context": 128000, "input": 128000, "output": 16384},
+					"cost": {"input": 2.5, "output": 10, "cache_read": 1.25}
+				},
+				"o1": {
+					"id": "o1",
+					"name": "o1",
+					"description": "Reasoning model",
+					"family": "o-series",
+					"reasoning": true,
+					"reasoning_options": [{"type": "effort", "values": ["low", "medium", "high"]}],
+					"tool_call": true,
+					"temperature": false,
+					"open_weights": false,
+					"limit": {"context": 200000, "output": 100000},
+					"cost": {"input": 15, "output": 60, "cache_read": 7.5}
+				}
+			}
+		}
 	}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(body))
@@ -95,19 +100,25 @@ func TestFetchPricesFrom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(prices) != 2 {
-		t.Fatalf("prices = %+v, want only chat entries", prices)
+	if len(prices) != 4 {
+		t.Fatalf("prices = %+v, want 4 entries (2 models x 2 key formats)", prices)
 	}
 	cfg, ok := prices["openai/gpt-4o"]
-	if !ok || cfg.MaxInputTokens != 128000 || cfg.InputCostPerToken != 0.0000025 {
+	if !ok || cfg.MaxInputTokens != 128000 {
 		t.Fatalf("gpt-4o cfg = %+v", cfg)
+	}
+	if cfg.InputCostPerToken != 2.5/1_000_000 {
+		t.Fatalf("gpt-4o input cost = %v, want %v", cfg.InputCostPerToken, 2.5/1_000_000)
 	}
 	o1, ok := prices["openai/o1"]
 	if !ok {
 		t.Fatal("o1 missing")
 	}
-	if !reflect.DeepEqual(o1.ReasoningEfforts, []string{"low", "medium", "high"}) {
-		t.Fatalf("o1 efforts = %v", o1.ReasoningEfforts)
+	if !o1.SupportsReasoning {
+		t.Fatal("o1 should support reasoning")
+	}
+	if !reflect.DeepEqual(o1.ReasoningOptions, []ReasoningOption{{Type: "effort", Values: []string{"low", "medium", "high"}}}) {
+		t.Fatalf("o1 reasoning_options = %v", o1.ReasoningOptions)
 	}
 
 	if _, err := fetchPricesFrom(context.Background(), "http://127.0.0.1:1/nope"); err == nil {
@@ -117,7 +128,7 @@ func TestFetchPricesFrom(t *testing.T) {
 
 func TestFetchPricesFromBadJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"openai/gpt-4o": {`))
+		_, _ = w.Write([]byte(`{"openai": {`))
 	}))
 	defer srv.Close()
 
@@ -129,18 +140,14 @@ func TestFetchPricesFromBadJSON(t *testing.T) {
 func TestManagerPricesCachedAndLookup(t *testing.T) {
 	mgr, _, c := newTestManagerWithCache(t)
 	prices := map[string]ModelConfig{
-		"openai/gpt-4o":                {Mode: "chat", LitellmProvider: "openai", MaxInputTokens: 128000},
-		"groq/llama-3.3-70b-versatile": {Mode: "chat", LitellmProvider: "groq"},
+		"openai/gpt-4o":                {MaxInputTokens: 128000, Family: "gpt"},
+		"groq/llama-3.3-70b-versatile": {Family: "llama"},
 	}
 	data, err := json.Marshal(prices)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Set(PricesCacheKey, data); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := mgr.EnsurePricesCached(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -159,8 +166,8 @@ func TestManagerPricesCachedAndLookup(t *testing.T) {
 func TestManagerEnrichesModelsWithConfig(t *testing.T) {
 	mgr, _, c := newTestManagerWithCache(t)
 	prices := map[string]ModelConfig{
-		"openai/gpt-4o": {Mode: "chat", LitellmProvider: "openai", MaxInputTokens: 128000},
-		"openai/o1":     {Mode: "chat", LitellmProvider: "openai", SupportsReasoning: true},
+		"openai/gpt-4o": {MaxInputTokens: 128000, Family: "gpt"},
+		"openai/o1":     {SupportsReasoning: true, Family: "o-series"},
 	}
 	data, _ := json.Marshal(prices)
 	if err := c.Set(PricesCacheKey, data); err != nil {

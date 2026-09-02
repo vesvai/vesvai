@@ -180,6 +180,7 @@ func (s *Service) toChatRequest(req *llm.Request, stream bool) *chatRequest {
 		PresencePenalty:   req.PresencePenalty,
 		FrequencyPenalty:  req.FrequencyPenalty,
 		User:              req.User,
+		ReasoningEffort:   req.ReasoningEffort,
 	}
 
 	if stream {

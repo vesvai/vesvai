@@ -114,6 +114,7 @@ func (r *Recorder) handleStarted(e agent.AgentStarted) {
 			opts.Provider = e.Provider.Name()
 		}
 		opts.Model = e.Model.ID
+		opts.ReasoningEffort = e.ReasoningEffort
 		if dir, err := os.Getwd(); err == nil {
 			opts.ProjectDir = dir
 		}

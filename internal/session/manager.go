@@ -29,13 +29,14 @@ func (m *Manager) Create(opts CreateOptions) (*Session, error) {
 	}
 	now := time.Now()
 	s := &Session{
-		ID:         uuid.NewString(),
-		Title:      opts.Title,
-		Provider:   opts.Provider,
-		Model:      opts.Model,
-		ProjectDir: opts.ProjectDir,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:              uuid.NewString(),
+		Title:           opts.Title,
+		Provider:        opts.Provider,
+		Model:           opts.Model,
+		ReasoningEffort: opts.ReasoningEffort,
+		ProjectDir:      opts.ProjectDir,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	if err := m.store.Create(*s); err != nil {
 		return nil, err

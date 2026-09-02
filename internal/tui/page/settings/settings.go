@@ -1,6 +1,8 @@
 package settings
 
 import (
+	"fmt"
+
 	"github.com/gdamore/tcell/v2"
 
 	"github.com/vesvai/vesvai/internal/llm"
@@ -28,11 +30,12 @@ type selectedModel struct {
 }
 
 type SessionInfo struct {
-	ID       string
-	Title    string
-	Provider string
-	Model    string
-	Messages []session.Message
+	ID              string
+	Title           string
+	Provider        string
+	Model           string
+	ReasoningEffort string
+	Messages        []session.Message
 }
 
 type Settings struct {
@@ -50,10 +53,13 @@ type Settings struct {
 	model  selectedModel
 	errMsg string
 
-	onClose         func()
-	onModelChange   func(provider string, model llm.Model)
-	onSessionChange func(info SessionInfo)
-	onSessionClear  func()
+	reasoningEffort string
+
+	onClose                 func()
+	onModelChange           func(provider string, model llm.Model)
+	onReasoningEffortChange func(effort string)
+	onSessionChange         func(info SessionInfo)
+	onSessionClear          func()
 }
 
 func New(deps Deps) *Settings {
@@ -75,7 +81,57 @@ func (s *Settings) SetOnModelChange(fn func(provider string, model llm.Model)) {
 	s.onModelChange = fn
 }
 
+func (s *Settings) SetReasoningEffort(effort string) {
+	s.reasoningEffort = effort
+}
+
+func (s *Settings) SetOnReasoningEffortChange(fn func(effort string)) {
+	s.onReasoningEffortChange = fn
+}
+
 func (s *Settings) ModelDisplay() string { return s.modelDisplay() }
+
+func (s *Settings) modelSupportsReasoning() bool {
+	if s.model.model.Config == nil {
+		return false
+	}
+	return len(s.model.model.Config.ReasoningOptions) > 0
+}
+
+func (s *Settings) modelConfigSummary() string {
+	if s.model.model.Config == nil {
+		return "Config=nil"
+	}
+	return fmt.Sprintf("Config.ReasoningOptions=%d", len(s.model.model.Config.ReasoningOptions))
+}
+
+func (s *Settings) openReasoning() {
+	l := components.NewList("Reasoning effort")
+	var items []components.ListItem
+	items = append(items, components.ListItem{Label: "default", Detail: "use provider default", Marked: s.reasoningEffort == ""})
+	if s.model.model.Config != nil {
+		for _, opt := range s.model.model.Config.ReasoningOptions {
+			if opt.Type == "effort" {
+				for _, v := range opt.Values {
+					items = append(items, components.ListItem{Label: v, Marked: s.reasoningEffort == v})
+				}
+			}
+		}
+	}
+	l.SetItems(items)
+	l.SetOnSelect(func(_ int, item components.ListItem) {
+		if item.Label == "default" {
+			s.reasoningEffort = ""
+		} else {
+			s.reasoningEffort = item.Label
+		}
+		if s.onReasoningEffortChange != nil {
+			s.onReasoningEffortChange(s.reasoningEffort)
+		}
+		s.back()
+	})
+	s.openSub(&listModal{title: "Reasoning Effort", list: l, onBack: s.back})
+}
 
 func (s *Settings) HasSub() bool { return s.sub != nil }
 

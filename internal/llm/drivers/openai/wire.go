@@ -43,6 +43,7 @@ type chatRequest struct {
 	PresencePenalty   float64           `json:"presence_penalty,omitempty"`
 	FrequencyPenalty  float64           `json:"frequency_penalty,omitempty"`
 	User              string            `json:"user,omitempty"`
+	ReasoningEffort   string            `json:"reasoning_effort,omitempty"`
 }
 
 type chatResponse struct {
