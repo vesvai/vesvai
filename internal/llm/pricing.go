@@ -5,186 +5,98 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
 
-const LitellmPricesURL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+const ModelsDataURL = "https://models.opencode.ai/api.json"
 
 const PricesCacheKey = "litellm_prices"
 
 var ErrModelConfigNotFound = errors.New("llm: model config not found")
 
+type ReasoningOption struct {
+	Type   string   `json:"type"`
+	Values []string `json:"values,omitempty"`
+	Min    *int     `json:"min,omitempty"`
+	Max    *int     `json:"max,omitempty"`
+}
+
+type Interleaved struct {
+	Field string `json:"field"`
+}
+
+type Modalities struct {
+	Input  []string `json:"input,omitempty"`
+	Output []string `json:"output,omitempty"`
+}
+
 type ModelConfig struct {
-	MaxTokens        int      `json:"max_tokens,omitempty"`
-	MaxInputTokens   int      `json:"max_input_tokens,omitempty"`
-	MaxOutputTokens  int      `json:"max_output_tokens,omitempty"`
-	LitellmProvider  string   `json:"litellm_provider,omitempty"`
-	Mode             string   `json:"mode,omitempty"`
-	DeprecationDate  string   `json:"deprecation_date,omitempty"`
-	SupportedRegions []string `json:"supported_regions,omitempty"`
+	MaxTokens       int `json:"max_tokens,omitempty"`
+	MaxInputTokens  int `json:"max_input_tokens,omitempty"`
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
 
-	InputCostPerToken           float64 `json:"input_cost_per_token,omitempty"`
-	OutputCostPerToken          float64 `json:"output_cost_per_token,omitempty"`
-	InputCostPerAudioToken      float64 `json:"input_cost_per_audio_token,omitempty"`
-	OutputCostPerReasoningToken float64 `json:"output_cost_per_reasoning_token,omitempty"`
-	VectorStoreCostPerGBPerDay  float64 `json:"vector_store_cost_per_gb_per_day,omitempty"`
-	SearchContextCostPerQuery   any     `json:"search_context_cost_per_query,omitempty"`
+	InputCostPerToken     float64 `json:"input_cost_per_token,omitempty"`
+	OutputCostPerToken    float64 `json:"output_cost_per_token,omitempty"`
+	CacheReadCostPerToken float64 `json:"cache_read_cost_per_token,omitempty"`
 
-	SupportsAudioInput              bool `json:"supports_audio_input,omitempty"`
-	SupportsAudioOutput             bool `json:"supports_audio_output,omitempty"`
-	SupportsFunctionCalling         bool `json:"supports_function_calling,omitempty"`
-	SupportsParallelFunctionCalling bool `json:"supports_parallel_function_calling,omitempty"`
-	SupportsPromptCaching           bool `json:"supports_prompt_caching,omitempty"`
-	SupportsReasoning               bool `json:"supports_reasoning,omitempty"`
-	SupportsResponseSchema          bool `json:"supports_response_schema,omitempty"`
-	SupportsSystemMessages          bool `json:"supports_system_messages,omitempty"`
-	SupportsVision                  bool `json:"supports_vision,omitempty"`
-	SupportsWebSearch               bool `json:"supports_web_search,omitempty"`
+	SupportsReasoning bool `json:"supports_reasoning,omitempty"`
 
-	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
+	Family      string `json:"family,omitempty"`
+	Description string `json:"description,omitempty"`
+	Knowledge   string `json:"knowledge,omitempty"`
+	ReleaseDate string `json:"release_date,omitempty"`
+	LastUpdated string `json:"last_updated,omitempty"`
+	OpenWeights bool   `json:"open_weights,omitempty"`
+	Attachment  bool   `json:"attachment,omitempty"`
+	ToolCall    bool   `json:"tool_call,omitempty"`
+
+	StructuredOutput  bool              `json:"structured_output,omitempty"`
+	Temperature       bool              `json:"temperature,omitempty"`
+	ReasoningOptions  []ReasoningOption `json:"reasoning_options,omitempty"`
+	Interleaved       *Interleaved      `json:"interleaved,omitempty"`
+	Modalities        *Modalities       `json:"modalities,omitempty"`
 }
 
-func (c *ModelConfig) UnmarshalJSON(data []byte) error {
-	type plain ModelConfig
-	var p plain
-	if err := json.Unmarshal(data, &p); err != nil {
-		normalized, nerr := coerceIntFloats(data)
-		if nerr != nil {
-			return err
-		}
-		if err := json.Unmarshal(normalized, &p); err != nil {
-			return err
-		}
-	}
-	*c = ModelConfig(p)
-	return nil
+type apiProvider struct {
+	ID     string                   `json:"id"`
+	Name   string                   `json:"name"`
+	Models map[string]apiModelEntry `json:"models"`
 }
 
-func coerceIntFloats(data []byte) ([]byte, error) {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, err
-	}
-	for _, key := range []string{"max_tokens", "max_input_tokens", "max_output_tokens"} {
-		raw, ok := m[key]
-		if !ok {
-			continue
-		}
-		var f float64
-		if err := json.Unmarshal(raw, &f); err != nil {
-			continue
-		}
-		if f == math.Trunc(f) {
-			m[key] = []byte(strconv.FormatInt(int64(f), 10))
-		}
-	}
-	return json.Marshal(m)
-}
-
-var ReasoningEffortVariants = map[string][]string{
-	"o1":           {"low", "medium", "high"},
-	"o1-mini":      {"low", "medium", "high"},
-	"o1-preview":   {"low", "medium", "high"},
-	"o1-pro":       {"low", "medium", "high"},
-	"o3":           {"low", "medium", "high"},
-	"o3-mini":      {"low", "medium", "high"},
-	"o3-pro":       {"low", "medium", "high"},
-	"o4-mini":      {"low", "medium", "high"},
-	"o4-mini-high": {"low", "medium", "high"},
-
-	"gpt-5":              {"minimal", "low", "medium", "high"},
-	"gpt-5-mini":         {"minimal", "low", "medium", "high"},
-	"gpt-5-nano":         {"minimal", "low", "medium", "high"},
-	"gpt-5-codex":        {"low", "medium", "high"},
-	"gpt-5-pro":          {"high"},
-	"gpt-5.1":            {"none", "low", "medium", "high"},
-	"gpt-5.1-codex":      {"low", "medium", "high"},
-	"gpt-5.1-codex-mini": {"low", "medium", "high"},
-	"gpt-5.1-codex-max":  {"low", "medium", "high", "xhigh"},
-	"gpt-5.2":            {"none", "low", "medium", "high", "xhigh"},
-	"gpt-5.2-codex":      {"low", "medium", "high", "xhigh"},
-	"gpt-5.2-pro":        {"medium", "high", "xhigh"},
-	"gpt-5.4":            {"none", "low", "medium", "high", "xhigh"},
-	"gpt-5.5":            {"none", "low", "medium", "high", "xhigh"},
-	"gpt-5.5-pro":        {"medium", "high", "xhigh"},
-	"gpt-5.6":            {"none", "low", "medium", "high", "xhigh", "max"},
-
-	"claude-3-5-sonnet": {"low", "medium", "high"},
-	"claude-3-7-sonnet": {"low", "medium", "high"},
-	"claude-sonnet-4":   {"low", "medium", "high"},
-	"claude-opus-4":     {"low", "medium", "high"},
-	"claude-haiku-4":    {"low", "medium", "high"},
-	"claude-sonnet-4-5": {"low", "medium", "high"},
-	"claude-opus-4-5":   {"low", "medium", "high"},
-	"claude-haiku-4-5":  {"low", "medium", "high"},
-
-	"gemini-2.5-pro":         {"low", "medium", "high"},
-	"gemini-2.5-flash":       {"low", "medium", "high"},
-	"gemini-2.5-flash-lite":  {"low", "medium", "high"},
-	"gemini-3-pro-preview":   {"low", "high"},
-	"gemini-3-flash-preview": {"minimal", "low", "medium", "high"},
-	"gemini-3.1-pro-preview": {"low", "medium", "high"},
-	"gemini-3.5-flash":       {"minimal", "low", "medium", "high"},
-	"gemini-3.6-flash":       {"minimal", "low", "medium", "high"},
-	"gemini-3.7-flash":       {"low", "medium", "high"},
-
-	"deepseek-r1":         {"low", "medium", "high"},
-	"deepseek-r1-zero":    {"medium", "high"},
-	"deepseek-r1-distill": {"low", "medium", "high"},
-	"deepseek-r2":         {"low", "medium", "high", "xhigh"},
-	"deepseek-reasoner":   {"low", "medium", "high"},
-	"deepseek-v4":         {"none", "low", "medium", "high", "max"},
-	"deepseek-v4-flash":   {"none", "low", "medium", "high", "max"},
-	"deepseek-v4-pro":     {"none", "low", "medium", "high", "max"},
-
-	"grok-3":       {"low", "medium", "high"},
-	"grok-3-mini":  {"low", "medium", "high"},
-	"grok-3-think": {"low", "medium", "high", "max"},
-	"grok-4":       {"none", "low", "medium", "high", "xhigh"},
-
-	"qwq-32b":          {"low", "medium", "high"},
-	"qwen-3-reasoner":  {"low", "medium", "high"},
-	"qwen-3-max-think": {"low", "medium", "high", "xhigh"},
-
-	"llama-4-scout":    {"low", "medium"},
-	"llama-4-maverick": {"low", "medium", "high"},
-	"llama-4-thinker":  {"low", "medium", "high", "xhigh"},
-
-	"sonar-reasoning":     {"low", "medium", "high"},
-	"sonar-reasoning-pro": {"low", "medium", "high", "xhigh"},
-}
-
-func reasoningEffortsFor(key string) []string {
-	if v, ok := ReasoningEffortVariants[key]; ok {
-		return v
-	}
-	model := key
-	if idx := strings.LastIndex(key, "/"); idx >= 0 {
-		model = key[idx+1:]
-	}
-	if v, ok := ReasoningEffortVariants[model]; ok {
-		return v
-	}
-	bases := make([]string, 0, len(ReasoningEffortVariants))
-	for base := range ReasoningEffortVariants {
-		bases = append(bases, base)
-	}
-	sort.Slice(bases, func(i, j int) bool { return len(bases[i]) > len(bases[j]) })
-	for _, base := range bases {
-		if strings.HasPrefix(model, base) {
-			return ReasoningEffortVariants[base]
-		}
-	}
-	return nil
+type apiModelEntry struct {
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Description      string            `json:"description"`
+	Family           string            `json:"family"`
+	Attachment       bool              `json:"attachment"`
+	Reasoning        bool              `json:"reasoning"`
+	ReasoningOptions []ReasoningOption `json:"reasoning_options"`
+	ToolCall         bool              `json:"tool_call"`
+	Interleaved      *Interleaved      `json:"interleaved"`
+	StructuredOutput bool              `json:"structured_output"`
+	Temperature      bool              `json:"temperature"`
+	Knowledge        string            `json:"knowledge"`
+	ReleaseDate      string            `json:"release_date"`
+	LastUpdated      string            `json:"last_updated"`
+	Modalities       *Modalities       `json:"modalities"`
+	OpenWeights      bool              `json:"open_weights"`
+	Limit            struct {
+		Context int `json:"context"`
+		Input   int `json:"input"`
+		Output  int `json:"output"`
+	} `json:"limit"`
+	Cost struct {
+		Input     float64 `json:"input"`
+		Output    float64 `json:"output"`
+		CacheRead float64 `json:"cache_read"`
+	} `json:"cost"`
 }
 
 func FetchPrices(ctx context.Context) (map[string]ModelConfig, error) {
-	return fetchPricesFrom(ctx, LitellmPricesURL)
+	return fetchPricesFrom(ctx, ModelsDataURL)
 }
 
 func fetchPricesFrom(ctx context.Context, url string) (map[string]ModelConfig, error) {
@@ -205,36 +117,43 @@ func fetchPricesFrom(ctx context.Context, url string) (map[string]ModelConfig, e
 		return nil, fmt.Errorf("llm: fetch prices: status %d", resp.StatusCode)
 	}
 
-	dec := json.NewDecoder(resp.Body)
-	if _, err := dec.Token(); err != nil {
+	var providers map[string]apiProvider
+	if err := json.NewDecoder(resp.Body).Decode(&providers); err != nil {
 		return nil, fmt.Errorf("llm: decode prices: %w", err)
 	}
 
 	out := make(map[string]ModelConfig)
-	for dec.More() {
-		key, err := dec.Token()
-		if err != nil {
-			return nil, fmt.Errorf("llm: decode prices key: %w", err)
-		}
-		name, _ := key.(string)
-		if name == "sample_spec" {
-			var skip any
-			if err := dec.Decode(&skip); err != nil {
-				return nil, fmt.Errorf("llm: skip prices entry %q: %w", name, err)
+	for _, prov := range providers {
+		for modelID, entry := range prov.Models {
+			cfg := ModelConfig{
+				MaxInputTokens:  entry.Limit.Input,
+				MaxOutputTokens: entry.Limit.Output,
+				MaxTokens:       entry.Limit.Context,
+
+				InputCostPerToken:     entry.Cost.Input / 1_000_000,
+				OutputCostPerToken:    entry.Cost.Output / 1_000_000,
+				CacheReadCostPerToken: entry.Cost.CacheRead / 1_000_000,
+
+				SupportsReasoning: entry.Reasoning,
+
+				Family:      entry.Family,
+				Description: entry.Description,
+				Knowledge:   entry.Knowledge,
+				ReleaseDate: entry.ReleaseDate,
+				LastUpdated: entry.LastUpdated,
+				OpenWeights: entry.OpenWeights,
+				Attachment:  entry.Attachment,
+				ToolCall:    entry.ToolCall,
+
+				StructuredOutput: entry.StructuredOutput,
+				Temperature:      entry.Temperature,
+				ReasoningOptions: entry.ReasoningOptions,
+				Interleaved:      entry.Interleaved,
+				Modalities:       entry.Modalities,
 			}
-			continue
+			out[modelID] = cfg
+			out[prov.ID+"/"+modelID] = cfg
 		}
-		var cfg ModelConfig
-		if err := dec.Decode(&cfg); err != nil {
-			return nil, fmt.Errorf("llm: decode prices entry %q: %w", name, err)
-		}
-		if cfg.Mode != "chat" {
-			continue
-		}
-		if efforts := reasoningEffortsFor(name); len(efforts) > 0 {
-			cfg.ReasoningEfforts = efforts
-		}
-		out[name] = cfg
 	}
 	return out, nil
 }

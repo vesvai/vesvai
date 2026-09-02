@@ -642,12 +642,12 @@ func (a *App) validateFileForModel(path string) bool {
 
 	switch {
 	case strings.HasPrefix(mediaType, "image/"):
-		if !config.SupportsVision {
+		if config.Modalities == nil || !strings.Contains(strings.Join(config.Modalities.Input, ","), "image") {
 			a.showError("Model does not support image attachments")
 			return false
 		}
 	case strings.HasPrefix(mediaType, "audio/"):
-		if !config.SupportsAudioInput {
+		if config.Modalities == nil || !strings.Contains(strings.Join(config.Modalities.Input, ","), "audio") {
 			a.showError("Model does not support audio attachments")
 			return false
 		}
