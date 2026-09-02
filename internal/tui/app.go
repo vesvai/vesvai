@@ -47,15 +47,16 @@ type App struct {
 	chat  *components.Chat
 	model selectedModel
 
-	main        *agentTranscript
-	subs        map[string]*agentTranscript
-	subItemByID map[string]*components.ChatItem
-	viewID      string
-	running     bool
-	usage       llm.Usage
-	history     []llm.Message
-	session     *activeSession
-	loadedFloor int
+	main            *agentTranscript
+	subs            map[string]*agentTranscript
+	subItemByID     map[string]*components.ChatItem
+	viewID          string
+	running         bool
+	usage           llm.Usage
+	history         []llm.Message
+	session         *activeSession
+	loadedFloor     int
+	reasoningEffort string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -391,6 +392,14 @@ func (a *App) openSettings() {
 	s.SetOnModelChange(func(provider string, model llm.Model) {
 		a.chatMu.Lock()
 		a.model = selectedModel{provider: provider, model: model}
+		a.reasoningEffort = ""
+		a.refreshHomeLocked()
+		a.chatMu.Unlock()
+	})
+	s.SetReasoningEffort(a.reasoningEffort)
+	s.SetOnReasoningEffortChange(func(effort string) {
+		a.chatMu.Lock()
+		a.reasoningEffort = effort
 		a.refreshHomeLocked()
 		a.chatMu.Unlock()
 	})
@@ -423,6 +432,7 @@ func (a *App) refreshHomeLocked() {
 		return
 	}
 	a.home.SetModel(a.modelDisplay())
+	a.home.SetReasoningEffort(a.reasoningEffort)
 	a.home.SetRunning(a.running)
 	a.home.SetUsage(a.usage)
 	if a.model.model.Config != nil {

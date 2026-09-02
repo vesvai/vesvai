@@ -389,6 +389,9 @@ func (a *Agent) buildRequest(state *runState) *llm.Request {
 	if a.MaxTokens != 0 {
 		req.MaxTokens = a.MaxTokens
 	}
+	if a.ReasoningEffort != "" {
+		req.ReasoningEffort = a.ReasoningEffort
+	}
 	if tools := a.Tools.LLMTools(); len(tools) > 0 {
 		req.Tools = tools
 	}

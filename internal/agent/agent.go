@@ -19,19 +19,20 @@ const DefaultMaxIterations = 150
 type Option func(*Agent)
 
 type Agent struct {
-	ID            string
-	Name          string
-	Description   string
-	Model         llm.Model
-	Provider      llm.Provider
-	SystemPrompt  string
-	Temperature   float64
-	TopP          float64
-	MaxTokens     int
-	MaxIterations int
-	Attachments   []llm.Attachment
-	Tools         *tool.Registry
-	ToolNames     []string
+	ID              string
+	Name            string
+	Description     string
+	Model           llm.Model
+	Provider        llm.Provider
+	SystemPrompt    string
+	Temperature     float64
+	TopP            float64
+	MaxTokens       int
+	MaxIterations   int
+	Attachments     []llm.Attachment
+	Tools           *tool.Registry
+	ToolNames       []string
+	ReasoningEffort string
 
 	chain           *middleware.Chain
 	middlewareNames []string
@@ -148,6 +149,10 @@ func WithBus(b event.Bus) Option {
 
 func WithLogger(l *logger.Logger) Option {
 	return func(a *Agent) { a.log = l }
+}
+
+func WithReasoningEffort(effort string) Option {
+	return func(a *Agent) { a.ReasoningEffort = effort }
 }
 
 func (a *Agent) Run(ctx context.Context, input string) (*RunResult, error) {

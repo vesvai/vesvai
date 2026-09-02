@@ -167,11 +167,12 @@ func (s *Settings) loadSession(id string) {
 		return
 	}
 	info := SessionInfo{
-		ID:       sess.ID,
-		Title:    sess.Title,
-		Provider: sess.Provider,
-		Model:    sess.Model,
-		Messages: msgs,
+		ID:              sess.ID,
+		Title:           sess.Title,
+		Provider:        sess.Provider,
+		Model:           sess.Model,
+		ReasoningEffort: sess.ReasoningEffort,
+		Messages:        msgs,
 	}
 	s.active = &info
 	s.errMsg = ""

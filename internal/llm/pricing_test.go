@@ -151,10 +151,6 @@ func TestManagerPricesCachedAndLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := mgr.EnsurePricesCached(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-
 	cfg, err := mgr.ModelConfigFor("openai", "gpt-4o")
 	if err != nil {
 		t.Fatal(err)

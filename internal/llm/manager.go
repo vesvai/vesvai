@@ -132,11 +132,17 @@ func (m *Manager) loadPrices() (map[string]ModelConfig, error) {
 func (m *Manager) enrichWithConfig(provider string, models []Model) []Model {
 	prices, err := m.loadPrices()
 	if err != nil {
+		m.log.Fdebug("llm: enrichWithConfig: no prices cached: %v", err)
 		return models
 	}
 	for i := range models {
 		if cfg, err := lookupModelConfig(prices, provider, models[i].ID); err == nil {
 			models[i].Config = cfg
+			if len(cfg.ReasoningOptions) > 0 {
+				m.log.Fdebug("llm: model %q has %d reasoning options", models[i].ID, len(cfg.ReasoningOptions))
+			}
+		} else {
+			m.log.Fdebug("llm: enrichWithConfig: model %q not found in prices (provider=%q): %v", models[i].ID, provider, err)
 		}
 	}
 	return models
@@ -197,6 +203,7 @@ func (m *Manager) resolveAndLoad(ctx context.Context, cfg config.LLMConfig) (str
 	}
 
 	if cached, ok := m.loadCachedModels(name); ok {
+		cached = m.enrichWithConfig(name, cached)
 		m.storeEntry(name, cfg, prov, cached)
 		m.log.Fdebug("llm: provider %q loaded %d models from cache", name, len(cached))
 		return name, prov, cached, nil

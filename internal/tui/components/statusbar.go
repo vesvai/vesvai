@@ -11,23 +11,25 @@ import (
 )
 
 type StatusBar struct {
-	running        bool
-	modelName      string
-	provider       string
-	usage          llm.Usage
-	maxInputTokens int
-	session        string
+	running         bool
+	modelName       string
+	provider        string
+	reasoningEffort string
+	usage           llm.Usage
+	maxInputTokens  int
+	session         string
 }
 
 func NewStatusBar() *StatusBar { return &StatusBar{} }
 
-func (sb *StatusBar) SetRunning(r bool)       { sb.running = r }
-func (sb *StatusBar) SetModelName(n string)   { sb.modelName = n }
-func (sb *StatusBar) SetProvider(p string)    { sb.provider = p }
-func (sb *StatusBar) SetUsage(u llm.Usage)    { sb.usage = u }
-func (sb *StatusBar) SetMaxInputTokens(n int) { sb.maxInputTokens = n }
-func (sb *StatusBar) SetSession(title string) { sb.session = title }
-func (sb *StatusBar) Session() string         { return sb.session }
+func (sb *StatusBar) SetRunning(r bool)           { sb.running = r }
+func (sb *StatusBar) SetModelName(n string)       { sb.modelName = n }
+func (sb *StatusBar) SetProvider(p string)        { sb.provider = p }
+func (sb *StatusBar) SetReasoningEffort(e string) { sb.reasoningEffort = e }
+func (sb *StatusBar) SetUsage(u llm.Usage)        { sb.usage = u }
+func (sb *StatusBar) SetMaxInputTokens(n int)     { sb.maxInputTokens = n }
+func (sb *StatusBar) SetSession(title string)     { sb.session = title }
+func (sb *StatusBar) Session() string             { return sb.session }
 
 func (sb *StatusBar) HandleKey(*tcell.EventKey) bool { return false }
 
@@ -58,6 +60,10 @@ func (sb *StatusBar) Draw(s tcell.Screen, bounds layout.Region, _ bool) {
 	if sb.provider != "" {
 		DrawText(s, leftX, y, "/"+sb.provider, base.Foreground(th.Hint))
 		leftX += len(sb.provider) + 1
+	}
+	if sb.reasoningEffort != "" {
+		DrawText(s, leftX, y, " ["+sb.reasoningEffort+"]", base.Foreground(th.Accent))
+		leftX += len(sb.reasoningEffort) + 3
 	}
 
 	rightX := bounds.Right() - 1

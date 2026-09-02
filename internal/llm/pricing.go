@@ -13,7 +13,7 @@ import (
 
 const ModelsDataURL = "https://models.opencode.ai/api.json"
 
-const PricesCacheKey = "litellm_prices"
+const PricesCacheKey = "models_cache"
 
 var ErrModelConfigNotFound = errors.New("llm: model config not found")
 
@@ -26,6 +26,18 @@ type ReasoningOption struct {
 
 type Interleaved struct {
 	Field string `json:"field"`
+}
+
+func (i *Interleaved) UnmarshalJSON(data []byte) error {
+	var b bool
+	if err := json.Unmarshal(data, &b); err == nil {
+		if b {
+			i.Field = "default"
+		}
+		return nil
+	}
+	type alias Interleaved
+	return json.Unmarshal(data, (*alias)(i))
 }
 
 type Modalities struct {
@@ -53,11 +65,11 @@ type ModelConfig struct {
 	Attachment  bool   `json:"attachment,omitempty"`
 	ToolCall    bool   `json:"tool_call,omitempty"`
 
-	StructuredOutput  bool              `json:"structured_output,omitempty"`
-	Temperature       bool              `json:"temperature,omitempty"`
-	ReasoningOptions  []ReasoningOption `json:"reasoning_options,omitempty"`
-	Interleaved       *Interleaved      `json:"interleaved,omitempty"`
-	Modalities        *Modalities       `json:"modalities,omitempty"`
+	StructuredOutput bool              `json:"structured_output,omitempty"`
+	Temperature      bool              `json:"temperature,omitempty"`
+	ReasoningOptions []ReasoningOption `json:"reasoning_options,omitempty"`
+	Interleaved      *Interleaved      `json:"interleaved,omitempty"`
+	Modalities       *Modalities       `json:"modalities,omitempty"`
 }
 
 type apiProvider struct {

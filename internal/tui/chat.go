@@ -413,6 +413,7 @@ func (a *App) runAgentWithAttachments(input string, attachments []llm.Attachment
 			orch.Model = a.model.model
 		}
 	}
+	orch.ReasoningEffort = a.reasoningEffort
 	orch.Attachments = attachments
 	history := a.history
 	if a.session != nil {

@@ -21,6 +21,15 @@ type generalTab struct {
 
 func newGeneral(s *Settings) *generalTab { return &generalTab{settings: s} }
 
+const generalRowCount = 4
+
+func (g *generalTab) rowEnabled(i int) bool {
+	if i == 3 {
+		return g.settings.modelSupportsReasoning()
+	}
+	return true
+}
+
 func (g *generalTab) HandleKey(ev *tcell.EventKey) bool {
 	switch ev.Key() {
 	case tcell.KeyUp:
@@ -29,11 +38,14 @@ func (g *generalTab) HandleKey(ev *tcell.EventKey) bool {
 		}
 		return true
 	case tcell.KeyDown:
-		if g.index < 2 {
+		if g.index < generalRowCount-1 {
 			g.index++
 		}
 		return true
 	case tcell.KeyEnter:
+		if !g.rowEnabled(g.index) {
+			return true
+		}
 		g.rows()[g.index].action()
 		return true
 	}
@@ -48,10 +60,15 @@ type genRow struct {
 
 func (g *generalTab) rows() []genRow {
 	s := g.settings
+	effort := s.reasoningEffort
+	if effort == "" {
+		effort = "default"
+	}
 	return []genRow{
 		{label: "Provider", value: s.providerValue(), action: s.openProviders},
 		{label: "Model", value: s.modelDisplay(), action: s.openModels},
 		{label: "Theme", value: styles.Name(), action: s.openThemes},
+		{label: "Reasoning", value: effort, action: s.openReasoning},
 	}
 }
 
@@ -62,12 +79,21 @@ func (g *generalTab) Draw(screen tcell.Screen, bounds layout.Region, _ bool) {
 		y := bounds.Top + i
 		style := th.Base().Background(th.InputBg)
 		marker := "  "
+		enabled := g.rowEnabled(i)
 		if i == g.index {
 			style = th.Base().Foreground(th.InputText).Background(th.Selection)
 			marker = "> "
+		} else if !enabled {
+			style = th.Base().Foreground(th.Placeholder).Background(th.InputBg)
 		}
-		components.DrawText(screen, bounds.Left+1, y, marker+r.label, style)
-		components.DrawText(screen, bounds.Right()-len(r.value)-3, y, r.value, style)
+		label := r.label
+		if !enabled {
+			label += " (not supported)"
+		}
+		components.DrawText(screen, bounds.Left+1, y, marker+label, style)
+		if enabled || i == g.index {
+			components.DrawText(screen, bounds.Right()-len(r.value)-3, y, r.value, style)
+		}
 	}
 }
 
