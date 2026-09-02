@@ -111,6 +111,6 @@ VESVAI_DEBUG=1 ./bin/vesvai
 
 ## Further Reading
 
-- [System Architecture](docs/AGENT.md) - Full specification document
+- [Documentation](docs/AGENT.md) - Full specification document
 - [Go Module](go.mod) - Dependencies and versions
 - [Goreleaser Config](.goreleaser.yml) - Build/release configuration

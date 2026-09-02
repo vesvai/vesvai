@@ -36,3 +36,5 @@ go.work
 go.work.sum
 
 .vesvai/
+
+site/
