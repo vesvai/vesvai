@@ -40,10 +40,11 @@ func (a *Agent) run(ctx context.Context, input string, stream StreamHandler) (*R
 	state := &runState{agent: a, stream: stream}
 	a.debugf("agent %q started run", a.Name)
 	a.publish(TopicAgentStarted, AgentStarted{
-		AgentID:   a.ID,
-		AgentName: a.Name,
-		Model:     a.Model,
-		Provider:  a.Provider,
+		AgentID:         a.ID,
+		AgentName:       a.Name,
+		Model:           a.Model,
+		Provider:        a.Provider,
+		ReasoningEffort: a.ReasoningEffort,
 	})
 	a.publish(TopicAgentInput, AgentInput{
 		AgentID:     a.ID,
@@ -88,10 +89,11 @@ func (a *Agent) resume(ctx context.Context, input string, history []llm.Message,
 	state := &runState{agent: a, stream: stream}
 	a.debugf("agent %q resumed run", a.Name)
 	a.publish(TopicAgentStarted, AgentStarted{
-		AgentID:   a.ID,
-		AgentName: a.Name,
-		Model:     a.Model,
-		Provider:  a.Provider,
+		AgentID:         a.ID,
+		AgentName:       a.Name,
+		Model:           a.Model,
+		Provider:        a.Provider,
+		ReasoningEffort: a.ReasoningEffort,
 	})
 	a.publish(TopicAgentInput, AgentInput{
 		AgentID:     a.ID,

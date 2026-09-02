@@ -410,6 +410,7 @@ func (a *App) openSettings() {
 	s.SetOnSessionChange(func(info settings.SessionInfo) {
 		a.chatMu.Lock()
 		a.session = &activeSession{info: info}
+		a.reasoningEffort = info.ReasoningEffort
 		a.loadSessionIntoChatLocked()
 		a.refreshHomeLocked()
 		a.chatMu.Unlock()

@@ -17,15 +17,16 @@ var (
 )
 
 type Session struct {
-	ID         string
-	Title      string
-	Provider   string
-	Model      string
-	ProjectDir string
-	ParentID   string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	Usage      llm.Usage
+	ID              string
+	Title           string
+	Provider        string
+	Model           string
+	ReasoningEffort string
+	ProjectDir      string
+	ParentID        string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	Usage           llm.Usage
 }
 
 type Message struct {
@@ -69,8 +70,9 @@ type Store interface {
 }
 
 type CreateOptions struct {
-	Title      string
-	Provider   string
-	Model      string
-	ProjectDir string
+	Title           string
+	Provider        string
+	Model           string
+	ReasoningEffort string
+	ProjectDir      string
 }

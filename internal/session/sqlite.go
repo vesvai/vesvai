@@ -26,6 +26,7 @@ var createTableSQL = "CREATE TABLE IF NOT EXISTS sessions (" +
 	"title TEXT NOT NULL DEFAULT ''," +
 	"provider TEXT NOT NULL DEFAULT ''," +
 	"model TEXT NOT NULL DEFAULT ''," +
+	"reasoning_effort TEXT NOT NULL DEFAULT ''," +
 	"project_dir TEXT NOT NULL DEFAULT ''," +
 	"parent_id TEXT NOT NULL DEFAULT ''," +
 	"created_at DATETIME NOT NULL," +
@@ -87,7 +88,7 @@ func newSQLiteStore(db *sql.DB) (*SQLiteStore, error) {
 	return &SQLiteStore{
 		db: db,
 		builder: query.NewBuilder("sessions",
-			"id", "title", "provider", "model", "project_dir",
+			"id", "title", "provider", "model", "reasoning_effort", "project_dir",
 			"parent_id", "created_at", "updated_at",
 		).DefaultSort("created_at", query.Desc),
 	}, nil
@@ -95,8 +96,8 @@ func newSQLiteStore(db *sql.DB) (*SQLiteStore, error) {
 
 func (s *SQLiteStore) Create(sess Session) error {
 	_, err := s.db.Exec(
-		"INSERT INTO sessions (id, title, provider, model, project_dir, parent_id, created_at, updated_at, usage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		sess.ID, sess.Title, sess.Provider, sess.Model, sess.ProjectDir,
+		"INSERT INTO sessions (id, title, provider, model, reasoning_effort, project_dir, parent_id, created_at, updated_at, usage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		sess.ID, sess.Title, sess.Provider, sess.Model, sess.ReasoningEffort, sess.ProjectDir,
 		sess.ParentID, sess.CreatedAt, sess.UpdatedAt, marshalJSON(sess.Usage),
 	)
 	return err
@@ -104,8 +105,8 @@ func (s *SQLiteStore) Create(sess Session) error {
 
 func (s *SQLiteStore) Update(sess Session) error {
 	res, err := s.db.Exec(
-		"UPDATE sessions SET title = ?, provider = ?, model = ?, project_dir = ?, parent_id = ?, created_at = ?, updated_at = ?, usage = ? WHERE id = ?",
-		sess.Title, sess.Provider, sess.Model, sess.ProjectDir,
+		"UPDATE sessions SET title = ?, provider = ?, model = ?, reasoning_effort = ?, project_dir = ?, parent_id = ?, created_at = ?, updated_at = ?, usage = ? WHERE id = ?",
+		sess.Title, sess.Provider, sess.Model, sess.ReasoningEffort, sess.ProjectDir,
 		sess.ParentID, sess.CreatedAt, sess.UpdatedAt, marshalJSON(sess.Usage), sess.ID,
 	)
 	if err != nil {
@@ -119,12 +120,12 @@ func (s *SQLiteStore) Update(sess Session) error {
 
 func (s *SQLiteStore) Get(id string) (*Session, error) {
 	row := s.db.QueryRow(
-		"SELECT id, title, provider, model, project_dir, parent_id, created_at, updated_at, usage FROM sessions WHERE id = ?", id,
+		"SELECT id, title, provider, model, reasoning_effort, project_dir, parent_id, created_at, updated_at, usage FROM sessions WHERE id = ?", id,
 	)
 	var sess Session
 	var usage string
 	if err := row.Scan(
-		&sess.ID, &sess.Title, &sess.Provider, &sess.Model, &sess.ProjectDir,
+		&sess.ID, &sess.Title, &sess.Provider, &sess.Model, &sess.ReasoningEffort, &sess.ProjectDir,
 		&sess.ParentID, &sess.CreatedAt, &sess.UpdatedAt, &usage,
 	); err != nil {
 		if err == sql.ErrNoRows {
@@ -171,7 +172,7 @@ func (s *SQLiteStore) List(q query.Query) ([]Session, int, error) {
 		var sess Session
 		var usage string
 		if err := rows.Scan(
-			&sess.ID, &sess.Title, &sess.Provider, &sess.Model, &sess.ProjectDir,
+			&sess.ID, &sess.Title, &sess.Provider, &sess.Model, &sess.ReasoningEffort, &sess.ProjectDir,
 			&sess.ParentID, &sess.CreatedAt, &sess.UpdatedAt, &usage,
 		); err != nil {
 			return nil, 0, err
