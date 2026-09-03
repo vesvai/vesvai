@@ -2,11 +2,12 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
+
+	json "github.com/goccy/go-json"
 
 	"github.com/vesvai/vesvai/internal/core/cache"
 	"github.com/vesvai/vesvai/internal/core/config"
@@ -30,6 +31,8 @@ type Manager struct {
 	mu              sync.RWMutex
 	entries         map[string]*entry
 	sessionResolver SessionResolver
+	pricesOnce      sync.Once
+	prices          map[string]ModelConfig
 }
 
 func NewManager(bus event.Bus, log *logger.Logger, cacheStore cache.Cache) *Manager {
@@ -102,6 +105,8 @@ func (m *Manager) EnsurePricesCached(ctx context.Context) error {
 	if err := m.cacheStore.Set(PricesCacheKey, data); err != nil {
 		return fmt.Errorf("llm: cache prices: %w", err)
 	}
+	m.pricesOnce = sync.Once{}
+	m.prices = prices
 	m.log.Finfo("llm: cached %d model price entries", len(prices))
 	return nil
 }
@@ -115,18 +120,25 @@ func (m *Manager) ModelConfigFor(provider, model string) (*ModelConfig, error) {
 }
 
 func (m *Manager) loadPrices() (map[string]ModelConfig, error) {
-	if m.cacheStore == nil {
-		return nil, errors.New("llm: no cache store available")
+	m.pricesOnce.Do(func() {
+		if m.cacheStore == nil {
+			return
+		}
+		data, err := m.cacheStore.Get(PricesCacheKey)
+		if err != nil {
+			return
+		}
+		var prices map[string]ModelConfig
+		if err := json.Unmarshal(data, &prices); err != nil {
+			m.log.Fwarn("llm: unmarshal prices: %v", err)
+			return
+		}
+		m.prices = prices
+	})
+	if m.prices == nil {
+		return nil, errors.New("llm: prices not cached")
 	}
-	data, err := m.cacheStore.Get(PricesCacheKey)
-	if err != nil {
-		return nil, fmt.Errorf("llm: prices not cached: %w", err)
-	}
-	var prices map[string]ModelConfig
-	if err := json.Unmarshal(data, &prices); err != nil {
-		return nil, fmt.Errorf("llm: unmarshal prices: %w", err)
-	}
-	return prices, nil
+	return m.prices, nil
 }
 
 func (m *Manager) enrichWithConfig(provider string, models []Model) []Model {
@@ -208,7 +220,6 @@ func (m *Manager) resolveAndLoad(ctx context.Context, cfg config.LLMConfig) (str
 		m.log.Fdebug("llm: provider %q loaded %d models from cache", name, len(cached))
 		return name, prov, cached, nil
 	}
-
 	models, err := prov.ListModels(ctx)
 	if err != nil {
 		return name, prov, nil, err

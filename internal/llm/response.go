@@ -1,9 +1,9 @@
 package llm
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	json "github.com/goccy/go-json"
 	"strings"
 )
 

@@ -6,6 +6,7 @@ require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/creativeprojects/go-selfupdate v1.6.0
 	github.com/gdamore/tcell/v2 v2.13.10
+	github.com/goccy/go-json v0.10.6
 	github.com/google/uuid v1.6.0
 	github.com/manifoldco/promptui v0.9.0
 	github.com/spf13/cobra v1.10.2

@@ -3,7 +3,7 @@ package mcp
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	json "github.com/goccy/go-json"
 	"io"
 	"net"
 	"strconv"

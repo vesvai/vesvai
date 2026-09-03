@@ -2,7 +2,7 @@ package planner
 
 import (
 	"context"
-	"encoding/json"
+	json "github.com/goccy/go-json"
 	"os"
 	"path/filepath"
 	"strings"

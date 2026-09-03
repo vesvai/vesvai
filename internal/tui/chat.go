@@ -2,7 +2,7 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
+	json "github.com/goccy/go-json"
 	"sort"
 	"strings"
 

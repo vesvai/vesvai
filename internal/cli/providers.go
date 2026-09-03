@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
+	json "github.com/goccy/go-json"
 	"io"
 
 	"github.com/spf13/cobra"

@@ -2,7 +2,7 @@ package lsp
 
 import (
 	"context"
-	"encoding/json"
+	json "github.com/goccy/go-json"
 	"sync"
 	"testing"
 	"time"

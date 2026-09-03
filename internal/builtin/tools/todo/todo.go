@@ -1,8 +1,8 @@
 package todo
 
 import (
-	"encoding/json"
 	"fmt"
+	json "github.com/goccy/go-json"
 	"os"
 	"sort"
 	"strings"

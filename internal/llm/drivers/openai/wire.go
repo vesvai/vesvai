@@ -1,6 +1,6 @@
 package openai
 
-import "encoding/json"
+import json "github.com/goccy/go-json"
 
 type chatMessage struct {
 	Role             string          `json:"role"`

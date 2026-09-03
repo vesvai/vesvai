@@ -1,8 +1,8 @@
 package lsp
 
 import (
-	"encoding/json"
 	"fmt"
+	json "github.com/goccy/go-json"
 
 	"github.com/vesvai/vesvai/internal/lsp/diagnostic"
 )

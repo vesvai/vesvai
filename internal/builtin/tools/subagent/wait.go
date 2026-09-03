@@ -2,8 +2,8 @@ package subagent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	json "github.com/goccy/go-json"
 
 	"github.com/vesvai/vesvai/internal/agent/tool"
 )
