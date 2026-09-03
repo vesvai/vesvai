@@ -9,6 +9,32 @@ type SkillInfo struct {
 	Description string
 }
 
+type hr struct {
+	base
+	count int
+}
+
+func Hr(count int) Part {
+	if count < 1 {
+		count = 1
+	}
+	return &hr{count: count}
+}
+
+func (h *hr) renderMarkdown(_ *renderCtx) (string, error) {
+	return strings.Repeat("-", h.count), nil
+}
+
+func (h *hr) renderXML(_ *renderCtx) (string, error) {
+	return strings.Repeat("-", h.count), nil
+}
+
+func (h *hr) renderJSON(_ *renderCtx) (any, error) {
+	return map[string]any{"type": "hr", "count": h.count}, nil
+}
+
+func (p *Prompt) Hr(count int) *Prompt { return p.Add(Hr(count)) }
+
 type skillsList struct {
 	base
 	items []SkillInfo
