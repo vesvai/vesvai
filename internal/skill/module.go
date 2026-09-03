@@ -1,19 +1,15 @@
 package skill
 
 import (
-	"embed"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/vesvai/vesvai/internal/agent"
+	"github.com/vesvai/vesvai/internal/agent/prompt"
+	"github.com/vesvai/vesvai/internal/builtin/skills"
 	"github.com/vesvai/vesvai/internal/core/config"
 )
-
-//go:embed builtin
-var embedded embed.FS
 
 const agentsSkillsDir = ".agents/skills"
 
@@ -40,23 +36,20 @@ func SkillModule() error {
 }
 
 func MaterializeTo(root string) error {
-	entries, err := fs.ReadDir(embedded, "builtin")
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("skill: read embedded: %w", err)
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		targetDir := filepath.Join(root, e.Name())
+	for name, body := range skills.All() {
+		targetDir := filepath.Join(root, name)
 		if dirExists(targetDir) {
 			continue
 		}
-		if err := copyDir(filepath.Join("builtin", e.Name()), targetDir); err != nil {
-			return err
+		if err := os.MkdirAll(targetDir, 0o755); err != nil {
+			return fmt.Errorf("skill: mkdir %s: %w", targetDir, err)
+		}
+		skillMD, err := body.Build(prompt.FormatMarkdown)
+		if err != nil {
+			return fmt.Errorf("skill: render %s: %w", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(targetDir, SkillFileName), []byte(skillMD), 0o644); err != nil {
+			return fmt.Errorf("skill: write %s: %w", targetDir, err)
 		}
 	}
 	return nil
@@ -68,25 +61,4 @@ func dirExists(path string) bool {
 		return false
 	}
 	return info.IsDir()
-}
-
-func copyDir(from, to string) error {
-	return fs.WalkDir(embedded, from, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(from, path)
-		if err != nil {
-			return err
-		}
-		dst := filepath.Join(to, rel)
-		if d.IsDir() {
-			return os.MkdirAll(dst, 0o755)
-		}
-		data, err := fs.ReadFile(embedded, path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(dst, data, 0o644)
-	})
 }
