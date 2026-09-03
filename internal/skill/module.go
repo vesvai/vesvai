@@ -51,11 +51,23 @@ func MaterializeTo(root string) error {
 		if !e.IsDir() {
 			continue
 		}
-		if err := copyDir(filepath.Join("builtin", e.Name()), filepath.Join(root, e.Name())); err != nil {
+		targetDir := filepath.Join(root, e.Name())
+		if dirExists(targetDir) {
+			continue
+		}
+		if err := copyDir(filepath.Join("builtin", e.Name()), targetDir); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
 }
 
 func copyDir(from, to string) error {

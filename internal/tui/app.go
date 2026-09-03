@@ -197,14 +197,25 @@ func (a *App) build() {
 		}
 		mentionItems = append(mentionItems, components.ListItem{Label: name, Detail: desc, Data: "agent"})
 	}
-	if fs := a.deps.VFS; fs != nil {
-		filePaths, _ := fs.Glob("**", "")
-		sort.Strings(filePaths)
-		for _, p := range filePaths {
-			mentionItems = append(mentionItems, components.ListItem{Label: p, Detail: "file", Data: "file"})
-		}
-	}
 	page.SetMentionItems(mentionItems)
+
+	if fs := a.deps.VFS; fs != nil {
+		go func() {
+			filePaths, _ := fs.Glob("**", "")
+			sort.Strings(filePaths)
+			a.chatMu.Lock()
+			defer a.chatMu.Unlock()
+			items := make([]components.ListItem, len(mentionItems))
+			copy(items, mentionItems)
+			for _, p := range filePaths {
+				items = append(items, components.ListItem{Label: p, Detail: "file", Data: "file"})
+			}
+			if a.home != nil {
+				a.home.SetMentionItems(items)
+			}
+			a.requestRedraw()
+		}()
+	}
 
 	comps := componentHook.Apply([]components.Component{page})
 	if len(comps) > 0 {
@@ -411,6 +422,15 @@ func (a *App) openSettings() {
 		a.chatMu.Lock()
 		a.session = &activeSession{info: info}
 		a.reasoningEffort = info.ReasoningEffort
+		if a.deps.LLM != nil && info.Provider != "" && info.Model != "" {
+			if res := a.deps.LLM.Select(llm.SelectRequest{
+				Mode:     llm.SelectModeExact,
+				Provider: info.Provider,
+				Model:    info.Model,
+			}); res.Err == nil {
+				a.model = selectedModel{provider: res.Provider, model: res.Model}
+			}
+		}
 		a.loadSessionIntoChatLocked()
 		a.refreshHomeLocked()
 		a.chatMu.Unlock()
