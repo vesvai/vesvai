@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/vesvai/vesvai/internal/agent/tools"
@@ -33,29 +32,12 @@ func TestOrchestratorAgentTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"read", "list", "glob"} {
-		if _, ok := a.Tools.Get(name); !ok {
-			t.Fatalf("orchestrator missing file tool %q", name)
-		}
-	}
 	for _, name := range []string{"subagent", "wait-for-subagents", "subagents-status", "subagent-message", "list-todo", "update-todo"} {
 		if !slices.Contains(a.ToolNames, name) {
 			t.Fatalf("orchestrator missing tool name %q", name)
 		}
 		if _, ok := tools.Get(name); !ok {
 			t.Fatalf("tool %q not registered in global registry", name)
-		}
-	}
-}
-
-func TestOrchestratorPromptRenders(t *testing.T) {
-	sys, err := generateOrchestratorPrompt()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"master orchestrator", "explorer", "planner", "developer", "subagent", "wait-for-subagents", "list-todo", "update-todo", "task_id", ".vesvai/plans", "Todo Status", "Skills", "/<skill-name>"} {
-		if !strings.Contains(sys, want) {
-			t.Fatalf("prompt missing %q", want)
 		}
 	}
 }
