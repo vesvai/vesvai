@@ -1,12 +1,11 @@
 package components
 
 import (
-	"strings"
-
 	"github.com/gdamore/tcell/v2"
 
 	"github.com/vesvai/vesvai/internal/tui/layout"
 	"github.com/vesvai/vesvai/internal/tui/styles"
+	"github.com/vesvai/vesvai/internal/utils/search"
 )
 
 type Picker struct {
@@ -31,17 +30,15 @@ func (p *Picker) All() []ListItem { return p.all }
 func (p *Picker) Count() int { return len(p.filtered) }
 
 func (p *Picker) Update(query string) {
-	q := strings.ToLower(strings.TrimSpace(query))
-	p.filtered = p.filtered[:0]
-	for _, it := range p.all {
-		if q == "" ||
-			strings.Contains(strings.ToLower(it.Label), q) ||
-			strings.Contains(strings.ToLower(it.Detail), q) {
-			p.filtered = append(p.filtered, it)
-		}
+	p.filtered = search.Filter(query, p.all, func(it ListItem) []string {
+		return []string{it.Label, it.Detail}
+	})
+	if p.index >= len(p.filtered) {
+		p.index = 0
 	}
-	p.index = 0
-	p.scroll = 0
+	if p.scroll > p.index {
+		p.scroll = p.index
+	}
 }
 
 func (p *Picker) Selected() (ListItem, bool) {

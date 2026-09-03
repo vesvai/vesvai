@@ -18,6 +18,8 @@ import (
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 
+	"github.com/vesvai/vesvai/internal/utils/search"
+
 	"github.com/vesvai/vesvai/internal/agent"
 	"github.com/vesvai/vesvai/internal/agent/agents"
 	"github.com/vesvai/vesvai/internal/core/event"
@@ -517,7 +519,7 @@ func defaultPicker(items []string, label string) (int, error) {
 		Items: items,
 		Size:  10,
 		Searcher: func(input string, index int) bool {
-			return strings.Contains(strings.ToLower(items[index]), strings.ToLower(input))
+			return search.Score(input, items[index]) >= 0
 		},
 	}
 	idx, _, err := p.Run()
