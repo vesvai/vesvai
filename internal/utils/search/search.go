@@ -12,7 +12,7 @@ const (
 	scoreGapExtension = -2
 	bonusBoundary     = 8
 	bonusCamel        = 6
-	bonusConsecutive   = 4
+	bonusConsecutive  = 4
 	bonusFirstChar    = 10
 	bonusExactMatch   = 20
 	bonusPrefixMatch  = 10
