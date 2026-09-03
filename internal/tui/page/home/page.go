@@ -225,7 +225,7 @@ func (p *Page) HandleKey(ev *tcell.EventKey) bool {
 		return p.chat.HandleKey(ev)
 	}
 
-	atTokAt, atQuery, atActive := p.input.AtToken()
+	atTokAt, _, atActive := p.input.AtToken()
 
 	if atActive && len(p.mentionPicker.All()) > 0 && !p.pickDismissed && p.pickKind != pickSkills {
 		p.pickKind = pickMention
@@ -233,7 +233,6 @@ func (p *Page) HandleKey(ev *tcell.EventKey) bool {
 		case tcell.KeyUp, tcell.KeyDown:
 			return p.mentionPicker.HandleKey(ev)
 		case tcell.KeyEnter, tcell.KeyTab:
-			p.mentionPicker.Update(atQuery)
 			if it, ok := p.mentionPicker.Selected(); ok {
 				p.input.ReplaceMention(it.Label)
 				p.pickKind = pickNone
@@ -257,18 +256,19 @@ func (p *Page) HandleKey(ev *tcell.EventKey) bool {
 				p.pickTokenAt = atTokAt
 			}
 		}
-		p.mentionPicker.Update(atQuery)
-		return p.input.HandleKey(ev)
+		handled := p.input.HandleKey(ev)
+		_, q, _ := p.input.AtToken()
+		p.mentionPicker.Update(q)
+		return handled
 	}
 
-	slashTokAt, slashQuery, slashActive := p.input.SlashToken()
+	slashTokAt, _, slashActive := p.input.SlashToken()
 	if slashActive && len(p.skillPicker.All()) > 0 && !p.pickDismissed && p.pickKind != pickMention {
 		p.pickKind = pickSkills
 		switch ev.Key() {
 		case tcell.KeyUp, tcell.KeyDown:
 			return p.skillPicker.HandleKey(ev)
 		case tcell.KeyEnter, tcell.KeyTab:
-			p.skillPicker.Update(slashQuery)
 			if it, ok := p.skillPicker.Selected(); ok {
 				p.input.ReplaceSkill(it.Label)
 				p.pickKind = pickNone
@@ -292,8 +292,10 @@ func (p *Page) HandleKey(ev *tcell.EventKey) bool {
 				p.pickTokenAt = slashTokAt
 			}
 		}
-		p.skillPicker.Update(slashQuery)
-		return p.input.HandleKey(ev)
+		handled := p.input.HandleKey(ev)
+		_, q, _ := p.input.SlashToken()
+		p.skillPicker.Update(q)
+		return handled
 	}
 	p.syncPickers()
 

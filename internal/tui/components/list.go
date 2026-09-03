@@ -1,12 +1,11 @@
 package components
 
 import (
-	"strings"
-
 	"github.com/gdamore/tcell/v2"
 
 	"github.com/vesvai/vesvai/internal/tui/layout"
 	"github.com/vesvai/vesvai/internal/tui/styles"
+	"github.com/vesvai/vesvai/internal/utils/search"
 )
 
 type ListItem struct {
@@ -68,13 +67,17 @@ func (l *List) SelectedIndex() int {
 }
 
 func (l *List) rebuild() {
-	q := strings.ToLower(string(l.filter))
+	q := string(l.filter)
 	l.filtered = l.filtered[:0]
-	for i, it := range l.all {
-		if q == "" ||
-			strings.Contains(strings.ToLower(it.Label), q) ||
-			strings.Contains(strings.ToLower(it.Detail), q) {
+	if q == "" {
+		for i := range l.all {
 			l.filtered = append(l.filtered, i)
+		}
+	} else {
+		for i, it := range l.all {
+			if search.Score(q, it.Label) >= 0 || search.Score(q, it.Detail) >= 0 {
+				l.filtered = append(l.filtered, i)
+			}
 		}
 	}
 	if l.index >= len(l.filtered) {
