@@ -501,6 +501,27 @@ func (in *Input) ensureCursorVisible() {
 	}
 }
 
+func (in *Input) visualLineWidth(line string) int {
+	rs := []rune(line)
+	width := 0
+	for _, r := range rs {
+		if name, ok := chipNameOf(r, in.chips); ok {
+			width += len(name) + 2
+		} else if name, ok := mentionNameOf(r, in.mentions); ok {
+			width += len(name) + 1
+		} else if full, ok := in.longTexts[r]; ok {
+			preview := full
+			if len(preview) > longTextPreviewLen {
+				preview = preview[:longTextPreviewLen]
+			}
+			width += len(preview) + 2
+		} else {
+			width++
+		}
+	}
+	return width
+}
+
 func (in *Input) visualRowOf(row, col int) int {
 	vr := 0
 	w := in.innerW
@@ -508,14 +529,33 @@ func (in *Input) visualRowOf(row, col int) int {
 		w = 1
 	}
 	for i := 0; i < row && i < len(in.lines); i++ {
-		n := len([]rune(in.lines[i]))
-		if n == 0 {
+		lineW := in.visualLineWidth(in.lines[i])
+		if lineW == 0 {
 			vr++
 		} else {
-			vr += (n + w - 1) / w
+			vr += (lineW + w - 1) / w
 		}
 	}
-	vr += col / w
+	colW := 0
+	if row < len(in.lines) {
+		rs := []rune(in.lines[row])
+		for i := 0; i < col && i < len(rs); i++ {
+			if name, ok := chipNameOf(rs[i], in.chips); ok {
+				colW += len(name) + 2
+			} else if name, ok := mentionNameOf(rs[i], in.mentions); ok {
+				colW += len(name) + 1
+			} else if full, ok := in.longTexts[rs[i]]; ok {
+				preview := full
+				if len(preview) > longTextPreviewLen {
+					preview = preview[:longTextPreviewLen]
+				}
+				colW += len(preview) + 2
+			} else {
+				colW++
+			}
+		}
+	}
+	vr += colW / w
 	return vr
 }
 
@@ -536,13 +576,33 @@ func (in *Input) wrapLines(width int) []wrapSegment {
 			continue
 		}
 		pos := 0
+		visualWidth := 0
+		segStart := 0
 		for pos < len(rs) {
-			end := pos + width
-			if end > len(rs) {
-				end = len(rs)
+			var charW int
+			if name, ok := chipNameOf(rs[pos], in.chips); ok {
+				charW = len(name) + 2
+			} else if name, ok := mentionNameOf(rs[pos], in.mentions); ok {
+				charW = len(name) + 1
+			} else if full, ok := in.longTexts[rs[pos]]; ok {
+				preview := full
+				if len(preview) > longTextPreviewLen {
+					preview = preview[:longTextPreviewLen]
+				}
+				charW = len(preview) + 2
+			} else {
+				charW = 1
 			}
-			segs = append(segs, wrapSegment{lineIdx: li, start: pos, end: end})
-			pos = end
+			if visualWidth+charW > width && pos > segStart {
+				segs = append(segs, wrapSegment{lineIdx: li, start: segStart, end: pos})
+				segStart = pos
+				visualWidth = 0
+			}
+			visualWidth += charW
+			pos++
+		}
+		if segStart < len(rs) || len(rs) == 0 {
+			segs = append(segs, wrapSegment{lineIdx: li, start: segStart, end: len(rs)})
 		}
 	}
 	return segs
@@ -1223,10 +1283,13 @@ func (in *Input) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 				}
 				style := th.Base().Foreground(th.InputBg).Background(th.Mention)
 				switch {
-				case cursorHere:
-					style = th.Base().Foreground(th.InputBg).Background(th.Cursor)
 				case selected:
 					style = th.Base().Foreground(th.Mention).Background(th.Selection)
+				}
+				if cursorHere && x < bounds.Right()-1 {
+					s.SetContent(x, y, ' ', nil,
+						th.Base().Foreground(th.InputBg).Background(th.Cursor))
+					x++
 				}
 				label := "[" + preview + "]"
 				if x+len(label) <= bounds.Right()-1 {
@@ -1238,12 +1301,15 @@ func (in *Input) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 			if name, ok := chipNameOf(rs[j], in.chips); ok {
 				style := th.Base().Foreground(th.InputBg).Background(th.Chip)
 				switch {
-				case cursorHere:
-					style = th.Base().Foreground(th.InputBg).Background(th.Cursor)
 				case selected:
 					style = th.Base().Foreground(th.Chip).Background(th.Selection)
 				}
-				if x+len(name)+1 <= bounds.Right()-1 {
+				if cursorHere && x < bounds.Right()-1 {
+					s.SetContent(x, y, ' ', nil,
+						th.Base().Foreground(th.InputBg).Background(th.Cursor))
+					x++
+				}
+				if x+len(name)+2 <= bounds.Right()-1 {
 					DrawText(s, x, y, "<"+name+">", style)
 				}
 				x += len(name) + 2
@@ -1252,12 +1318,15 @@ func (in *Input) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 			if name, ok := mentionNameOf(rs[j], in.mentions); ok {
 				style := th.Base().Foreground(th.InputBg).Background(th.Mention)
 				switch {
-				case cursorHere:
-					style = th.Base().Foreground(th.InputBg).Background(th.Cursor)
 				case selected:
 					style = th.Base().Foreground(th.Mention).Background(th.Selection)
 				}
-				if x+len(name) <= bounds.Right()-1 {
+				if cursorHere && x < bounds.Right()-1 {
+					s.SetContent(x, y, ' ', nil,
+						th.Base().Foreground(th.InputBg).Background(th.Cursor))
+					x++
+				}
+				if x+len(name)+1 <= bounds.Right()-1 {
 					DrawText(s, x, y, "@"+name, style)
 				}
 				x += len(name) + 1
@@ -1274,7 +1343,22 @@ func (in *Input) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 			x++
 		}
 		if isCursor && focused && cursorOn && in.col >= len(rs) && in.col == seg.end {
-			cx := bounds.Left + 1 + (in.col - seg.start)
+			cx := bounds.Left + 1
+			for k := seg.start; k < in.col && k < len(rs); k++ {
+				if name, ok := chipNameOf(rs[k], in.chips); ok {
+					cx += len(name) + 2
+				} else if name, ok := mentionNameOf(rs[k], in.mentions); ok {
+					cx += len(name) + 1
+				} else if full, ok := in.longTexts[rs[k]]; ok {
+					preview := full
+					if len(preview) > longTextPreviewLen {
+						preview = preview[:longTextPreviewLen]
+					}
+					cx += len(preview) + 2
+				} else {
+					cx++
+				}
+			}
 			if cx < bounds.Right()-1 {
 				s.SetContent(cx, y, ' ', nil,
 					th.Base().Foreground(th.InputBg).Background(th.Cursor))
