@@ -2,7 +2,7 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
+	json "github.com/goccy/go-json"
 	"testing"
 	"time"
 

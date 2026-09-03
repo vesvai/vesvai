@@ -1,7 +1,7 @@
 package openai
 
 import (
-	"encoding/json"
+	json "github.com/goccy/go-json"
 	"testing"
 
 	"github.com/vesvai/vesvai/internal/llm"

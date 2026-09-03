@@ -36,7 +36,7 @@ func SkillModule() error {
 }
 
 func MaterializeTo(root string) error {
-	for name, body := range skills.All() {
+	for name, build := range skills.All() {
 		targetDir := filepath.Join(root, name)
 		if dirExists(targetDir) {
 			continue
@@ -44,7 +44,7 @@ func MaterializeTo(root string) error {
 		if err := os.MkdirAll(targetDir, 0o755); err != nil {
 			return fmt.Errorf("skill: mkdir %s: %w", targetDir, err)
 		}
-		skillMD, err := body.Build(prompt.FormatMarkdown)
+		skillMD, err := build().Build(prompt.FormatMarkdown)
 		if err != nil {
 			return fmt.Errorf("skill: render %s: %w", name, err)
 		}

@@ -2,13 +2,13 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
+
+	json "github.com/goccy/go-json"
 )
 
 const ModelsDataURL = "https://models.opencode.ai/api.json"
@@ -177,14 +177,8 @@ func lookupModelConfig(prices map[string]ModelConfig, provider, model string) (*
 	if cfg, ok := prices[model]; ok {
 		return &cfg, nil
 	}
-	keys := make([]string, 0, len(prices))
-	for key := range prices {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
+	for key, cfg := range prices {
 		if strings.Contains(key, model) {
-			cfg := prices[key]
 			return &cfg, nil
 		}
 	}

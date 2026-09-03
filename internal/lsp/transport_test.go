@@ -2,7 +2,7 @@ package lsp
 
 import (
 	"bytes"
-	"encoding/json"
+	json "github.com/goccy/go-json"
 	"strconv"
 	"strings"
 	"testing"
