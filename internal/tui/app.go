@@ -91,11 +91,17 @@ func (a *App) selectPreferred() {
 	if a.deps.LLM == nil {
 		return
 	}
-	res := a.deps.LLM.Select(llm.SelectRequest{Mode: llm.SelectModePreferred})
-	if res.Err != nil {
-		return
-	}
-	a.model = selectedModel{provider: res.Provider, model: res.Model}
+	go func() {
+		res := a.deps.LLM.Select(llm.SelectRequest{Mode: llm.SelectModePreferred})
+		if res.Err != nil {
+			return
+		}
+		a.chatMu.Lock()
+		a.model = selectedModel{provider: res.Provider, model: res.Model}
+		a.refreshHomeLocked()
+		a.chatMu.Unlock()
+		a.requestRedraw()
+	}()
 }
 
 func (a *App) setOverlay(c components.Component) {
@@ -111,6 +117,9 @@ func (a *App) getOverlay() components.Component {
 }
 
 func (a *App) requestRedraw() {
+	if a.screen == nil {
+		return
+	}
 	ev := &redrawRequest{}
 	ev.SetEventNow()
 	_ = a.screen.PostEvent(ev)
