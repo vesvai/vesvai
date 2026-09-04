@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	json "github.com/goccy/go-json"
@@ -33,14 +34,21 @@ type Manager struct {
 	sessionResolver SessionResolver
 	pricesOnce      sync.Once
 	prices          map[string]ModelConfig
+	wg              sync.WaitGroup
+	ready           chan struct{}
+	readyOnce       sync.Once
+	syncStarted     atomic.Bool
 }
 
 func NewManager(bus event.Bus, log *logger.Logger, cacheStore cache.Cache) *Manager {
+	ready := make(chan struct{})
+	close(ready)
 	return &Manager{
 		bus:        bus,
 		log:        log,
 		cacheStore: cacheStore,
 		entries:    make(map[string]*entry),
+		ready:      ready,
 	}
 }
 
@@ -49,6 +57,10 @@ func (m *Manager) SetSessionResolver(fn SessionResolver) {
 }
 
 func (m *Manager) Start() error {
+	m.ready = make(chan struct{})
+	m.readyOnce = sync.Once{}
+	m.syncStarted.Store(false)
+
 	if err := m.bus.Subscribe(event.TopicAppMounted, m.handleAppMounted); err != nil {
 		return fmt.Errorf("llm manager: subscribe %s: %w", event.TopicAppMounted, err)
 	}
@@ -70,6 +82,7 @@ func (m *Manager) Shutdown() {
 	_ = m.bus.Unsubscribe(event.TopicProviderAdded, m.handleProviderAdded)
 	_ = m.bus.Unsubscribe(event.TopicProviderRemoved, m.handleProviderRemoved)
 	_ = m.bus.Unsubscribe(event.TopicModelSelect, m.handleModelSelect)
+	m.markReady()
 	m.log.Debug("llm manager stopped")
 }
 
@@ -83,7 +96,32 @@ func (m *Manager) handleAppMounted(cfg *config.Config) {
 	if err := m.EnsurePricesCached(ctx); err != nil {
 		m.log.Fwarn("llm: cache model prices: %v", err)
 	}
-	m.Sync(ctx, cfg.Providers)
+	m.syncStarted.Store(true)
+	go m.runSyncAsync(cfg.Providers)
+}
+
+func (m *Manager) runSyncAsync(cfgs []config.LLMConfig) {
+	m.log.Fdebug("llm: syncing %d providers async", len(cfgs))
+	for _, cfg := range cfgs {
+		m.wg.Add(1)
+		go func(c config.LLMConfig) {
+			defer m.wg.Done()
+			m.loadProvider(context.Background(), c)
+		}(cfg)
+	}
+	m.wg.Wait()
+	m.markReady()
+	m.log.Info("llm: all providers synced")
+}
+
+func (m *Manager) markReady() {
+	m.readyOnce.Do(func() {
+		close(m.ready)
+	})
+}
+
+func (m *Manager) WaitUntilReady() {
+	<-m.ready
 }
 
 func (m *Manager) EnsurePricesCached(ctx context.Context) error {
@@ -162,6 +200,7 @@ func (m *Manager) enrichWithConfig(provider string, models []Model) []Model {
 
 func (m *Manager) Sync(ctx context.Context, cfgs []config.LLMConfig) {
 	m.log.Fdebug("llm: syncing %d providers", len(cfgs))
+	m.syncStarted.Store(true)
 
 	var wg sync.WaitGroup
 	for _, cfg := range cfgs {
@@ -174,6 +213,7 @@ func (m *Manager) Sync(ctx context.Context, cfgs []config.LLMConfig) {
 	}
 
 	wg.Wait()
+	m.markReady()
 }
 
 func (m *Manager) handleProviderAdded(cfg config.LLMConfig) {
@@ -309,6 +349,9 @@ func (m *Manager) handleModelSelect(req SelectRequest) {
 }
 
 func (m *Manager) Select(req SelectRequest) SelectResult {
+	if m.syncStarted.Load() {
+		m.WaitUntilReady()
+	}
 	switch req.Mode {
 	case SelectModePreferred:
 		return m.preferred(req.Provider)
@@ -372,6 +415,9 @@ func (m *Manager) Provider(name string) (Provider, error) {
 }
 
 func (m *Manager) Models(name string) ([]Model, error) {
+	if m.syncStarted.Load() {
+		m.WaitUntilReady()
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

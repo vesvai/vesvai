@@ -64,6 +64,14 @@ func TestAppSelectPreferredAtStartup(t *testing.T) {
 
 	a := &App{deps: settings.Deps{LLM: mgr}}
 	a.selectPreferred()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if a.model.provider != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if a.model.provider != "tui-mock" || a.model.model.ID != "mock-1" {
 		t.Fatalf("preferred selection = %+v", a.model)
 	}
