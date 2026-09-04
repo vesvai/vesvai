@@ -371,6 +371,7 @@ func (a *App) submitMessage(input string) {
 	attachments := make([]llm.Attachment, len(a.home.AttachmentBar().Attachments()))
 	copy(attachments, a.home.AttachmentBar().Attachments())
 	a.home.AttachmentBar().Clear()
+	a.refreshMentionItemsLocked()
 	a.refreshHomeLocked()
 	a.chatMu.Unlock()
 
@@ -393,6 +394,7 @@ func (a *App) runAgent(input string) {
 	attachments := make([]llm.Attachment, len(a.home.AttachmentBar().Attachments()))
 	copy(attachments, a.home.AttachmentBar().Attachments())
 	a.home.AttachmentBar().Clear()
+	a.refreshMentionItemsLocked()
 	a.refreshHomeLocked()
 	a.chatMu.Unlock()
 	a.runAgentWithAttachments(input, attachments)

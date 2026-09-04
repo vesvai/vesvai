@@ -33,12 +33,8 @@ func (p *Picker) Update(query string) {
 	p.filtered = search.Filter(query, p.all, func(it ListItem) []string {
 		return []string{it.Label, it.Detail}
 	})
-	if p.index >= len(p.filtered) {
-		p.index = 0
-	}
-	if p.scroll > p.index {
-		p.scroll = p.index
-	}
+	p.index = 0
+	p.scroll = 0
 }
 
 func (p *Picker) Selected() (ListItem, bool) {

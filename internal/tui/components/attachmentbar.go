@@ -24,6 +24,7 @@ type AttachmentBar struct {
 	page        int
 	focused     bool
 	maxVisible  int
+	OnChange    func()
 }
 
 func NewAttachmentBar() *AttachmentBar {
@@ -60,6 +61,9 @@ func (ab *AttachmentBar) Remove(index int) {
 	totalPages := ab.TotalPages()
 	if ab.page >= totalPages && totalPages > 0 {
 		ab.page = totalPages - 1
+	}
+	if ab.OnChange != nil {
+		ab.OnChange()
 	}
 }
 

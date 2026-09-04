@@ -140,6 +140,7 @@ func (v *VFS) globWalk(physDir, vrel string, segs []string, anchored bool, add f
 					continue
 				}
 				if e.IsDir() {
+					add(childRel)
 					if err := v.globWalk(filepath.Join(physDir, e.Name()), childRel, segs, anchored, add); err != nil {
 						return err
 					}

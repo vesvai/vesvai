@@ -58,6 +58,8 @@ type App struct {
 	loadedFloor     int
 	reasoningEffort string
 
+	baseMentionItems []components.ListItem
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	blink  bool
@@ -186,6 +188,11 @@ func (a *App) build() {
 	page.Input().OnSubmit = a.submitMessage
 	page.Input().Focus()
 	page.SetModel(a.modelDisplay())
+	page.AttachmentBar().OnChange = func() {
+		a.chatMu.Lock()
+		defer a.chatMu.Unlock()
+		a.refreshMentionItemsLocked()
+	}
 
 	a.chat.SetOnActivate(a.activateItem)
 	a.chat.SetOnBack(a.backFromSubagent)
@@ -206,6 +213,7 @@ func (a *App) build() {
 		}
 		mentionItems = append(mentionItems, components.ListItem{Label: name, Detail: desc, Data: "agent"})
 	}
+	a.baseMentionItems = mentionItems
 	page.SetMentionItems(mentionItems)
 
 	if fs := a.deps.VFS; fs != nil {
@@ -214,14 +222,16 @@ func (a *App) build() {
 			sort.Strings(filePaths)
 			a.chatMu.Lock()
 			defer a.chatMu.Unlock()
-			items := make([]components.ListItem, len(mentionItems))
-			copy(items, mentionItems)
 			for _, p := range filePaths {
-				items = append(items, components.ListItem{Label: p, Detail: "file", Data: "file"})
+				detail := "file"
+				data := "file"
+				if fi, err := os.Stat(filepath.Join(fs.Root(), filepath.FromSlash(p))); err == nil && fi.IsDir() {
+					detail = "folder"
+					data = "folder"
+				}
+				a.baseMentionItems = append(a.baseMentionItems, components.ListItem{Label: p, Detail: detail, Data: data})
 			}
-			if a.home != nil {
-				a.home.SetMentionItems(items)
-			}
+			a.refreshMentionItemsLocked()
 			a.requestRedraw()
 		}()
 	}
@@ -475,6 +485,32 @@ func (a *App) refreshHomeLocked() {
 	a.home.SetSession(a.session.info.Title)
 }
 
+func (a *App) refreshMentionItemsLocked() {
+	if a.home == nil {
+		return
+	}
+	var agents, files []components.ListItem
+	for _, it := range a.baseMentionItems {
+		if it.Data == "agent" {
+			agents = append(agents, it)
+		} else {
+			files = append(files, it)
+		}
+	}
+	items := make([]components.ListItem, 0, len(a.baseMentionItems)+len(a.home.AttachmentBar().Attachments()))
+	items = append(items, agents...)
+	for _, att := range a.home.AttachmentBar().Attachments() {
+		name := att.FileName
+		if name == "" {
+			name = "attachment"
+		}
+		name = strings.ReplaceAll(name, " ", "_")
+		items = append(items, components.ListItem{Label: name, Detail: string(att.Type), Data: "attachment"})
+	}
+	items = append(items, files...)
+	a.home.SetMentionItems(items)
+}
+
 func (a *App) loadSessionIntoChatLocked() {
 	if a.session == nil {
 		return
@@ -666,6 +702,7 @@ func (a *App) tryAttachFile(path string) {
 	a.chatMu.Lock()
 	if a.home != nil {
 		a.home.AttachmentBar().Add(att)
+		a.refreshMentionItemsLocked()
 		a.refreshHomeLocked()
 	}
 	a.chatMu.Unlock()
