@@ -56,7 +56,7 @@ func TestChatClickSelects(t *testing.T) {
 	thinking := &ChatItem{Kind: ItemThinking}
 	c.AppendItem(thinking)
 	c.SetOnActivate(func(item *ChatItem) { activated = item })
-	c.HandleClick(5, 1, 0)
+	c.HandleClick(5, 7, 0)
 	if activated != thinking {
 		t.Error("click on row 1 should activate the thinking item")
 	}

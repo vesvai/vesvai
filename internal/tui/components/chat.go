@@ -46,18 +46,20 @@ type ChatItem struct {
 }
 
 type renderLine struct {
-	segs     []MdSeg
-	code     bool
-	diffKind byte
-	heading  int
-	quote    bool
-	bullet   bool
-	hr       bool
-	header   bool
-	dim      bool
-	err      bool
-	warning  bool
-	spacer   bool
+	segs          []MdSeg
+	code          bool
+	diffKind      byte
+	heading       int
+	quote         bool
+	bullet        bool
+	hr            bool
+	header        bool
+	dim           bool
+	err           bool
+	warning       bool
+	spacer        bool
+	userMsg       bool
+	userMsgBorder string
 }
 
 type Chat struct {
@@ -421,6 +423,42 @@ func (c *Chat) drawLine(s tcell.Screen, bounds layout.Region, y int, l renderLin
 	th := styles.Current()
 	base := th.Base().Background(th.Background)
 
+	if l.userMsg {
+		borderStyle := base.Foreground(th.Border)
+		if l.userMsgBorder == "top" {
+			border := "┌" + strings.Repeat("─", bounds.Width-2) + "┐"
+			DrawText(s, bounds.Left, y, TruncateTo(border, bounds.Width), borderStyle)
+			return
+		}
+		if l.userMsgBorder == "bottom" {
+			border := "└" + strings.Repeat("─", bounds.Width-2) + "┘"
+			DrawText(s, bounds.Left, y, TruncateTo(border, bounds.Width), borderStyle)
+			return
+		}
+		FillRegion(s, layout.Region{Left: bounds.Left, Top: y, Width: bounds.Width, Height: 1}, ' ', base.Foreground(th.InputText).Background(th.InputBg))
+		DrawText(s, bounds.Left, y, "│", borderStyle)
+		x := bounds.Left + 2
+		for _, seg := range l.segs {
+			segStyle := base.Foreground(th.InputText).Background(th.InputBg)
+			if seg.Bold {
+				segStyle = segStyle.Bold(true)
+			}
+			if seg.Italic {
+				segStyle = segStyle.Italic(true)
+			}
+			if seg.Code {
+				segStyle = base.Foreground(th.Accent).Background(th.InputBg)
+			}
+			room := bounds.Right() - 1 - x
+			if room <= 0 {
+				break
+			}
+			DrawText(s, x, y, TruncateTo(seg.Text, room), segStyle)
+			x += len(seg.Text)
+		}
+		return
+	}
+
 	var style tcell.Style
 	prefix := ""
 	switch {
@@ -511,13 +549,24 @@ func (c *Chat) itemLines(it *ChatItem, width int) []renderLine {
 		lines := mdToRender(RenderMarkdown(it.Text), width, false)
 		for i := range lines {
 			lines[i].header = false
-			lines[i].segs = append([]MdSeg{{Text: "> ", Bold: true}}, lines[i].segs...)
+			lines[i].userMsg = true
 		}
 		if len(it.Attachments) > 0 {
 			attLines := attachmentBoxLines(it.Attachments, width)
+			for i := range attLines {
+				attLines[i].userMsg = true
+			}
 			lines = append(attLines, lines...)
 		}
-		return lines
+		boxLines := make([]renderLine, 0, len(lines)+6)
+		boxLines = append(boxLines, renderLine{spacer: true})
+		boxLines = append(boxLines, renderLine{userMsg: true, userMsgBorder: "top"})
+		boxLines = append(boxLines, renderLine{userMsg: true})
+		boxLines = append(boxLines, lines...)
+		boxLines = append(boxLines, renderLine{userMsg: true})
+		boxLines = append(boxLines, renderLine{userMsg: true, userMsgBorder: "bottom"})
+		boxLines = append(boxLines, renderLine{spacer: true})
+		return boxLines
 	case ItemAssistant:
 		return mdToRender(RenderMarkdown(it.Text), width, false)
 	case ItemThinking:
