@@ -162,9 +162,18 @@ func (m *Manager) enrichWithConfig(provider string, models []Model) []Model {
 
 func (m *Manager) Sync(ctx context.Context, cfgs []config.LLMConfig) {
 	m.log.Fdebug("llm: syncing %d providers", len(cfgs))
+
+	var wg sync.WaitGroup
 	for _, cfg := range cfgs {
-		m.loadProvider(ctx, cfg)
+		wg.Add(1)
+
+		go func(c config.LLMConfig) {
+			defer wg.Done()
+			m.loadProvider(ctx, c)
+		}(cfg)
 	}
+
+	wg.Wait()
 }
 
 func (m *Manager) handleProviderAdded(cfg config.LLMConfig) {
