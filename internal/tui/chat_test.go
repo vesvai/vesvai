@@ -10,6 +10,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 
 	"github.com/vesvai/vesvai/internal/agent"
+	"github.com/vesvai/vesvai/internal/agent/agents"
 	"github.com/vesvai/vesvai/internal/core/event"
 	"github.com/vesvai/vesvai/internal/core/logger"
 	"github.com/vesvai/vesvai/internal/llm"
@@ -316,8 +317,29 @@ func TestAppSkillPickerHasBuiltinSkills(t *testing.T) {
 	if hp.PickCount() == 0 {
 		t.Error("builtin skills should appear in the picker (found batch)")
 	}
-	if it, ok := hp.Picker().Selected(); ok && it.Label != "batch" {
+	if it, ok := hp.SkillPicker().Selected(); ok && it.Label != "batch" {
 		t.Errorf("selected = %q, want batch", it.Label)
+	}
+}
+
+func TestAppMentionPickerHasAgents(t *testing.T) {
+	for _, name := range []string{"developer", "explorer", "planner"} {
+		n := name
+		agents.Register(func() (*agent.Agent, error) {
+			return agent.New(n), nil
+		})
+	}
+
+	orch := agent.New("orch", agent.WithProvider(&chatEchoProvider{}), agent.WithModel(llm.Model{ID: "m"}))
+	app, _ := newChatApp(t, orch)
+	hp := app.home
+	hp.HandleKey(tcell.NewEventKey(tcell.KeyRune, '@', 0))
+	hp.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'd', 0))
+	if hp.PickCount() == 0 {
+		t.Error("mention picker should show registered agents")
+	}
+	if it, ok := hp.MentionPicker().Selected(); ok && it.Label != "developer" {
+		t.Errorf("selected = %q, want developer", it.Label)
 	}
 }
 

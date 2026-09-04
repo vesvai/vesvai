@@ -105,7 +105,7 @@ func (p *Picker) Draw(s tcell.Screen, bounds layout.Region) {
 		}
 		DrawText(s, inner.Left+1, y, marker+TruncateTo(it.Label, inner.Width-2), style)
 		if it.Detail != "" {
-			d := TruncateLeftTo(it.Detail, inner.Width/3)
+			d := TruncateTo(it.Detail, inner.Width/3)
 			DrawText(s, inner.Right()-len(d)-1, y, d, style)
 		}
 	}
