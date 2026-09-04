@@ -1309,10 +1309,10 @@ func (in *Input) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 						th.Base().Foreground(th.InputBg).Background(th.Cursor))
 					x++
 				}
-			if x+len(name)+1 <= bounds.Right()-1 {
-				DrawText(s, x, y, "/"+name, style)
-			}
-			x += len(name) + 1
+				if x+len(name)+1 <= bounds.Right()-1 {
+					DrawText(s, x, y, "/"+name, style)
+				}
+				x += len(name) + 1
 				continue
 			}
 			if name, ok := mentionNameOf(rs[j], in.mentions); ok {
