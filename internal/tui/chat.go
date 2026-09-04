@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	json "github.com/goccy/go-json"
 	"sort"
 	"strings"
@@ -514,31 +515,116 @@ func (a *App) loadMore() {
 
 func messagesToItems(msgs []session.Message) []*components.ChatItem {
 	var out []*components.ChatItem
+	toolByID := make(map[string]*components.ChatItem)
+
 	for _, m := range msgs {
 		switch m.Role {
 		case llm.RoleUser:
 			out = append(out, &components.ChatItem{Kind: components.ItemUser, Text: messageText(m)})
 		case llm.RoleAssistant:
-			if len(m.ToolCalls) > 0 {
-				for _, tc := range m.ToolCalls {
-					out = append(out, &components.ChatItem{
-						Kind:     components.ItemTool,
-						ID:       tc.ID,
-						ToolName: tc.Function.Name,
-						ToolArgs: tc.Function.Arguments,
-					})
+			if reasoning := messageReasoning(m); reasoning != "" {
+				out = append(out, &components.ChatItem{Kind: components.ItemThinking, Reasoning: reasoning, Expanded: false})
+			}
+			for _, tc := range m.ToolCalls {
+				it := &components.ChatItem{
+					Kind:     components.ItemTool,
+					ID:       tc.ID,
+					ToolName: tc.Function.Name,
+					ToolArgs: tc.Function.Arguments,
 				}
+				enrichToolItem(it)
+				toolByID[tc.ID] = it
+				out = append(out, it)
 			}
 			if text := messageText(m); text != "" {
 				out = append(out, &components.ChatItem{Kind: components.ItemAssistant, Text: text})
 			}
 		case llm.RoleTool:
-			if len(out) > 0 && out[len(out)-1].Kind == components.ItemTool {
-				out[len(out)-1].ToolOutput = messageText(m)
+			text := messageText(m)
+			if text == "" {
+				text = fmt.Sprint(m.Content)
+			}
+			if it, ok := toolByID[m.ToolCallID]; ok {
+				it.ToolOutput = text
+			} else if len(out) > 0 && out[len(out)-1].Kind == components.ItemTool {
+				out[len(out)-1].ToolOutput = text
 			}
 		}
 	}
 	return out
+}
+
+func messageReasoning(m session.Message) string {
+	switch c := m.Reasoning.(type) {
+	case string:
+		return c
+	}
+	return ""
+}
+
+func enrichToolItem(it *components.ChatItem) {
+	name := it.ToolName
+	args := it.ToolArgs
+	switch name {
+	case "edit":
+		var p struct {
+			FilePath  string `json:"filePath"`
+			OldString string `json:"oldString"`
+			NewString string `json:"newString"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.OldString != "" {
+			it.Diff = components.ComputeDiff(p.OldString, p.NewString)
+			if p.FilePath != "" {
+				it.ToolName = "edit:" + p.FilePath
+			}
+		}
+	case "read":
+		var p struct {
+			FilePath string `json:"filePath"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.FilePath != "" {
+			it.ToolName = "read:" + p.FilePath
+		}
+	case "write":
+		var p struct {
+			FilePath string `json:"filePath"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.FilePath != "" {
+			it.ToolName = "write:" + p.FilePath
+		}
+	case "bash":
+		var p struct {
+			Command string `json:"command"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Command != "" {
+			cmd := p.Command
+			if len(cmd) > 60 {
+				cmd = cmd[:60] + "…"
+			}
+			it.ToolName = "bash:" + cmd
+		}
+	case "glob":
+		var p struct {
+			Pattern string `json:"pattern"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Pattern != "" {
+			it.ToolName = "glob:" + p.Pattern
+		}
+	case "grep":
+		var p struct {
+			Pattern string `json:"pattern"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Pattern != "" {
+			it.ToolName = "grep:" + p.Pattern
+		}
+	case "webfetch":
+		var p struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.URL != "" {
+			it.ToolName = "webfetch:" + p.URL
+		}
+	}
 }
 
 func messageContent(m llm.Message) string {
