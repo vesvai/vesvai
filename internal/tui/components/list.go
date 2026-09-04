@@ -219,7 +219,7 @@ func (l *List) Draw(s tcell.Screen, bounds layout.Region, _ bool) {
 		}
 		DrawText(s, bounds.Left+1, y, TruncateTo(label, bounds.Width-2), rowStyle)
 		if item.Detail != "" {
-			d := TruncateLeftTo(item.Detail, bounds.Width/2)
+			d := TruncateTo(item.Detail, bounds.Width/2)
 			DrawText(s, bounds.Right()-len(d)-1, y, d, rowStyle)
 		}
 	}
