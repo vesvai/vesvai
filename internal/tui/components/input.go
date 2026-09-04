@@ -97,7 +97,7 @@ func chipNameOf(r rune, chips []string) (string, bool) {
 
 func chipWidth(r rune, chips []string) int {
 	if name, ok := chipNameOf(r, chips); ok {
-		return len(name) + 2
+		return len(name) + 1
 	}
 	return 1
 }
@@ -1309,10 +1309,10 @@ func (in *Input) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 						th.Base().Foreground(th.InputBg).Background(th.Cursor))
 					x++
 				}
-				if x+len(name)+2 <= bounds.Right()-1 {
-					DrawText(s, x, y, "<"+name+">", style)
+				if x+len(name)+1 <= bounds.Right()-1 {
+					DrawText(s, x, y, "/"+name, style)
 				}
-				x += len(name) + 2
+				x += len(name) + 1
 				continue
 			}
 			if name, ok := mentionNameOf(rs[j], in.mentions); ok {

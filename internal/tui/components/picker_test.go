@@ -6,8 +6,8 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-func TestSkillPickerFilter(t *testing.T) {
-	p := NewSkillPicker()
+func TestPickerFilter(t *testing.T) {
+	p := NewPicker("test")
 	p.SetAll([]ListItem{
 		{Label: "go-development", Detail: "write Go code"},
 		{Label: "web-search", Detail: "search the web"},
@@ -27,8 +27,8 @@ func TestSkillPickerFilter(t *testing.T) {
 	}
 }
 
-func TestSkillPickerNavigation(t *testing.T) {
-	p := NewSkillPicker()
+func TestPickerNavigation(t *testing.T) {
+	p := NewPicker("test")
 	p.SetAll([]ListItem{
 		{Label: "a"},
 		{Label: "b"},
@@ -45,8 +45,8 @@ func TestSkillPickerNavigation(t *testing.T) {
 	}
 }
 
-func TestSkillPickerEmptyResult(t *testing.T) {
-	p := NewSkillPicker()
+func TestPickerEmptyResult(t *testing.T) {
+	p := NewPicker("test")
 	p.SetAll([]ListItem{{Label: "go-development"}})
 	p.Update("zzz")
 	if p.Count() != 0 {

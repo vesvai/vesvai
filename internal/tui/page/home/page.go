@@ -35,7 +35,7 @@ type Page struct {
 	chat          *components.Chat
 	attachmentBar *components.AttachmentBar
 
-	skillPicker   *components.SkillPicker
+	skillPicker   *components.Picker
 	mentionPicker *components.Picker
 	focus         focusTarget
 	pickKind      pickKind
@@ -51,7 +51,7 @@ func New() *Page {
 		status:        components.NewStatusBar(),
 		chat:          components.NewChat(),
 		attachmentBar: components.NewAttachmentBar(),
-		skillPicker:   components.NewSkillPicker(),
+		skillPicker:   components.NewPicker("Skills — type to filter"),
 		mentionPicker: components.NewPicker("Mentions — type to filter"),
 		focus:         focusInput,
 		pickTokenAt:   -1,
@@ -80,7 +80,9 @@ func (p *Page) PickCount() int {
 	return 0
 }
 
-func (p *Page) Picker() *components.SkillPicker { return p.skillPicker }
+func (p *Page) SkillPicker() *components.Picker { return p.skillPicker }
+
+func (p *Page) MentionPicker() *components.Picker { return p.mentionPicker }
 
 func (p *Page) Input() *components.Input { return p.input }
 
@@ -441,12 +443,9 @@ func (p *Page) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 		if count == 0 {
 			pickH = 4
 		}
-		pickW := inputRegion.Width / 2
+		pickW := inputRegion.Width
 		if pickW < 24 {
 			pickW = 24
-		}
-		if pickW > 46 {
-			pickW = 46
 		}
 		pickRegion := layout.Region{
 			Left:   bounds.Left + 2,
