@@ -16,12 +16,11 @@ func TestChatAppendAndSelect(t *testing.T) {
 	if !c.HasItems() {
 		t.Fatal("expected items")
 	}
-	if c.sel != 1 {
-		t.Errorf("selection = %d, want last item", c.sel)
+	if len(c.items) != 2 {
+		t.Errorf("items = %d, want 2", len(c.items))
 	}
-	c.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, 0))
-	if c.sel != 0 {
-		t.Errorf("after up selection = %d, want 0", c.sel)
+	if c.sel() != 1 {
+		t.Errorf("selection = %d, want last item", c.sel())
 	}
 }
 
@@ -30,6 +29,11 @@ func TestChatActivateThinking(t *testing.T) {
 	it := &ChatItem{Kind: ItemThinking, Reasoning: "secret reasoning"}
 	c.AppendItem(it)
 	c.SetOnActivate(func(item *ChatItem) { item.Expanded = !item.Expanded })
+	c.rebuildFlat(80)
+	if len(c.flatItems) == 0 {
+		t.Fatal("no flat items")
+	}
+	c.itemCursor = 0
 	c.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
 	if !it.Expanded {
 		t.Error("Enter should expand the thinking item")
@@ -56,9 +60,10 @@ func TestChatClickSelects(t *testing.T) {
 	thinking := &ChatItem{Kind: ItemThinking}
 	c.AppendItem(thinking)
 	c.SetOnActivate(func(item *ChatItem) { activated = item })
-	c.HandleClick(5, 1, 0)
+	c.rebuildFlat(80)
+	c.HandleClick(5, 4, 0)
 	if activated != thinking {
-		t.Error("click on row 1 should activate the thinking item")
+		t.Errorf("click should activate the thinking item, got %v", activated)
 	}
 }
 

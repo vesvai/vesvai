@@ -64,17 +64,19 @@ func TestRenderMarkdownHr(t *testing.T) {
 }
 
 func TestComputeDiff(t *testing.T) {
-	d := ComputeDiff("line1\nold\nline3", "line1\nnew\nline3")
-	if !HasDiff(d) {
+	hunks := ComputeDiff("line1\nold\nline3", "line1\nnew\nline3")
+	if !HasDiff(hunks) {
 		t.Fatal("expected diff")
 	}
 	var minus, plus string
-	for _, l := range d {
-		switch l.Kind {
-		case '-':
-			minus = l.Text
-		case '+':
-			plus = l.Text
+	for _, hunk := range hunks {
+		for _, l := range hunk.Lines {
+			switch l.Kind {
+			case '-':
+				minus = l.Text
+			case '+':
+				plus = l.Text
+			}
 		}
 	}
 	if minus != "old" || plus != "new" {
@@ -88,10 +90,13 @@ func TestComputeDiffNoChange(t *testing.T) {
 	}
 }
 
-func TestDiffText(t *testing.T) {
-	d := ComputeDiff("a", "b")
-	out := DiffText(d)
-	if len(out) == 0 || out[0] != "- a" || out[1] != "+ b" {
-		t.Errorf("DiffText = %v", out)
+func TestDiffHunkBounds(t *testing.T) {
+	hunks := ComputeDiff("a", "b")
+	if len(hunks) == 0 {
+		t.Fatal("expected one hunk")
+	}
+	h := hunks[0]
+	if h.Lines[0].Kind != '-' || h.Lines[1].Kind != '+' {
+		t.Errorf("unexpected lines: %+v", h.Lines)
 	}
 }

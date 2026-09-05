@@ -176,7 +176,7 @@ func (r *Recorder) handleMessage(e agent.AgentMessage) {
 	streaming := r.pending[e.AgentID] != nil && r.pending[e.AgentID].chunks > 0
 	r.mu.Unlock()
 	if streaming {
-		r.commitPending(e.AgentID, id)
+		r.commitPendingWithToolCalls(e.AgentID, id, e.Message.ToolCalls)
 		return
 	}
 	if _, err := r.mgr.AppendMessage(id, e.Message); err != nil {
@@ -191,6 +191,10 @@ func (r *Recorder) handleError(e agent.AgentError) {
 }
 
 func (r *Recorder) commitPending(agentID, sessID string) {
+	r.commitPendingWithToolCalls(agentID, sessID, nil)
+}
+
+func (r *Recorder) commitPendingWithToolCalls(agentID, sessID string, toolCalls []llm.ToolCall) {
 	r.mu.Lock()
 	p, ok := r.pending[agentID]
 	if !ok || p.chunks == 0 {
@@ -201,12 +205,15 @@ func (r *Recorder) commitPending(agentID, sessID string) {
 	if p.reasoning != "" {
 		msg.Reasoning = p.reasoning
 	}
+	if len(toolCalls) > 0 {
+		msg.ToolCalls = toolCalls
+	}
 	p.content = ""
 	p.reasoning = ""
 	p.chunks = 0
 	r.mu.Unlock()
 
-	if msg.Content == "" && msg.Reasoning == "" {
+	if msg.Content == "" && msg.Reasoning == "" && len(msg.ToolCalls) == 0 {
 		return
 	}
 	if _, err := r.mgr.AppendMessage(sessID, msg); err != nil {

@@ -3,6 +3,8 @@ package components
 import (
 	"strings"
 	"unicode/utf8"
+
+	"github.com/vesvai/vesvai/internal/tui/styles"
 )
 
 type MdSeg struct {
@@ -150,10 +152,115 @@ func parseInline(s string) []MdSeg {
 	return segs
 }
 
+func wrapSegs(segs []MdSeg, width int) [][]MdSeg {
+	if width < 1 {
+		width = 1
+	}
+	var out [][]MdSeg
+	var cur []MdSeg
+	curLen := 0
+	flush := func() {
+		if len(cur) > 0 {
+			out = append(out, cur)
+			cur = nil
+			curLen = 0
+		}
+	}
+	for _, seg := range segs {
+		words := strings.Fields(seg.Text)
+		if len(words) == 0 {
+			continue
+		}
+		for _, w := range words {
+			wl := len(w)
+			if curLen > 0 && curLen+1+wl > width {
+				flush()
+			}
+			if wl > width {
+				for len(w) > width {
+					cur = append(cur, MdSeg{Text: w[:width], Bold: seg.Bold, Italic: seg.Italic, Code: seg.Code})
+					curLen = width
+					flush()
+					w = w[width:]
+				}
+				wl = len(w)
+			}
+			sp := ""
+			if curLen > 0 {
+				sp = " "
+			}
+			cur = append(cur, MdSeg{Text: sp + w, Bold: seg.Bold, Italic: seg.Italic, Code: seg.Code})
+			curLen += len(sp) + wl
+		}
+	}
+	flush()
+	if len(out) == 0 {
+		out = append(out, []MdSeg{{Text: ""}})
+	}
+	return out
+}
+
 func (l MdLine) Text() string {
 	var b strings.Builder
 	for _, s := range l.Segs {
 		b.WriteString(s.Text)
 	}
 	return b.String()
+}
+
+func MdToLines(src string, width int, th styles.Theme) []Line {
+	md := RenderMarkdown(src)
+	var out []Line
+	for _, ln := range md {
+		if ln.Code {
+			style := th.Base().Foreground(th.Hint).Background(th.CodeBg)
+			row := LineFromSegments([]Segment{{Text: ln.Text(), Style: style}}, width)
+			out = append(out, row)
+			continue
+		}
+		if ln.Hr {
+			style := th.Base().Foreground(th.Border).Background(th.Background)
+			row := LineFromSegments([]Segment{{Text: strings.Repeat("─", width), Style: style}}, width)
+			out = append(out, row)
+			continue
+		}
+		for _, segs := range wrapSegs(ln.Segs, width) {
+			var segList []Segment
+			baseStyle := th.Base().Background(th.Background)
+			if ln.Heading > 0 {
+				baseStyle = baseStyle.Foreground(th.Accent).Bold(true)
+			} else if ln.Quote {
+				baseStyle = baseStyle.Foreground(th.Hint)
+			} else if ln.Bullet {
+				baseStyle = baseStyle.Foreground(th.Foreground)
+			}
+			prefix := ""
+			if ln.Quote {
+				prefix = "│ "
+			} else if ln.Bullet {
+				prefix = "• "
+			}
+			if prefix != "" {
+				segList = append(segList, Segment{Text: prefix, Style: baseStyle})
+			}
+			if ln.Heading > 0 {
+				segList = append(segList, Segment{Text: "▍ ", Style: th.Base().Foreground(th.AccentDim).Background(th.Background)})
+			}
+			for _, s := range segs {
+				segStyle := baseStyle
+				if s.Bold {
+					segStyle = segStyle.Bold(true)
+				}
+				if s.Italic {
+					segStyle = segStyle.Italic(true)
+				}
+				if s.Code {
+					segStyle = th.Base().Foreground(th.Accent).Background(th.InputBg)
+				}
+				segList = append(segList, Segment{Text: s.Text, Style: segStyle})
+			}
+			out = append(out, LineFromSegments(segList, width))
+		}
+	}
+	return out
 }

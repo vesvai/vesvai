@@ -174,6 +174,10 @@ func (a *App) start() error {
 func (a *App) build() {
 	styles.RegisterDefaults()
 
+	if a.deps.Config != nil && a.deps.Config.Theme != "" {
+		styles.Set(a.deps.Config.Theme)
+	}
+
 	a.selectPreferred()
 
 	go a.checkForUpdates()
@@ -405,6 +409,11 @@ func (a *App) handleKey(ev *tcell.EventKey) bool {
 		a.quit = true
 	case ActionThemeNext:
 		styles.Next()
+		a.chat.Invalidate()
+		if a.deps.Config != nil {
+			a.deps.Config.Theme = styles.Name()
+			go config.SaveTheme(styles.Name())
+		}
 		return true
 	case ActionSettings:
 		a.openSettings()
@@ -464,6 +473,14 @@ func (a *App) openSettings() {
 		a.chatMu.Unlock()
 	})
 	s.SetOnClose(func() { a.setOverlay(nil) })
+	s.SetOnThemeChange(func() {
+		a.chat.Invalidate()
+		a.requestRedraw()
+		if a.deps.Config != nil {
+			a.deps.Config.Theme = styles.Name()
+			go config.SaveTheme(styles.Name())
+		}
+	})
 	a.setOverlay(s)
 }
 

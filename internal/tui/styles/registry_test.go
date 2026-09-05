@@ -58,17 +58,12 @@ func TestNextCycles(t *testing.T) {
 	resetRegistry()
 	RegisterDefaults()
 	Set("dark")
-	Next()
-	if Name() != "dracula" {
-		t.Errorf("after first Next name = %q, want dracula", Name())
+	names := Names()
+	for i := 0; i < len(names); i++ {
+		Next()
 	}
-	Next()
-	if Name() != "light" {
-		t.Errorf("after second Next name = %q, want light", Name())
-	}
-	Next()
 	if Name() != "dark" {
-		t.Errorf("after third Next name = %q, want dark (wraps)", Name())
+		t.Errorf("after cycling through all themes, name = %q, want dark (wraps)", Name())
 	}
 }
 

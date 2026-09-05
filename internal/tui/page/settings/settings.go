@@ -60,6 +60,7 @@ type Settings struct {
 	onReasoningEffortChange func(effort string)
 	onSessionChange         func(info SessionInfo)
 	onSessionClear          func()
+	onThemeChange           func()
 }
 
 func New(deps Deps) *Settings {
@@ -142,6 +143,8 @@ func (s *Settings) SetOnSessionChange(fn func(info SessionInfo)) {
 }
 
 func (s *Settings) SetOnSessionClear(fn func()) { s.onSessionClear = fn }
+
+func (s *Settings) SetOnThemeChange(fn func()) { s.onThemeChange = fn }
 
 func (s *Settings) CloseRequested() bool { return false }
 
