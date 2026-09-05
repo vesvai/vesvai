@@ -3,9 +3,9 @@ package components
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
-
 	"github.com/vesvai/vesvai/internal/llm"
 	"github.com/vesvai/vesvai/internal/tui/layout"
 	"github.com/vesvai/vesvai/internal/tui/styles"
@@ -34,7 +34,7 @@ type ChatItem struct {
 	ToolArgs   string
 	ToolOutput string
 	ToolErr    string
-	Diff       []DiffLine
+	Diff       []DiffHunk
 
 	AgentID        string
 	SubagentName   string
@@ -42,29 +42,18 @@ type ChatItem struct {
 
 	Attachments []llm.Attachment
 
+	Duration time.Duration
 	Expanded bool
 }
 
-type renderLine struct {
-	segs          []MdSeg
-	code          bool
-	diffKind      byte
-	heading       int
-	quote         bool
-	bullet        bool
-	hr            bool
-	header        bool
-	dim           bool
-	err           bool
-	warning       bool
-	spacer        bool
-	userMsg       bool
-	userMsgBorder string
+type flatItem struct {
+	ItemIdx int
+	Start   int
+	End     int
 }
 
 type Chat struct {
 	items       []*ChatItem
-	sel         int
 	scroll      int
 	autoScroll  bool
 	wasAtBottom bool
@@ -75,29 +64,48 @@ type Chat struct {
 	onBack     func()
 	onLoadMore func()
 
+	flat       []Line
+	flatItems  []flatItem
+	flatRev    int
+	itemCursor int
+	follow     bool
+	now        time.Duration
+
+	indicatorX0, indicatorX1, indicatorY int
+	indicatorVisible                     bool
+	backX0, backX1, backY                int
+	backVisible                          bool
+
 	lastWidth   int
 	lastVisible int
 }
 
-func NewChat() *Chat { return &Chat{autoScroll: true, lastWidth: -1} }
+func NewChat() *Chat {
+	return &Chat{autoScroll: true, lastWidth: -1, follow: true, itemCursor: -1}
+}
 
 func (c *Chat) SetItems(items []*ChatItem) {
 	c.items = items
-	c.sel = len(items) - 1
-	if c.sel < 0 {
-		c.sel = 0
-	}
+	c.sel()
 	c.autoScroll = true
+	c.follow = true
 	c.lastWidth = -1
+	c.flatRev = -1
+	c.itemCursor = -1
+}
+
+func (c *Chat) sel() int {
+	return len(c.items) - 1
 }
 
 func (c *Chat) AppendItem(it *ChatItem) {
 	c.items = append(c.items, it)
-	c.sel = len(c.items) - 1
 	if c.wasAtBottom {
 		c.autoScroll = true
+		c.follow = true
 	}
 	c.lastWidth = -1
+	c.flatRev = -1
 }
 
 func (c *Chat) PrependItems(items []*ChatItem) {
@@ -109,18 +117,23 @@ func (c *Chat) PrependItems(items []*ChatItem) {
 		added += len(c.itemLines(it, c.lastWidth))
 	}
 	c.items = append(items, c.items...)
-	c.sel += len(items)
 	c.scroll += added
 	c.autoScroll = false
+	c.follow = false
 	c.lastWidth = -1
+	c.flatRev = -1
 }
 
 func (c *Chat) Clear() {
 	c.items = nil
-	c.sel = 0
 	c.scroll = 0
 	c.autoScroll = true
+	c.follow = true
 	c.lastWidth = -1
+	c.flatRev = -1
+	c.itemCursor = -1
+	c.flat = nil
+	c.flatItems = nil
 }
 
 func (c *Chat) HasItems() bool { return len(c.items) > 0 }
@@ -141,51 +154,31 @@ func (c *Chat) SetOnBack(fn func()) { c.onBack = fn }
 
 func (c *Chat) SetOnLoadMore(fn func()) { c.onLoadMore = fn }
 
-func (c *Chat) Invalidate() { c.lastWidth = -1 }
+func (c *Chat) Invalidate() { c.lastWidth = -1; c.flatRev = -1 }
 
 func (c *Chat) HandleKey(ev *tcell.EventKey) bool {
 	switch ev.Key() {
 	case tcell.KeyUp:
-		if c.sel > 0 {
-			c.sel--
-			c.ensureSelVisible()
-		}
-		c.maybeLoadMore()
+		c.scrollBy(-1)
 		return true
 	case tcell.KeyDown:
-		if c.sel < len(c.items)-1 {
-			c.sel++
-			c.ensureSelVisible()
-		}
+		c.scrollBy(1)
 		return true
 	case tcell.KeyPgUp:
-		c.autoScroll = false
-		c.scroll -= c.pageSize()
-		c.clampScroll()
-		c.maybeLoadMore()
+		c.scrollBy(-c.lastVisible)
 		return true
 	case tcell.KeyPgDn:
-		c.autoScroll = false
-		c.scroll += c.pageSize()
-		c.clampScroll()
+		c.scrollBy(c.lastVisible)
 		return true
 	case tcell.KeyHome:
-		c.autoScroll = false
+		c.follow = false
 		c.scroll = 0
-		c.sel = 0
-		c.maybeLoadMore()
 		return true
 	case tcell.KeyEnd:
-		c.sel = len(c.items) - 1
-		c.autoScroll = true
+		c.follow = true
 		return true
 	case tcell.KeyEnter:
-		if len(c.items) == 0 {
-			return false
-		}
-		if c.onActivate != nil {
-			c.onActivate(c.items[c.sel])
-		}
+		c.activateCursor()
 		return true
 	case tcell.KeyEsc:
 		if c.back && c.onBack != nil {
@@ -193,113 +186,111 @@ func (c *Chat) HandleKey(ev *tcell.EventKey) bool {
 			return true
 		}
 		return false
+	case tcell.KeyRune:
+		switch ev.Rune() {
+		case ' ':
+			c.activateCursor()
+			return true
+		case ']':
+			c.nextItem()
+			return true
+		case '[':
+			c.prevItem()
+			return true
+		}
 	}
 	return false
 }
 
-func (c *Chat) ScrollUp(page int) {
-	c.autoScroll = false
-	c.scroll -= page
-	c.clampScroll()
-	c.maybeLoadMore()
-}
-
-func (c *Chat) ScrollDown(page int) {
-	c.autoScroll = false
-	c.scroll += page
-	c.clampScroll()
-}
-
-func (c *Chat) ScrollToBottom() {
-	c.autoScroll = true
-	c.wasAtBottom = true
-	c.sel = len(c.items) - 1
+func (c *Chat) scrollBy(delta int) {
+	if c.flat == nil || len(c.items) == 0 {
+		return
+	}
+	if c.follow {
+		if delta >= 0 {
+			return
+		}
+		off := c.maxScroll() + delta
+		c.follow = false
+		c.setScroll(off)
+		return
+	}
+	off := c.scroll + delta
+	if off >= c.maxScroll() {
+		c.follow = true
+		return
+	}
+	if off < 0 && c.hasMore && c.onLoadMore != nil {
+		c.onLoadMore()
+	}
+	c.setScroll(off)
 }
 
 func (c *Chat) ScrollBy(delta int) {
-	c.autoScroll = false
-	c.scroll += delta
-	if c.scroll < 0 {
-		c.scroll = 0
+	c.scrollBy(delta)
+}
+
+func (c *Chat) ScrollUp(page int) {
+	c.scrollBy(-page)
+}
+
+func (c *Chat) ScrollDown(page int) {
+	c.scrollBy(page)
+}
+
+func (c *Chat) ScrollToBottom() {
+	c.follow = true
+	c.autoScroll = true
+	c.wasAtBottom = true
+}
+
+func (c *Chat) setScroll(off int) {
+	c.scroll = ClampScroll(off, c.maxScroll())
+}
+
+func (c *Chat) maxScroll() int {
+	total := len(c.flat)
+	vis := c.lastVisible
+	if vis <= 0 {
+		return 0
 	}
-	c.clampScroll()
-	if c.scroll <= 0 && c.hasMore && c.onLoadMore != nil {
-		c.onLoadMore()
+	m := total - vis
+	if m < 0 {
+		return 0
 	}
+	return m
 }
 
 func (c *Chat) HandleClick(x, y, top int) bool {
 	if len(c.items) == 0 || y < top {
 		return false
 	}
-	rel := y - top
-	acc := 0
-	idx := 0
-	for i, it := range c.items {
-		h := len(c.itemLines(it, c.lastWidth))
-		if rel < acc+h {
-			idx = i
-			break
-		}
-		acc += h
-		idx = i
+
+	if c.indicatorVisible && y == c.indicatorY && x >= c.indicatorX0 && x <= c.indicatorX1 {
+		c.follow = true
+		return true
 	}
-	c.sel = idx
-	c.ensureSelVisible()
-	if c.onActivate != nil {
-		c.onActivate(c.items[idx])
+	if c.backVisible && y == c.backY && x >= c.backX0 && x <= c.backX1 {
+		if c.onBack != nil {
+			c.onBack()
+		}
+		return true
+	}
+
+	rel := y - top + c.scroll
+	if rel < 0 || rel >= len(c.flat) {
+		return false
+	}
+	for _, fi := range c.flatItems {
+		if rel >= fi.Start && rel < fi.End {
+			c.itemCursor = fi.ItemIdx
+			if c.onActivate != nil {
+				c.onActivate(c.items[fi.ItemIdx])
+			}
+			return true
+		}
 	}
 	return true
-}
-
-func (c *Chat) pageSize() int {
-	if c.lastVisible > 0 {
-		return c.lastVisible
-	}
-	return 20
-}
-
-func (c *Chat) maybeLoadMore() {
-	if c.scroll <= 0 && c.hasMore && c.onLoadMore != nil {
-		c.onLoadMore()
-	}
-}
-
-func (c *Chat) clampScroll() {
-	if c.scroll < 0 {
-		c.scroll = 0
-	}
-}
-
-func (c *Chat) ensureSelVisible() {
-	c.autoScroll = false
-	if c.sel < 0 {
-		c.sel = 0
-	}
-	if c.sel >= len(c.items) {
-		c.sel = len(c.items) - 1
-	}
-	if c.lastWidth <= 0 || len(c.items) == 0 {
-		return
-	}
-	acc := 0
-	for i := 0; i < c.sel; i++ {
-		acc += len(c.itemLines(c.items[i], c.lastWidth))
-	}
-	selHeight := len(c.itemLines(c.items[c.sel], c.lastWidth))
-	visible := c.lastVisible
-	if visible <= 0 {
-		return
-	}
-	if c.scroll > acc {
-		c.scroll = acc
-	}
-	if c.scroll+visible < acc+selHeight {
-		c.scroll = acc + selHeight - visible
-	}
-	if c.scroll < 0 {
-		c.scroll = 0
-	}
 }
 
 func (c *Chat) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
@@ -314,519 +305,1142 @@ func (c *Chat) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 	c.lastWidth = innerW
 	c.lastVisible = bounds.Height
 
-	heights := make([]int, len(c.items))
-	total := 0
-	for i, it := range c.items {
-		h := len(c.itemLines(it, innerW))
-		heights[i] = h
-		total += h
+	if c.flatRev != c.lastWidth || c.flat == nil {
+		c.rebuildFlat(innerW)
+	}
+
+	total := len(c.flat)
+	if total == 0 {
+		return
 	}
 
 	visible := bounds.Height
-	needsScrollbar := total > visible
-	if c.autoScroll {
-		c.scroll = total - visible
+	if c.follow {
+		c.scroll = ClampScroll(total-visible, total)
 	}
 	if c.scroll < 0 {
 		c.scroll = 0
 	}
-	maxScroll := total - visible
-	if maxScroll < 0 {
-		maxScroll = 0
+	maxS := c.maxScroll()
+	if c.scroll > maxS {
+		c.scroll = maxS
 	}
-	if c.scroll > maxScroll {
-		c.scroll = maxScroll
-	}
-	c.wasAtBottom = c.scroll >= maxScroll-2
+	c.wasAtBottom = c.scroll >= maxS-2
 
-	itemIdx, offset := 0, 0
-	acc := 0
-	for i, h := range heights {
-		if acc+h > c.scroll {
-			itemIdx = i
-			offset = c.scroll - acc
-			break
-		}
-		acc += h
-		if i == len(heights)-1 {
-			itemIdx = i
-			offset = c.scroll - acc
-		}
-	}
-	if offset < 0 {
-		offset = 0
-	}
+	offset := c.scroll
 
 	if c.back && bounds.Height > 2 {
 		headerStyle := th.Base().Foreground(th.Accent).Bold(true).Background(th.Background)
-		DrawText(s, bounds.Left+1, bounds.Top, "← back to main chat (Esc)", headerStyle)
+		backText := "← back to main chat (Esc)"
+		DrawText(s, bounds.Left+1, bounds.Top, backText, headerStyle)
+		c.backVisible = true
+		c.backX0 = bounds.Left + 1
+		c.backX1 = bounds.Left + 1 + len([]rune(backText)) - 1
+		c.backY = bounds.Top
 		bounds.Top++
 		bounds.Height--
 		visible = bounds.Height
+	} else {
+		c.backVisible = false
 	}
 
-	y := bounds.Top
-	remaining := visible
-	for i := itemIdx; i < len(c.items) && remaining > 0; i++ {
-		it := c.items[i]
-		lines := c.itemLines(it, innerW)
-		isSel := focused && i == c.sel
-		for j := offset; j < len(lines) && remaining > 0; j++ {
-			c.drawLine(s, bounds, y, lines[j], isSel && j == 0)
-			y++
-			remaining--
-		}
-		offset = 0
+	markerLine := -1
+	if focused && c.itemCursor >= 0 && c.itemCursor < len(c.flatItems) {
+		markerLine = c.flatItems[c.itemCursor].Start
 	}
 
-	if needsScrollbar {
-		c.drawScrollbar(s, bounds, total, visible, c.scroll)
-	}
-}
-
-func (c *Chat) drawScrollbar(s tcell.Screen, bounds layout.Region, total, visible, scroll int) {
-	if total <= visible {
-		return
-	}
-	th := styles.Current()
-	style := th.Base().Foreground(th.Border)
-	x := bounds.Right() - 1
-
-	thumbH := (visible * visible) / total
-	if thumbH < 1 {
-		thumbH = 1
-	}
-	if thumbH > visible {
-		thumbH = visible
-	}
-
-	maxScroll := total - visible
-	if maxScroll <= 0 {
-		return
-	}
-	thumbPos := scroll * (visible - thumbH) / maxScroll
-
-	for y := bounds.Top; y < bounds.Bottom(); y++ {
-		rel := y - bounds.Top
-		if rel >= thumbPos && rel < thumbPos+thumbH {
-			s.SetContent(x, y, '▓', nil, style)
-		} else {
-			s.SetContent(x, y, '░', nil, style)
-		}
-	}
-}
-
-func (c *Chat) drawLine(s tcell.Screen, bounds layout.Region, y int, l renderLine, selected bool) {
-	if y < bounds.Top || y >= bounds.Bottom() {
-		return
-	}
-	th := styles.Current()
-	base := th.Base().Background(th.Background)
-
-	if l.userMsg {
-		borderStyle := base.Foreground(th.Border)
-		if l.userMsgBorder == "top" {
-			border := "┌" + strings.Repeat("─", bounds.Width-2) + "┐"
-			DrawText(s, bounds.Left, y, TruncateTo(border, bounds.Width), borderStyle)
-			return
-		}
-		if l.userMsgBorder == "bottom" {
-			border := "└" + strings.Repeat("─", bounds.Width-2) + "┘"
-			DrawText(s, bounds.Left, y, TruncateTo(border, bounds.Width), borderStyle)
-			return
-		}
-		FillRegion(s, layout.Region{Left: bounds.Left, Top: y, Width: bounds.Width, Height: 1}, ' ', base.Foreground(th.InputText).Background(th.InputBg))
-		DrawText(s, bounds.Left, y, "│", borderStyle)
-		x := bounds.Left + 2
-		for _, seg := range l.segs {
-			segStyle := base.Foreground(th.InputText).Background(th.InputBg)
-			if seg.Bold {
-				segStyle = segStyle.Bold(true)
-			}
-			if seg.Italic {
-				segStyle = segStyle.Italic(true)
-			}
-			if seg.Code {
-				segStyle = base.Foreground(th.Accent).Background(th.InputBg)
-			}
-			room := bounds.Right() - 1 - x
-			if room <= 0 {
-				break
-			}
-			DrawText(s, x, y, TruncateTo(seg.Text, room), segStyle)
-			x += len(seg.Text)
-		}
-		return
-	}
-
-	var style tcell.Style
-	prefix := ""
-	switch {
-	case l.hr:
-		style = base.Foreground(th.Border)
-		line := strings.Repeat("─", bounds.Width-2)
-		DrawText(s, bounds.Left+1, y, TruncateTo(line, bounds.Width-2), style)
-		return
-	case l.spacer:
-		return
-	case l.header:
-		style = base.Foreground(th.Accent).Bold(true)
-	case l.dim:
-		style = base.Foreground(th.Hint)
-	case l.err:
-		style = base.Foreground(tcell.ColorRed).Bold(true)
-	case l.warning:
-		style = base.Foreground(th.Warning).Bold(true)
-	case l.diffKind == '+':
-		style = base.Foreground(th.Accent).Background(th.InputBg)
-		prefix = "+ "
-	case l.diffKind == '-':
-		style = base.Foreground(tcell.ColorRed).Background(th.InputBg)
-		prefix = "- "
-	case l.code:
-		style = base.Foreground(th.Hint).Background(th.InputBg)
-	case l.heading > 0:
-		style = base.Foreground(th.Accent).Bold(true)
-	case l.quote:
-		style = base.Foreground(th.Hint)
-		prefix = "│ "
-	case l.bullet:
-		style = base.Foreground(th.Foreground)
-		prefix = "• "
-	default:
-		style = base.Foreground(th.Foreground)
-	}
-
-	if selected {
-		DrawText(s, bounds.Left, y, "▌", th.Base().Foreground(th.Accent).Background(th.Background))
-	}
-
-	if l.code || l.diffKind != 0 {
-		text := prefix + l.text()
-		DrawText(s, bounds.Left+1, y, TruncateTo(text, bounds.Width-2), style)
-		return
-	}
-
-	x := bounds.Left + 1
-	if prefix != "" {
-		DrawText(s, x, y, prefix, style)
-		x += len(prefix)
-	}
-	for _, seg := range l.segs {
-		segStyle := style
-		if seg.Bold {
-			segStyle = segStyle.Bold(true)
-		}
-		if seg.Italic {
-			segStyle = segStyle.Italic(true)
-		}
-		if seg.Code {
-			segStyle = base.Foreground(th.Accent).Background(th.InputBg)
-		}
-		room := bounds.Right() - x
-		if room <= 0 {
+	for row := 0; row < visible; row++ {
+		idx := offset + row
+		if idx >= total {
 			break
 		}
-		DrawText(s, x, y, TruncateTo(seg.Text, room), segStyle)
-		x += len(seg.Text)
+		x := bounds.Left
+		y := bounds.Top + row
+		if idx == markerLine {
+			s.SetContent(x, y, '▍', nil, th.Base().Foreground(th.Accent).Background(th.Background))
+		} else {
+			s.SetContent(x, y, ' ', nil, bg)
+		}
+		DrawLine(s, x+1, y, c.flat[idx])
+	}
+
+	c.indicatorVisible = false
+	below := total - (offset + visible)
+	if below > 0 {
+		label := fmt.Sprintf(" ↓ %d ", below)
+		labelCells := LineFromSegments([]Segment{
+			{Text: label, Style: th.Base().Foreground(th.Accent).Background(th.Surface)},
+		}, len(label))
+		lx := bounds.Right() - len(label) - 1
+		ly := bounds.Bottom() - 1
+		DrawLine(s, lx, ly, labelCells)
+		c.indicatorX0, c.indicatorX1, c.indicatorY = lx, lx+len(label)-1, ly
+		c.indicatorVisible = true
 	}
 }
 
-func (l renderLine) text() string {
-	var b strings.Builder
-	for _, seg := range l.segs {
-		b.WriteString(seg.Text)
+func (c *Chat) setFollow(f bool) {
+	if c.follow != f {
+		c.follow = f
+		if !f {
+			c.scroll = c.maxScroll()
+		}
 	}
-	return b.String()
 }
 
-func (c *Chat) itemLines(it *ChatItem, width int) []renderLine {
+func (c *Chat) nextItem() {
+	if len(c.flatItems) == 0 {
+		return
+	}
+	c.itemCursor++
+	if c.itemCursor >= len(c.flatItems) {
+		c.itemCursor = 0
+	}
+	c.revealCursor()
+}
+
+func (c *Chat) prevItem() {
+	if len(c.flatItems) == 0 {
+		return
+	}
+	c.itemCursor--
+	if c.itemCursor < 0 {
+		c.itemCursor = len(c.flatItems) - 1
+	}
+	c.revealCursor()
+}
+
+func (c *Chat) revealCursor() {
+	if c.flat == nil || c.itemCursor < 0 || c.itemCursor >= len(c.flatItems) {
+		return
+	}
+	item := c.flatItems[c.itemCursor]
+	if c.follow {
+		c.follow = false
+	}
+	off := c.scroll
+	if item.Start < off {
+		c.setScroll(item.Start)
+	} else if item.Start >= off+c.lastVisible {
+		c.setScroll(item.Start - c.lastVisible + 1)
+	}
+}
+
+func (c *Chat) activateCursor() {
+	if c.itemCursor < 0 || c.itemCursor >= len(c.flatItems) {
+		return
+	}
+	fi := c.flatItems[c.itemCursor]
+	if fi.ItemIdx >= 0 && fi.ItemIdx < len(c.items) {
+		if c.onActivate != nil {
+			c.onActivate(c.items[fi.ItemIdx])
+		}
+	}
+}
+
+func (c *Chat) rebuildFlat(width int) {
+	c.flat = nil
+	c.flatItems = nil
+	total := 0
+	for i, it := range c.items {
+		lines := c.itemLines(it, width)
+		if len(lines) > 0 {
+			c.flatItems = append(c.flatItems, flatItem{
+				ItemIdx: i,
+				Start:   total,
+				End:     total + len(lines),
+			})
+		}
+		c.flat = append(c.flat, lines...)
+		c.flat = append(c.flat, nil)
+		total += len(lines) + 1
+	}
+	c.flatRev = width
+	if c.itemCursor >= len(c.flatItems) {
+		c.itemCursor = -1
+	}
+}
+
+func (c *Chat) itemLines(it *ChatItem, width int) []Line {
 	if width < 1 {
 		width = 80
 	}
 	switch it.Kind {
 	case ItemUser:
-		lines := mdToRender(RenderMarkdown(it.Text), width, false)
-		for i := range lines {
-			lines[i].header = false
-			lines[i].userMsg = true
-		}
-		if len(it.Attachments) > 0 {
-			attLines := attachmentBoxLines(it.Attachments, width)
-			for i := range attLines {
-				attLines[i].userMsg = true
-			}
-			lines = append(attLines, lines...)
-		}
-		boxLines := make([]renderLine, 0, len(lines)+6)
-		boxLines = append(boxLines, renderLine{spacer: true})
-		boxLines = append(boxLines, renderLine{userMsg: true, userMsgBorder: "top"})
-		boxLines = append(boxLines, renderLine{userMsg: true})
-		boxLines = append(boxLines, lines...)
-		boxLines = append(boxLines, renderLine{userMsg: true})
-		boxLines = append(boxLines, renderLine{userMsg: true, userMsgBorder: "bottom"})
-		boxLines = append(boxLines, renderLine{spacer: true})
-		return boxLines
+		return c.userCardLines(it, width)
 	case ItemAssistant:
-		return mdToRender(RenderMarkdown(it.Text), width, false)
+		return MdToLines(it.Text, width, styles.Current())
 	case ItemThinking:
-		if !it.Expanded {
-			return []renderLine{{header: true, segs: []MdSeg{{Text: "💭 Thinking…"}}}}
-		}
-		out := []renderLine{{header: true, segs: []MdSeg{{Text: "💭 Thinking (collapsed below)"}}}}
-		out = append(out, mdToRender(RenderMarkdown(it.Reasoning), width, true)...)
-		return out
+		return c.thinkingLines(it, width)
 	case ItemTool:
-		status := ""
-		if it.ToolErr != "" {
-			status = " ✖"
-		} else if it.ToolOutput != "" {
-			status = " ✓"
-		}
-
-		icon, displayName := toolIconAndName(it.ToolName)
-		header := icon + " " + displayName + status
-		if !it.Expanded {
-			return []renderLine{{header: true, segs: []MdSeg{{Text: header}}}}
-		}
-		out := []renderLine{{header: true, segs: []MdSeg{{Text: icon + " " + displayName + status + " — click to collapse"}}}}
-
-		if isTodoTool(it.ToolName) && it.ToolOutput != "" {
-			out = append(out, todoOutputLines(it.ToolOutput, width)...)
-		} else {
-			if it.ToolArgs != "" {
-				out = append(out, codeBlockLines("args", it.ToolArgs, width)...)
-			}
-			if HasDiff(it.Diff) {
-				out = append(out, diffBlockLines(it.Diff, width)...)
-			}
-			if it.ToolErr != "" {
-				out = append(out, renderLine{err: true, segs: []MdSeg{{Text: "error: " + it.ToolErr}}})
-			} else if it.ToolOutput != "" {
-				lines := strings.Split(it.ToolOutput, "\n")
-				if len(lines) > maxOutputLines {
-					truncated := lines[:maxOutputLines]
-					remainder := len(lines) - maxOutputLines
-					out = append(out, truncatedCodeBlockLines("result", strings.Join(truncated, "\n"), width, remainder)...)
-				} else {
-					out = append(out, codeBlockLines("result", it.ToolOutput, width)...)
-				}
-			}
-		}
-		return out
+		return c.toolLines(it, width)
 	case ItemSubagent:
-		status := it.SubagentStatus
-		if status == "" {
-			status = "running"
-		}
-		header := "◉ " + it.SubagentName + " — " + status
-		if !it.Expanded {
-			return []renderLine{{header: true, segs: []MdSeg{{Text: header}}}}
-		}
-		return []renderLine{
-			{header: true, segs: []MdSeg{{Text: header}}},
-			{dim: true, segs: []MdSeg{{Text: "↳ press Enter to open this subagent's chat"}}},
-		}
+		return c.subagentLines(it, width)
 	case ItemFinished:
-		return []renderLine{{dim: true, segs: []MdSeg{{Text: "— finished —"}}}}
+		return nil
 	case ItemError:
-		return []renderLine{{err: true, segs: []MdSeg{{Text: "✖ error: " + it.Text}}}}
+		th := styles.Current()
+		return []Line{LineFromSegments([]Segment{
+			{Text: "✖ error: " + it.Text, Style: th.Base().Foreground(th.Error).Bold(true).Background(th.Background)},
+		}, width)}
 	}
 	return nil
 }
 
-func mdToRender(md []MdLine, width int, dim bool) []renderLine {
-	var out []renderLine
-	for _, ln := range md {
-		if ln.Code {
-			out = append(out, renderLine{code: true, segs: []MdSeg{{Text: ln.Text()}}})
-			continue
-		}
-		if ln.Hr {
-			out = append(out, renderLine{hr: true})
-			continue
-		}
-		for _, segs := range wrapSegs(ln.Segs, width) {
-			out = append(out, renderLine{
-				segs:    segs,
-				heading: ln.Heading,
-				quote:   ln.Quote,
-				bullet:  ln.Bullet,
-			})
-		}
+func (c *Chat) userCardLines(it *ChatItem, width int) []Line {
+	th := styles.Current()
+	if width < 8 {
+		return WrapText(it.Text, th.Base().Foreground(th.InputText).Background(th.UserBg), width)
 	}
-	return out
+	border := th.Base().Foreground(th.Border).Background(th.UserBg)
+
+	var lines []Line
+	lines = append(lines, cardEdge('┌', '┐', width, border))
+
+	content := WrapText(it.Text, th.Base().Foreground(th.Foreground).Background(th.UserBg), width-4)
+	if len(content) == 0 {
+		content = []Line{{}}
+	}
+	for _, ln := range content {
+		lines = append(lines, cardRow(ln, width, border, th))
+	}
+	for _, a := range it.Attachments {
+		lines = append(lines, cardRow(attachmentChipLine(a, width-4, th), width, border, th))
+	}
+
+	lines = append(lines, cardEdge('└', '┘', width, border))
+	return lines
 }
 
-func wrapSegs(segs []MdSeg, width int) [][]MdSeg {
-	if width < 1 {
-		width = 1
+func cardEdge(left, right rune, width int, border tcell.Style) Line {
+	line := Line{{R: left, S: border}}
+	for len(line) < width-1 {
+		line = append(line, Cell{R: '─', S: border})
 	}
-	var out [][]MdSeg
-	var cur []MdSeg
-	curLen := 0
-	flush := func() {
-		if len(cur) > 0 {
-			out = append(out, cur)
-			cur = nil
-			curLen = 0
-		}
-	}
-	for _, seg := range segs {
-		words := strings.Fields(seg.Text)
-		if len(words) == 0 {
-			continue
-		}
-		for _, w := range words {
-			wl := len(w)
-			if curLen > 0 && curLen+1+wl > width {
-				flush()
-			}
-			if wl > width {
-				for len(w) > width {
-					cur = append(cur, MdSeg{Text: w[:width], Bold: seg.Bold, Italic: seg.Italic, Code: seg.Code})
-					curLen = width
-					flush()
-					w = w[width:]
-				}
-				wl = len(w)
-			}
-			sp := ""
-			if curLen > 0 {
-				sp = " "
-			}
-			cur = append(cur, MdSeg{Text: sp + w, Bold: seg.Bold, Italic: seg.Italic, Code: seg.Code})
-			curLen += len(sp) + wl
-		}
-	}
-	flush()
-	if len(out) == 0 {
-		out = append(out, []MdSeg{{Text: ""}})
-	}
-	return out
+	line = append(line, Cell{R: right, S: border})
+	return line
 }
 
-func codeBlockLines(label, text string, width int) []renderLine {
-	var out []renderLine
-	out = append(out, renderLine{code: true, segs: []MdSeg{{Text: "``` " + label}}})
-	lines := strings.Split(text, "\n")
-	for _, ln := range lines {
-		out = append(out, renderLine{code: true, segs: []MdSeg{{Text: ln}}})
+func cardRow(ln Line, width int, border tcell.Style, th styles.Theme) Line {
+	bg := th.Base().Foreground(th.Foreground).Background(th.UserBg)
+	row := Line{{R: '│', S: border}, {R: ' ', S: bg}}
+	row = append(row, ln...)
+	for len(row) < width-1 {
+		row = append(row, Cell{R: ' ', S: bg})
 	}
-	out = append(out, renderLine{code: true, segs: []MdSeg{{Text: "```"}}})
-	return out
+	row = append(row, Cell{R: '│', S: border})
+	return row
 }
 
-func diffBlockLines(diff []DiffLine, width int) []renderLine {
-	var out []renderLine
-	out = append(out, renderLine{code: true, segs: []MdSeg{{Text: "``` diff"}}})
-	for _, l := range diff {
-		out = append(out, renderLine{diffKind: l.Kind, segs: []MdSeg{{Text: l.Text}}})
-	}
-	out = append(out, renderLine{code: true, segs: []MdSeg{{Text: "```"}}})
-	return out
-}
-
-const maxOutputLines = 20
-
-func toolIconAndName(name string) (string, string) {
-	switch {
-	case strings.HasPrefix(name, "read:"):
-		return "📖", name
-	case strings.HasPrefix(name, "write:"):
-		return "✏️", name
-	case strings.HasPrefix(name, "edit:"):
-		return "✏️", name
-	case strings.HasPrefix(name, "bash:"):
-		return "🔧", name
-	case strings.HasPrefix(name, "glob:"):
-		return "🔍", name
-	case strings.HasPrefix(name, "grep:"):
-		return "🔍", name
-	case strings.HasPrefix(name, "webfetch:"):
-		return "🌐", name
-	case name == "list-todo":
-		return "📋", name
-	case name == "update-todo":
-		return "📋", name
+func attachmentChipLine(a llm.Attachment, width int, th styles.Theme) Line {
+	var icon rune
+	switch a.Type {
+	case llm.AttachmentTypeImage:
+		icon = '🖼'
+	case llm.AttachmentTypeAudio:
+		icon = '🎵'
 	default:
-		return "🛠", name
+		icon = '📎'
 	}
+	bg := th.Base().Foreground(th.Foreground).Background(th.UserBg)
+	nameStyle := th.Base().Foreground(th.TextDim).Background(th.UserBg)
+	line := Line{
+		{R: ' ', S: bg},
+		{R: icon, S: bg},
+		{R: ' ', S: bg},
+	}
+	name := a.FileName
+	for line.Width()+DisplayWidth(name)+4 > width {
+		if len(name) <= 1 {
+			break
+		}
+		name = name[:len(name)-1]
+	}
+	if a.FileName != name {
+		name += "…"
+	}
+	for _, r := range name {
+		line = append(line, Cell{R: r, S: nameStyle})
+	}
+	return line
 }
 
-func isTodoTool(name string) bool {
-	return name == "list-todo" || name == "update-todo"
+func (c *Chat) thinkingLines(it *ChatItem, width int) []Line {
+	th := styles.Current()
+	dim := th.Base().Foreground(th.TextDim).Background(th.Background)
+
+	active := c.isActiveThinking(it)
+	var mark rune
+	var markStyle tcell.Style
+	if active {
+		mark = '◌'
+		markStyle = th.Base().Foreground(th.ThinkingGlow).Background(th.Background)
+	} else {
+		mark = '▸'
+		if it.Expanded {
+			mark = '▾'
+		}
+		markStyle = th.Base().Foreground(th.Accent).Background(th.Background)
+	}
+
+	label := "Thinking"
+	labelStyle := th.Base().Foreground(th.TextDim).Background(th.Background)
+	if active {
+		labelStyle = th.Base().Foreground(lerpColor(th.ThinkingDim, th.ThinkingGlow, glowT(c.now))).Background(th.Background)
+	}
+
+	line := Line{
+		{R: mark, S: markStyle},
+		{R: ' ', S: dim},
+	}
+	for _, r := range label {
+		line = append(line, Cell{R: r, S: labelStyle})
+	}
+
+	if active {
+		dots := int(c.now / (300 * time.Millisecond) % 4)
+		for i := 0; i < 4; i++ {
+			r := '·'
+			if i >= dots {
+				r = ' '
+			}
+			line = append(line, Cell{R: r, S: dim})
+		}
+	}
+
+	var lines []Line
+	lines = append(lines, line)
+
+	if it.Expanded && it.Reasoning != "" {
+		reasonStyle := th.Base().Foreground(th.Reasoning).Background(th.Background)
+		body := WrapText(it.Reasoning, reasonStyle, width)
+		lines = append(lines, body...)
+	}
+	return lines
 }
 
-func todoOutputLines(output string, width int) []renderLine {
-	var out []renderLine
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
+func (c *Chat) isActiveThinking(it *ChatItem) bool {
+	for i, item := range c.items {
+		if item == it {
+			for j := i + 1; j < len(c.items); j++ {
+				if c.items[j].Kind != ItemThinking {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Chat) toolLines(it *ChatItem, width int) []Line {
+	th := styles.Current()
+
+	isEdit := strings.HasPrefix(it.ToolName, "edit:") || it.ToolName == "edit"
+	isWrite := strings.HasPrefix(it.ToolName, "write:") || it.ToolName == "write"
+	isRead := strings.HasPrefix(it.ToolName, "read:") || it.ToolName == "read"
+	isList := strings.Contains(it.ToolName, "list-todo") || strings.Contains(it.ToolName, "update-todo")
+	isListTool := strings.HasPrefix(it.ToolName, "list:") || it.ToolName == "list"
+	isBash := strings.HasPrefix(it.ToolName, "bash:") || it.ToolName == "bash"
+	isRunning := it.ToolErr == "" && it.ToolOutput == ""
+
+	if isRunning {
+		left := c.toolStatusLine(it, width, '◌', th.Running, fmt.Sprintf(" %c running", spinnerAt(c.now)))
+		return []Line{left}
+	}
+
+	if it.ToolErr != "" {
+		left := c.toolStatusLine(it, width, '✖', th.Error, " ✖ "+formatDuration(it.Duration))
+		return []Line{left}
+	}
+
+	if isRead || isListTool {
+		left := c.toolStatusLine(it, width, '✔', th.Success, " ✔ "+formatDuration(it.Duration))
+		return []Line{left}
+	}
+
+	if isList {
+		return c.todoCardLines(it, width)
+	}
+
+	if isBash {
+		return c.bashCardLines(it, width)
+	}
+
+	if isEdit && len(it.Diff) > 0 {
+		return c.editCardLines(it, width)
+	}
+	if isWrite {
+		return c.writeCardLines(it, width)
+	}
+
+	left := c.toolStatusLine(it, width, '✔', th.Success, " ✔ "+formatDuration(it.Duration))
+
+	var lines []Line
+	lines = append(lines, left)
+
+	if it.ToolOutput != "" {
+		bodyStyle := th.Base().Foreground(th.TextDim).Background(th.Background)
+		wrapped := WrapText(it.ToolOutput, bodyStyle, width-4)
+		const maxOutputLines = 100
+		if len(wrapped) > maxOutputLines {
+			wrapped = wrapped[:maxOutputLines]
+		}
+		for _, ln := range wrapped {
+			row := Line{{R: ' ', S: tcell.StyleDefault}, {R: ' ', S: tcell.StyleDefault}}
+			row = append(row, ln...)
+			lines = append(lines, row)
+		}
+		if len(wrapped) == maxOutputLines {
+			lines = append(lines, LineFromSegments([]Segment{
+				{Text: "  … output truncated", Style: th.Base().Foreground(th.Muted).Background(th.Background)},
+			}, width))
+		}
+	}
+
+	return lines
+}
+
+func (c *Chat) toolStatusLine(it *ChatItem, width int, mark rune, color tcell.Color, statusText string) Line {
+	th := styles.Current()
+	left := Line{
+		{R: mark, S: th.Base().Foreground(color).Background(th.Background)},
+		{R: ' ', S: tcell.StyleDefault},
+		{R: '⚙', S: th.Base().Foreground(th.Muted).Background(th.Background)},
+		{R: ' ', S: tcell.StyleDefault},
+	}
+	displayName := it.ToolName
+	if idx := strings.Index(displayName, ":"); idx > 0 {
+		displayName = displayName[idx+1:]
+	}
+	for _, r := range displayName {
+		left = append(left, Cell{R: r, S: th.Base().Foreground(th.Foreground).Bold(true).Background(th.Background)})
+	}
+	left = append(left, Cell{R: ' ', S: tcell.StyleDefault})
+	statusCells := LineFromSegments([]Segment{
+		{Text: statusText, Style: th.Base().Foreground(color).Background(th.Background)},
+	}, len(statusText)+2)
+	for left.Width()+statusCells.Width() < width {
+		left = append(left, Cell{R: ' ', S: tcell.StyleDefault})
+	}
+	left = append(left, statusCells...)
+	return left
+}
+
+func (c *Chat) todoCardLines(it *ChatItem, width int) []Line {
+	th := styles.Current()
+	if width < 12 {
+		return nil
+	}
+
+	border := th.Base().Foreground(th.Border).Background(th.Background)
+	accent := th.Base().Foreground(th.Accent).Background(th.Background)
+	dim := th.Base().Foreground(th.TextDim).Background(th.Background)
+	success := th.Base().Foreground(th.Success).Bold(true).Background(th.Background)
+	errStyle := th.Base().Foreground(th.Error).Background(th.Background)
+	running := th.Base().Foreground(th.Running).Bold(true).Background(th.Background)
+
+	var lines []Line
+
+	top := Line{{R: '╭', S: border}}
+	top = append(top, Cell{R: '─', S: border})
+	for _, r := range " TODO " {
+		top = append(top, Cell{R: r, S: accent})
+	}
+	for top.Width() < width-1 {
+		top = append(top, Cell{R: '─', S: border})
+	}
+	top = append(top, Cell{R: '╮', S: border})
+	lines = append(lines, top)
+
+	type todoItem struct {
+		status string
+		title  string
+		desc   string
+		deps   string
+	}
+	var todos []todoItem
+	var current *todoItem
+	_ = current
+
+	textLines := strings.Split(it.ToolOutput, "\n")
+	for _, l := range textLines {
+		trimmed := strings.TrimSpace(l)
 		if trimmed == "" {
 			continue
 		}
+		if strings.HasPrefix(trimmed, "Todos:") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "No todos.") {
+			row := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+			for _, r := range "No todos." {
+				row = append(row, Cell{R: r, S: dim})
+			}
+			for row.Width() < width-1 {
+				row = append(row, Cell{R: ' ', S: tcell.StyleDefault})
+			}
+			row = append(row, Cell{R: '│', S: border})
+			lines = append(lines, row)
+			sep := cardSep(border, width)
+			lines = append(lines, sep)
+			lines = append(lines, cardFooter(border, dim, width, fmt.Sprintf("0 / 0 completed")))
+			return lines
+		}
+		if strings.HasPrefix(trimmed, "Deleted") || strings.HasPrefix(trimmed, "Created") || strings.HasPrefix(trimmed, "Updated") {
+			row := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+			for _, r := range trimmed {
+				row = append(row, Cell{R: r, S: dim})
+			}
+			for row.Width() < width-1 {
+				row = append(row, Cell{R: ' ', S: tcell.StyleDefault})
+			}
+			row = append(row, Cell{R: '│', S: border})
+			lines = append(lines, row)
+			continue
+		}
+
+		status := ""
+		rest := trimmed
 		switch {
-		case strings.Contains(trimmed, "Todos:"):
-			out = append(out, renderLine{dim: true, segs: []MdSeg{{Text: line}}})
-		case strings.Contains(trimmed, "[x]"):
-			out = append(out, renderLine{segs: []MdSeg{{Text: line}}})
-		case strings.Contains(trimmed, "[~]"):
-			out = append(out, renderLine{warning: true, segs: []MdSeg{{Text: line}}})
-		case strings.Contains(trimmed, "[-]"):
-			out = append(out, renderLine{dim: true, segs: []MdSeg{{Text: line}}})
-		case strings.Contains(trimmed, "priority: high"):
-			out = append(out, renderLine{header: true, segs: []MdSeg{{Text: line}}})
+		case strings.HasPrefix(trimmed, "[x]"):
+			status = "completed"
+			rest = strings.TrimSpace(trimmed[3:])
+		case strings.HasPrefix(trimmed, "[~]"):
+			status = "in_progress"
+			rest = strings.TrimSpace(trimmed[3:])
+		case strings.HasPrefix(trimmed, "[-]"):
+			status = "cancelled"
+			rest = strings.TrimSpace(trimmed[3:])
+		case strings.HasPrefix(trimmed, "[ ]"):
+			status = "pending"
+			rest = strings.TrimSpace(trimmed[3:])
 		default:
-			out = append(out, renderLine{segs: []MdSeg{{Text: line}}})
+			if strings.HasPrefix(trimmed, "   ") && len(todos) > 0 {
+				cur := &todos[len(todos)-1]
+				if strings.Contains(trimmed, "depends on:") {
+						cur.deps = strings.TrimSpace(strings.TrimPrefix(trimmed, "  depends on:"))
+				} else {
+		cur.desc = strings.TrimSpace(trimmed)
+				}
+			}
+			continue
 		}
-	}
-	if len(out) == 0 {
-		out = append(out, renderLine{segs: []MdSeg{{Text: output}}})
-	}
-	return out
-}
 
-func truncatedCodeBlockLines(label, text string, width int, remainder int) []renderLine {
-	var out []renderLine
-	out = append(out, renderLine{code: true, segs: []MdSeg{{Text: "``` " + label}}})
-	for _, ln := range strings.Split(text, "\n") {
-		out = append(out, renderLine{code: true, segs: []MdSeg{{Text: ln}}})
-	}
-	out = append(out, renderLine{code: true, segs: []MdSeg{{Text: "```"}}})
-	if remainder > 0 {
-		out = append(out, renderLine{dim: true, segs: []MdSeg{{Text: fmt.Sprintf("… and %d more lines", remainder)}}})
-	}
-	return out
-}
+		var ti todoItem
+		ti.status = status
 
-func formatAttachmentNames(atts []llm.Attachment) string {
-	names := make([]string, len(atts))
-	for i, att := range atts {
-		names[i] = att.FileName
-		if names[i] == "" {
-			names[i] = "attachment"
+		// parse "[todo-1] title (priority: high)"
+		if idx := strings.Index(rest, "]"); idx >= 0 {
+			ti.title = strings.TrimSpace(rest[idx+1:])
+		} else {
+			ti.title = rest
 		}
+		if pIdx := strings.LastIndex(ti.title, "(priority:"); pIdx >= 0 {
+			ti.title = strings.TrimSpace(ti.title[:pIdx])
+		}
+		todos = append(todos, ti)
 	}
-	return strings.Join(names, ", ")
-}
 
-func attachmentBoxLines(atts []llm.Attachment, width int) []renderLine {
-	var lines []renderLine
-	lines = append(lines, renderLine{code: true, segs: []MdSeg{{Text: "Attachments"}}})
-	for _, att := range atts {
-		icon := "📄"
-		switch att.Type {
-		case llm.AttachmentTypeImage:
-			icon = "🖼"
-		case llm.AttachmentTypeAudio:
-			icon = "🎵"
+	for _, t := range todos {
+		row := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+
+		var icon rune
+		var iconStyle tcell.Style
+		var titleStyle tcell.Style
+
+		switch t.status {
+		case "completed":
+			icon = '✓'
+			iconStyle = success
+			titleStyle = success
+		case "in_progress":
+			icon = '◉'
+			iconStyle = running
+			titleStyle = th.Base().Foreground(th.Foreground).Bold(true).Background(th.Background)
+		case "cancelled":
+			icon = '✗'
+			iconStyle = errStyle
+			titleStyle = errStyle
+		default:
+			icon = '○'
+			iconStyle = th.Base().Foreground(th.Muted).Background(th.Background)
+			titleStyle = dim
 		}
-		name := att.FileName
-		if name == "" {
-			name = "attachment"
+
+		row = append(row, Cell{R: icon, S: iconStyle}, Cell{R: ' ', S: tcell.StyleDefault})
+		for _, r := range t.title {
+			row = append(row, Cell{R: r, S: titleStyle})
 		}
-		lines = append(lines, renderLine{code: true, segs: []MdSeg{{Text: icon + " " + name}}})
+		if t.status == "cancelled" {
+			for i := len(row) - 2; i >= 0; i-- {
+				if row[i].R != ' ' && row[i].R != '│' && row[i].S != tcell.StyleDefault && row[i].S != border {
+					row[i].S = row[i].S.StrikeThrough(true)
+				}
+			}
+		}
+
+		for row.Width() < width-1 {
+			row = append(row, Cell{R: ' ', S: tcell.StyleDefault})
+		}
+		row = append(row, Cell{R: '│', S: border})
+		lines = append(lines, row)
+
+		if t.desc != "" {
+			drow := Line{{R: '│', S: border}, Cell{R: ' ', S: tcell.StyleDefault}, Cell{R: ' ', S: tcell.StyleDefault}, Cell{R: ' ', S: tcell.StyleDefault}}
+			for _, r := range "    " + t.desc {
+				if drow.Width() >= width - 2 {
+					break
+				}
+				drow = append(drow, Cell{R: r, S: dim})
+			}
+			for drow.Width() < width-1 {
+				drow = append(drow, Cell{R: ' ', S: tcell.StyleDefault})
+			}
+			drow = append(drow, Cell{R: '│', S: border})
+			lines = append(lines, drow)
+		}
+		if t.deps != "" {
+			drow := Line{{R: '│', S: border}, Cell{R: ' ', S: tcell.StyleDefault}, Cell{R: ' ', S: tcell.StyleDefault}, Cell{R: ' ', S: tcell.StyleDefault}}
+			for _, r := range "    depends on: " + t.deps {
+				if drow.Width() >= width - 2 {
+					break
+				}
+				drow = append(drow, Cell{R: r, S: dim})
+			}
+			for drow.Width() < width-1 {
+				drow = append(drow, Cell{R: ' ', S: tcell.StyleDefault})
+			}
+			drow = append(drow, Cell{R: '│', S: border})
+			lines = append(lines, drow)
+		}
 	}
+
+	total := len(todos)
+	completed := 0
+	for _, t := range todos {
+		if t.status == "completed" {
+			completed++
+		}
+	}
+
+	sep := cardSep(border, width)
+	lines = append(lines, sep)
+	lines = append(lines, cardFooter(border, dim, width, fmt.Sprintf("%d / %d completed", completed, total)))
+	lines = append(lines, bottomEdge(border, width))
+
 	return lines
+}
+
+func cardSep(border tcell.Style, width int) Line {
+	sep := Line{{R: '├', S: border}}
+	for i := 0; i < width-2; i++ {
+		sep = append(sep, Cell{R: '─', S: border})
+	}
+	sep = append(sep, Cell{R: '┤', S: border})
+	return sep
+}
+
+func cardFooter(border tcell.Style, dim tcell.Style, width int, text string) Line {
+	footer := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+	for _, r := range text {
+		footer = append(footer, Cell{R: r, S: dim})
+	}
+	for footer.Width() < width - 1	{
+		footer = append(footer, Cell{R: ' ', S: tcell.StyleDefault})
+	}
+	footer = append(footer, Cell{R: '│', S: border})
+	return footer
+}
+
+func bottomEdge(border tcell.Style, width int) Line {
+	bottom := Line{{R: '╰', S: border}}
+	for i := 0; i < width - 1; i++ {
+		bottom = append(bottom, Cell{R: '─', S: border})
+	}
+	bottom = append(bottom, Cell{R: '╯', S: border})
+	return bottom
+}
+
+func (c *Chat) bashCardLines(it *ChatItem, width int) []Line {
+	th := styles.Current()
+	if width < 12 {
+		return nil
+	}
+
+	cmd := it.ToolName
+	if idx := strings.Index(cmd, ":"); idx > 0 {
+		cmd = cmd[idx+1:]
+	}
+
+	border := th.Base().Foreground(th.Border).Background(th.Background)
+	accent := th.Base().Foreground(th.Accent).Background(th.Background)
+	dim := th.Base().Foreground(th.TextDim).Background(th.Background)
+	muted := th.Base().Foreground(th.Muted).Background(th.Background)
+	success := th.Base().Foreground(th.Success).Background(th.Background)
+
+	var lines []Line
+
+	top := Line{{R: '╭', S: border}}
+	top = append(top, Cell{R: '─', S: border})
+	for _, r := range " BASH " {
+		top = append(top, Cell{R: r, S: accent})
+	}
+
+	cmdStyle := th.Base().Foreground(th.Foreground).Background(th.Background)
+	statusText := " ✓ " + formatDuration(it.Duration)
+	statusStyle := success.Bold(true)
+
+	cmdLabel := "$ " + cmd
+	rightSide := statusText
+	needed := top.Width() + DisplayWidth(cmdLabel) + 2 + DisplayWidth(rightSide)
+	for needed > width-2 {
+		if len(cmdLabel) > 4 {
+			cmdLabel = cmdLabel[:len(cmdLabel)-1]
+		} else {
+			break
+		}
+		needed = top.Width() + DisplayWidth(cmdLabel) + 2 + DisplayWidth(rightSide)
+	}
+
+	for _, r := range cmdLabel {
+		top = append(top, Cell{R: r, S: cmdStyle})
+	}
+	topPad := width - 2 - top.Width() - DisplayWidth(rightSide)
+	if topPad < 1 {
+		topPad = 1
+	}
+	for i := 0; i < topPad; i++ {
+		top = append(top, Cell{R: ' ', S: tcell.StyleDefault})
+	}
+	for _, r := range rightSide {
+		top = append(top, Cell{R: r, S: statusStyle})
+	}
+	top = append(top, Cell{R: ' ', S: tcell.StyleDefault})
+	for top.Width() < width-1 {
+		top = append(top, Cell{R: '─', S: border})
+	}
+	top = append(top, Cell{R: '╮', S: border})
+	lines = append(lines, top)
+
+	sep := Line{{R: '├', S: border}}
+	for i := 0; i < width-2; i++ {
+		sep = append(sep, Cell{R: '─', S: border})
+	}
+	sep = append(sep, Cell{R: '┤', S: border})
+	lines = append(lines, sep)
+
+	output := it.ToolOutput
+	if output == "" {
+		output = "(no output)"
+	}
+
+	rawLines := strings.Split(output, "\n")
+	const maxBashLines = 30
+	truncated := len(rawLines) > maxBashLines && !it.Expanded
+	shown := rawLines
+	if truncated {
+		shown = rawLines[:maxBashLines]
+	}
+
+	bodyStyle := th.Base().Foreground(th.Foreground).Background(th.Background)
+	for _, ln := range shown {
+		row := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		for _, r := range ln {
+			if row.Width() >= width-2 {
+				break
+			}
+			row = append(row, Cell{R: r, S: bodyStyle})
+		}
+		for row.Width() < width-1 {
+			row = append(row, Cell{R: ' ', S: tcell.StyleDefault})
+		}
+		row = append(row, Cell{R: '│', S: border})
+		lines = append(lines, row)
+	}
+
+	if truncated {
+		remaining := len(rawLines) - maxBashLines
+		moreLine := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		msg := fmt.Sprintf("··· %d more lines — click to expand", remaining)
+		for _, r := range msg {
+			moreLine = append(moreLine, Cell{R: r, S: dim})
+		}
+		for moreLine.Width() < width-1 {
+			moreLine = append(moreLine, Cell{R: ' ', S: tcell.StyleDefault})
+		}
+		moreLine = append(moreLine, Cell{R: '│', S: border})
+		lines = append(lines, moreLine)
+	}
+
+	if it.Expanded {
+		moreLine := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		msg := fmt.Sprintf("··· showing all %d lines — click to collapse", len(rawLines))
+		for _, r := range msg {
+			moreLine = append(moreLine, Cell{R: r, S: dim})
+		}
+		for moreLine.Width() < width-1 {
+			moreLine = append(moreLine, Cell{R: ' ', S: tcell.StyleDefault})
+		}
+		moreLine = append(moreLine, Cell{R: '│', S: border})
+		lines = append(lines, moreLine)
+	}
+
+	sep2 := Line{{R: '├', S: border}}
+	for i := 0; i < width-2; i++ {
+		sep2 = append(sep2, Cell{R: '─', S: border})
+	}
+	sep2 = append(sep2, Cell{R: '┤', S: border})
+	lines = append(lines, sep2)
+
+	footer := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+	exitStr := "exit code: 0"
+	if it.ToolErr != "" {
+		exitStr = "exit code: 1"
+	}
+	for _, r := range exitStr {
+		footer = append(footer, Cell{R: r, S: muted})
+	}
+
+	expandHint := "[Enter] Expand"
+	if it.Expanded {
+		expandHint = "[Enter] Collapse"
+	}
+	for footer.Width()+DisplayWidth(expandHint)+4 < width {
+		footer = append(footer, Cell{R: ' ', S: tcell.StyleDefault})
+	}
+	for footer.Width() < width-1-DisplayWidth(expandHint) {
+		footer = append(footer, Cell{R: ' ', S: tcell.StyleDefault})
+	}
+	for _, r := range expandHint {
+		footer = append(footer, Cell{R: r, S: dim})
+	}
+	for footer.Width() < width-1 {
+		footer = append(footer, Cell{R: ' ', S: tcell.StyleDefault})
+	}
+	footer = append(footer, Cell{R: '│', S: border})
+	lines = append(lines, footer)
+
+	bottom := Line{{R: '╰', S: border}}
+	for i := 0; i < width-1; i++ {
+		bottom = append(bottom, Cell{R: '─', S: border})
+	}
+	bottom = append(bottom, Cell{R: '╯', S: border})
+	lines = append(lines, bottom)
+
+	return lines
+}
+
+func (c *Chat) editCardLines(it *ChatItem, width int) []Line {
+	th := styles.Current()
+	if width < 12 {
+		return nil
+	}
+
+	filePath := it.ToolName
+	if idx := strings.Index(filePath, ":"); idx > 0 {
+		filePath = filePath[idx+1:]
+	}
+
+	border := th.Base().Foreground(th.Border).Background(th.CodeBg)
+	accent := th.Base().Foreground(th.Accent).Background(th.CodeBg)
+	dim := th.Base().Foreground(th.TextDim).Background(th.CodeBg)
+	muted := th.Base().Foreground(th.Muted).Background(th.CodeBg)
+	addedStyle := th.Base().Foreground(th.Success).Bold(true).Background(th.CodeBg)
+	removedStyle := th.Base().Foreground(th.Error).Bold(true).Background(th.CodeBg)
+	codeBg := th.Base().Background(th.CodeBg)
+
+	var lines []Line
+
+	top := Line{{R: '┌', S: border}}
+	top = append(top, Cell{R: '─', S: border})
+	for _, r := range " DIFF " {
+		top = append(top, Cell{R: r, S: accent})
+	}
+	for top.Width() < width-1 {
+		top = append(top, Cell{R: '─', S: border})
+	}
+	top = append(top, Cell{R: '┐', S: border})
+	lines = append(lines, top)
+
+	pathLine := Line{{R: '│', S: border}, {R: ' ', S: muted}}
+	for _, r := range filePath {
+		pathLine = append(pathLine, Cell{R: r, S: accent.Bold(true)})
+	}
+	for pathLine.Width() < width-1 {
+		pathLine = append(pathLine, Cell{R: ' ', S: tcell.StyleDefault})
+	}
+	pathLine = append(pathLine, Cell{R: '│', S: border})
+	lines = append(lines, pathLine)
+
+	allLines := 0
+	for _, hunk := range it.Diff {
+		allLines += len(hunk.Lines)
+	}
+	const maxCardRows = 30
+	truncated := allLines > maxCardRows && !it.Expanded
+	emitted := 0
+
+	for _, hunk := range it.Diff {
+		if truncated && emitted >= maxCardRows {
+			break
+		}
+
+		for _, dl := range hunk.Lines {
+			if truncated && emitted >= maxCardRows {
+				break
+			}
+			cl := Line{{R: '│', S: border}, {R: ' ', S: codeBg}}
+
+			diffStyle := dim
+			pref := "  "
+			switch dl.Kind {
+			case '-':
+				diffStyle = removedStyle
+				pref = "- "
+			case '+':
+				diffStyle = addedStyle
+				pref = "+ "
+			default:
+				diffStyle = dim
+				pref = "  "
+			}
+			for _, r := range pref {
+				cl = append(cl, Cell{R: r, S: diffStyle})
+			}
+
+			contentLine := highlightLine(dl.Text, filePath, th, dim)
+			for _, cell := range contentLine {
+				if cl.Width() >= width-2 {
+					break
+				}
+				cl = append(cl, cell)
+			}
+			for cl.Width() < width-1 {
+				cl = append(cl, Cell{R: ' ', S: tcell.StyleDefault})
+			}
+			cl = append(cl, Cell{R: '│', S: border})
+			lines = append(lines, cl)
+			emitted++
+		}
+	}
+
+	if truncated {
+		remaining := allLines - maxCardRows
+		moreLine := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		msg := fmt.Sprintf("··· %d more lines — click to expand", remaining)
+		for _, r := range msg {
+			moreLine = append(moreLine, Cell{R: r, S: dim})
+		}
+		for moreLine.Width() < width-1 {
+			moreLine = append(moreLine, Cell{R: ' ', S: tcell.StyleDefault})
+		}
+		moreLine = append(moreLine, Cell{R: '│', S: border})
+		lines = append(lines, moreLine)
+	}
+
+	if it.Expanded {
+		moreLine := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		msg := fmt.Sprintf("··· showing all %d lines — click to collapse", allLines)
+		for _, r := range msg {
+			moreLine = append(moreLine, Cell{R: r, S: dim})
+		}
+		for moreLine.Width() < width-1 {
+			moreLine = append(moreLine, Cell{R: ' ', S: tcell.StyleDefault})
+		}
+		moreLine = append(moreLine, Cell{R: '│', S: border})
+		lines = append(lines, moreLine)
+	}
+
+	addedCount, removedCount := 0, 0
+	for _, hunk := range it.Diff {
+		for _, dl := range hunk.Lines {
+			switch dl.Kind {
+			case '-':
+				removedCount++
+			case '+':
+				addedCount++
+			}
+		}
+	}
+	footer := Line{{R: '└', S: border}}
+	for _, r := range fmt.Sprintf(" +%d  -%d ", addedCount, removedCount) {
+		footer = append(footer, Cell{R: r, S: addedStyle})
+	}
+	for footer.Width() < width-1 {
+		footer = append(footer, Cell{R: '─', S: border})
+	}
+	footer = append(footer, Cell{R: '┘', S: border})
+	lines = append(lines, footer)
+
+	return lines
+}
+
+func (c *Chat) writeCardLines(it *ChatItem, width int) []Line {
+	th := styles.Current()
+	if width < 12 {
+		return nil
+	}
+
+	filePath := it.ToolName
+	if idx := strings.Index(filePath, ":"); idx > 0 {
+		filePath = filePath[idx+1:]
+	}
+
+	border := th.Base().Foreground(th.Border).Background(th.CodeBg)
+	accent := th.Base().Foreground(th.Accent).Background(th.CodeBg)
+	dim := th.Base().Foreground(th.TextDim).Background(th.CodeBg)
+	muted := th.Base().Foreground(th.Muted).Background(th.CodeBg)
+	codeBg := th.Base().Background(th.CodeBg)
+
+	var lines []Line
+
+	top := Line{{R: '┌', S: border}}
+	top = append(top, Cell{R: '─', S: border})
+	for _, r := range " WRITE " {
+		top = append(top, Cell{R: r, S: accent})
+	}
+	for top.Width() < width-1 {
+		top = append(top, Cell{R: '─', S: border})
+	}
+	top = append(top, Cell{R: '┐', S: border})
+	lines = append(lines, top)
+
+	pathLine := Line{{R: '│', S: border}, {R: ' ', S: muted}}
+	for _, r := range filePath {
+		pathLine = append(pathLine, Cell{R: r, S: accent.Bold(true)})
+	}
+	for pathLine.Width() < width-1 {
+		pathLine = append(pathLine, Cell{R: ' ', S: tcell.StyleDefault})
+	}
+	pathLine = append(pathLine, Cell{R: '│', S: border})
+	lines = append(lines, pathLine)
+
+	sep := Line{{R: '├', S: border}}
+	for i := 0; i < width-2; i++ {
+		sep = append(sep, Cell{R: '─', S: border})
+	}
+	sep = append(sep, Cell{R: '┤', S: border})
+	lines = append(lines, sep)
+
+	content := it.ToolOutput
+	if content == "" {
+		content = "(empty)"
+	}
+
+	rawLines := strings.Split(content, "\n")
+	const maxWriteLines = 30
+	truncated := len(rawLines) > maxWriteLines && !it.Expanded
+	shown := rawLines
+	if truncated {
+		shown = rawLines[:maxWriteLines]
+	}
+
+	for _, ln := range shown {
+		row := Line{{R: '│', S: border}, {R: ' ', S: codeBg}}
+		contentLine := highlightLine(ln, filePath, th, dim)
+		for _, cell := range contentLine {
+			if row.Width() >= width-2 {
+				break
+			}
+			row = append(row, cell)
+		}
+		for row.Width() < width-1 {
+			row = append(row, Cell{R: ' ', S: tcell.StyleDefault})
+		}
+		row = append(row, Cell{R: '│', S: border})
+		lines = append(lines, row)
+	}
+
+	if truncated {
+		remaining := len(rawLines) - maxWriteLines
+		moreLine := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		msg := fmt.Sprintf("··· %d more lines — click to expand", remaining)
+		for _, r := range msg {
+			moreLine = append(moreLine, Cell{R: r, S: dim})
+		}
+		for moreLine.Width() < width-1 {
+			moreLine = append(moreLine, Cell{R: ' ', S: tcell.StyleDefault})
+		}
+		moreLine = append(moreLine, Cell{R: '│', S: border})
+		lines = append(lines, moreLine)
+	}
+
+	if it.Expanded {
+		total := len(rawLines)
+		moreLine := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		msg := fmt.Sprintf("··· showing all %d lines — click to collapse", total)
+		for _, r := range msg {
+			moreLine = append(moreLine, Cell{R: r, S: dim})
+		}
+		for moreLine.Width() < width-1 {
+			moreLine = append(moreLine, Cell{R: ' ', S: tcell.StyleDefault})
+		}
+		moreLine = append(moreLine, Cell{R: '│', S: border})
+		lines = append(lines, moreLine)
+	}
+
+	footer := Line{{R: '└', S: border}}
+	for i := 0; i < width-1; i++ {
+		footer = append(footer, Cell{R: '─', S: border})
+	}
+	footer = append(footer, Cell{R: '┘', S: border})
+	lines = append(lines, footer)
+
+	return lines
+}
+
+func (c *Chat) subagentLines(it *ChatItem, width int) []Line {
+	th := styles.Current()
+	dim := th.Base().Foreground(th.TextDim).Background(th.Background)
+
+	status := it.SubagentStatus
+	if status == "" {
+		status = "running"
+	}
+
+	isRunning := status == "running"
+	var mark rune
+	if isRunning {
+		mark = '◌'
+	} else if status == "error" {
+		mark = '✖'
+	} else {
+		mark = '✔'
+	}
+
+	markStyle := th.Base().Foreground(th.Subagent).Background(th.Background)
+	if isRunning {
+		markStyle = th.Base().Foreground(lerpColor(th.Subagent, th.Accent, glowT(c.now))).Background(th.Background)
+	}
+
+	line := Line{
+		{R: mark, S: markStyle},
+		{R: ' ', S: dim},
+	}
+	nameStyle := th.Base().Foreground(th.Subagent).Background(th.Background)
+	for _, r := range it.SubagentName {
+		line = append(line, Cell{R: r, S: nameStyle})
+	}
+
+	sepStyle := th.Base().Foreground(th.Muted).Background(th.Background)
+	line = append(line,
+		Cell{R: ' ', S: sepStyle},
+		Cell{R: '·', S: sepStyle},
+		Cell{R: ' ', S: sepStyle},
+	)
+
+	statusStyle := th.Base().Foreground(th.TextDim).Background(th.Background)
+	if status == "error" {
+		statusStyle = th.Base().Foreground(th.Error).Background(th.Background)
+	}
+	for _, r := range status {
+		line = append(line, Cell{R: r, S: statusStyle})
+	}
+
+	return []Line{line}
+}
+
+func (c *Chat) OnTick(blinkOn bool) {
+	c.now += 450 * time.Millisecond
 }

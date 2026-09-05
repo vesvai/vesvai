@@ -365,6 +365,7 @@ func (p *Page) syncPickers() {
 func (p *Page) OnTick(blinkOn bool) {
 	p.input.SetBlink(blinkOn)
 	p.logo.SetBlink(p.input.CursorVisible(time.Now()))
+	p.chat.OnTick(blinkOn)
 }
 
 func (p *Page) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
