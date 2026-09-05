@@ -55,6 +55,7 @@ type Config struct {
 	Logger          LoggerConfig                    `json:"logger"`
 	Cache           CacheConfig                     `json:"cache"`
 	Session         SessionConfig                   `json:"session"`
+	Theme           string                          `json:"theme,omitempty"`
 	MCPServers      map[string]MCPServerConfig      `json:"mcp_servers,omitempty"`
 	LanguageServers map[string]LanguageServerConfig `json:"language_servers,omitempty"`
 }
@@ -71,6 +72,7 @@ func DefaultConfig() *Config {
 		Session: SessionConfig{
 			Driver: "sqlite",
 		},
+		Theme:           "dark",
 		MCPServers:      make(map[string]MCPServerConfig),
 		LanguageServers: make(map[string]LanguageServerConfig),
 	}
@@ -242,5 +244,14 @@ func RemoveLanguageServer(name string) error {
 	}
 
 	delete(cfg.LanguageServers, name)
+	return Save(cfg)
+}
+
+func SaveTheme(theme string) error {
+	cfg, err := Load()
+	if err != nil {
+		return err
+	}
+	cfg.Theme = theme
 	return Save(cfg)
 }
