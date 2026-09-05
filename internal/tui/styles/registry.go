@@ -46,6 +46,39 @@ func RegisterDefaults() {
 		Register("dark", Dark())
 		Register("light", Light())
 		Register("dracula", Dracula())
+
+		Register("catppuccin-mocha", CatppuccinMocha())
+		Register("catppuccin-latte", CatppuccinLatte())
+		Register("catppuccin-frappe", CatppuccinFrappe())
+		Register("catppuccin-macchiato", CatppuccinMacchiato())
+
+		Register("tokyonight-storm", TokyoNightStorm())
+		Register("tokyonight-night", TokyoNightNight())
+		Register("tokyonight-day", TokyoNightDay())
+
+		Register("gruvbox-dark", GruvboxDark())
+		Register("gruvbox-light", GruvboxLight())
+
+		Register("nord", Nord())
+
+		Register("onedark", OneDark())
+
+		Register("solarized-dark", SolarizedDark())
+		Register("solarized-light", SolarizedLight())
+
+		Register("rosepine", RosePine())
+		Register("rosepine-moon", RosePineMoon())
+		Register("rosepine-dawn", RosePineDawn())
+
+		Register("monokai", MonokaiPro())
+		Register("monokai-night", MonokaiProNight())
+		Register("monokai-spectrum", MonokaiProSpectrum())
+
+		Register("kanagawa", Kanagawa())
+		Register("kanagawa-dragon", KanagawaDragon())
+
+		Register("everforest-dark", EverforestDark())
+		Register("everforest-light", EverforestLight())
 	})
 }
 
