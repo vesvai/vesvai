@@ -687,7 +687,7 @@ func (c *Chat) toolLines(it *ChatItem, width int) []Line {
 			wrapped = wrapped[:maxOutputLines]
 		}
 		for _, ln := range wrapped {
-			row := Line{{R: ' ', S: tcell.StyleDefault}, {R: ' ', S: tcell.StyleDefault}}
+			row := Line{{R: ' ', S: th.Base()}, {R: ' ', S: th.Base()}}
 			row = append(row, ln...)
 			lines = append(lines, row)
 		}
@@ -705,9 +705,9 @@ func (c *Chat) toolStatusLine(it *ChatItem, width int, mark rune, color tcell.Co
 	th := styles.Current()
 	left := Line{
 		{R: mark, S: th.Base().Foreground(color).Background(th.Background)},
-		{R: ' ', S: tcell.StyleDefault},
+		{R: ' ', S: th.Base()},
 		{R: '⚙', S: th.Base().Foreground(th.Muted).Background(th.Background)},
-		{R: ' ', S: tcell.StyleDefault},
+		{R: ' ', S: th.Base()},
 	}
 	displayName := it.ToolName
 	if idx := strings.Index(displayName, ":"); idx > 0 {
@@ -716,12 +716,12 @@ func (c *Chat) toolStatusLine(it *ChatItem, width int, mark rune, color tcell.Co
 	for _, r := range displayName {
 		left = append(left, Cell{R: r, S: th.Base().Foreground(th.Foreground).Bold(true).Background(th.Background)})
 	}
-	left = append(left, Cell{R: ' ', S: tcell.StyleDefault})
+	left = append(left, Cell{R: ' ', S: th.Base()})
 	statusCells := LineFromSegments([]Segment{
 		{Text: statusText, Style: th.Base().Foreground(color).Background(th.Background)},
 	}, len(statusText)+2)
 	for left.Width()+statusCells.Width() < width {
-		left = append(left, Cell{R: ' ', S: tcell.StyleDefault})
+		left = append(left, Cell{R: ' ', S: th.Base()})
 	}
 	left = append(left, statusCells...)
 	return left
@@ -773,27 +773,27 @@ func (c *Chat) todoCardLines(it *ChatItem, width int) []Line {
 			continue
 		}
 		if strings.HasPrefix(trimmed, "No todos.") {
-			row := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+			row := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
 			for _, r := range "No todos." {
 				row = append(row, Cell{R: r, S: dim})
 			}
 			for row.Width() < width-1 {
-				row = append(row, Cell{R: ' ', S: tcell.StyleDefault})
+				row = append(row, Cell{R: ' ', S: th.Base()})
 			}
 			row = append(row, Cell{R: '│', S: border})
 			lines = append(lines, row)
 			sep := cardSep(border, width)
 			lines = append(lines, sep)
-			lines = append(lines, cardFooter(border, dim, width, fmt.Sprintf("0 / 0 completed")))
+			lines = append(lines, cardFooter(border, dim, th.Base(), width, fmt.Sprintf("0 / 0 completed")))
 			return lines
 		}
 		if strings.HasPrefix(trimmed, "Deleted") || strings.HasPrefix(trimmed, "Created") || strings.HasPrefix(trimmed, "Updated") {
-			row := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+			row := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
 			for _, r := range trimmed {
 				row = append(row, Cell{R: r, S: dim})
 			}
 			for row.Width() < width-1 {
-				row = append(row, Cell{R: ' ', S: tcell.StyleDefault})
+				row = append(row, Cell{R: ' ', S: th.Base()})
 			}
 			row = append(row, Cell{R: '│', S: border})
 			lines = append(lines, row)
@@ -819,9 +819,9 @@ func (c *Chat) todoCardLines(it *ChatItem, width int) []Line {
 			if strings.HasPrefix(trimmed, "   ") && len(todos) > 0 {
 				cur := &todos[len(todos)-1]
 				if strings.Contains(trimmed, "depends on:") {
-						cur.deps = strings.TrimSpace(strings.TrimPrefix(trimmed, "  depends on:"))
+					cur.deps = strings.TrimSpace(strings.TrimPrefix(trimmed, "  depends on:"))
 				} else {
-		cur.desc = strings.TrimSpace(trimmed)
+					cur.desc = strings.TrimSpace(trimmed)
 				}
 			}
 			continue
@@ -830,7 +830,6 @@ func (c *Chat) todoCardLines(it *ChatItem, width int) []Line {
 		var ti todoItem
 		ti.status = status
 
-		// parse "[todo-1] title (priority: high)"
 		if idx := strings.Index(rest, "]"); idx >= 0 {
 			ti.title = strings.TrimSpace(rest[idx+1:])
 		} else {
@@ -843,7 +842,7 @@ func (c *Chat) todoCardLines(it *ChatItem, width int) []Line {
 	}
 
 	for _, t := range todos {
-		row := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		row := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
 
 		var icon rune
 		var iconStyle tcell.Style
@@ -868,48 +867,48 @@ func (c *Chat) todoCardLines(it *ChatItem, width int) []Line {
 			titleStyle = dim
 		}
 
-		row = append(row, Cell{R: icon, S: iconStyle}, Cell{R: ' ', S: tcell.StyleDefault})
+		row = append(row, Cell{R: icon, S: iconStyle}, Cell{R: ' ', S: th.Base()})
 		for _, r := range t.title {
 			row = append(row, Cell{R: r, S: titleStyle})
 		}
 		if t.status == "cancelled" {
 			for i := len(row) - 2; i >= 0; i-- {
-				if row[i].R != ' ' && row[i].R != '│' && row[i].S != tcell.StyleDefault && row[i].S != border {
+				if row[i].R != ' ' && row[i].R != '│' && row[i].S != th.Base() && row[i].S != border {
 					row[i].S = row[i].S.StrikeThrough(true)
 				}
 			}
 		}
 
 		for row.Width() < width-1 {
-			row = append(row, Cell{R: ' ', S: tcell.StyleDefault})
+			row = append(row, Cell{R: ' ', S: th.Base()})
 		}
 		row = append(row, Cell{R: '│', S: border})
 		lines = append(lines, row)
 
 		if t.desc != "" {
-			drow := Line{{R: '│', S: border}, Cell{R: ' ', S: tcell.StyleDefault}, Cell{R: ' ', S: tcell.StyleDefault}, Cell{R: ' ', S: tcell.StyleDefault}}
+			drow := Line{{R: '│', S: border}, Cell{R: ' ', S: th.Base()}, Cell{R: ' ', S: th.Base()}, Cell{R: ' ', S: th.Base()}}
 			for _, r := range "    " + t.desc {
-				if drow.Width() >= width - 2 {
+				if drow.Width() >= width-2 {
 					break
 				}
 				drow = append(drow, Cell{R: r, S: dim})
 			}
 			for drow.Width() < width-1 {
-				drow = append(drow, Cell{R: ' ', S: tcell.StyleDefault})
+				drow = append(drow, Cell{R: ' ', S: th.Base()})
 			}
 			drow = append(drow, Cell{R: '│', S: border})
 			lines = append(lines, drow)
 		}
 		if t.deps != "" {
-			drow := Line{{R: '│', S: border}, Cell{R: ' ', S: tcell.StyleDefault}, Cell{R: ' ', S: tcell.StyleDefault}, Cell{R: ' ', S: tcell.StyleDefault}}
+			drow := Line{{R: '│', S: border}, Cell{R: ' ', S: th.Base()}, Cell{R: ' ', S: th.Base()}, Cell{R: ' ', S: th.Base()}}
 			for _, r := range "    depends on: " + t.deps {
-				if drow.Width() >= width - 2 {
+				if drow.Width() >= width-2 {
 					break
 				}
 				drow = append(drow, Cell{R: r, S: dim})
 			}
 			for drow.Width() < width-1 {
-				drow = append(drow, Cell{R: ' ', S: tcell.StyleDefault})
+				drow = append(drow, Cell{R: ' ', S: th.Base()})
 			}
 			drow = append(drow, Cell{R: '│', S: border})
 			lines = append(lines, drow)
@@ -926,7 +925,7 @@ func (c *Chat) todoCardLines(it *ChatItem, width int) []Line {
 
 	sep := cardSep(border, width)
 	lines = append(lines, sep)
-	lines = append(lines, cardFooter(border, dim, width, fmt.Sprintf("%d / %d completed", completed, total)))
+	lines = append(lines, cardFooter(border, dim, th.Base(), width, fmt.Sprintf("%d / %d completed", completed, total)))
 	lines = append(lines, bottomEdge(border, width))
 
 	return lines
@@ -941,13 +940,13 @@ func cardSep(border tcell.Style, width int) Line {
 	return sep
 }
 
-func cardFooter(border tcell.Style, dim tcell.Style, width int, text string) Line {
-	footer := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+func cardFooter(border tcell.Style, dim tcell.Style, bg tcell.Style, width int, text string) Line {
+	footer := Line{{R: '│', S: border}, {R: ' ', S: bg}}
 	for _, r := range text {
 		footer = append(footer, Cell{R: r, S: dim})
 	}
-	for footer.Width() < width - 1	{
-		footer = append(footer, Cell{R: ' ', S: tcell.StyleDefault})
+	for footer.Width() < width-1 {
+		footer = append(footer, Cell{R: ' ', S: bg})
 	}
 	footer = append(footer, Cell{R: '│', S: border})
 	return footer
@@ -955,7 +954,7 @@ func cardFooter(border tcell.Style, dim tcell.Style, width int, text string) Lin
 
 func bottomEdge(border tcell.Style, width int) Line {
 	bottom := Line{{R: '╰', S: border}}
-	for i := 0; i < width - 1; i++ {
+	for i := 0; i < width-1; i++ {
 		bottom = append(bottom, Cell{R: '─', S: border})
 	}
 	bottom = append(bottom, Cell{R: '╯', S: border})
@@ -1011,12 +1010,12 @@ func (c *Chat) bashCardLines(it *ChatItem, width int) []Line {
 		topPad = 1
 	}
 	for i := 0; i < topPad; i++ {
-		top = append(top, Cell{R: ' ', S: tcell.StyleDefault})
+		top = append(top, Cell{R: ' ', S: th.Base()})
 	}
 	for _, r := range rightSide {
 		top = append(top, Cell{R: r, S: statusStyle})
 	}
-	top = append(top, Cell{R: ' ', S: tcell.StyleDefault})
+	top = append(top, Cell{R: ' ', S: th.Base()})
 	for top.Width() < width-1 {
 		top = append(top, Cell{R: '─', S: border})
 	}
@@ -1045,7 +1044,7 @@ func (c *Chat) bashCardLines(it *ChatItem, width int) []Line {
 
 	bodyStyle := th.Base().Foreground(th.Foreground).Background(th.Background)
 	for _, ln := range shown {
-		row := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		row := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
 		for _, r := range ln {
 			if row.Width() >= width-2 {
 				break
@@ -1053,7 +1052,7 @@ func (c *Chat) bashCardLines(it *ChatItem, width int) []Line {
 			row = append(row, Cell{R: r, S: bodyStyle})
 		}
 		for row.Width() < width-1 {
-			row = append(row, Cell{R: ' ', S: tcell.StyleDefault})
+			row = append(row, Cell{R: ' ', S: th.Base()})
 		}
 		row = append(row, Cell{R: '│', S: border})
 		lines = append(lines, row)
@@ -1061,26 +1060,26 @@ func (c *Chat) bashCardLines(it *ChatItem, width int) []Line {
 
 	if truncated {
 		remaining := len(rawLines) - maxBashLines
-		moreLine := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		moreLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
 		msg := fmt.Sprintf("··· %d more lines — click to expand", remaining)
 		for _, r := range msg {
 			moreLine = append(moreLine, Cell{R: r, S: dim})
 		}
 		for moreLine.Width() < width-1 {
-			moreLine = append(moreLine, Cell{R: ' ', S: tcell.StyleDefault})
+			moreLine = append(moreLine, Cell{R: ' ', S: th.Base()})
 		}
 		moreLine = append(moreLine, Cell{R: '│', S: border})
 		lines = append(lines, moreLine)
 	}
 
 	if it.Expanded {
-		moreLine := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		moreLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
 		msg := fmt.Sprintf("··· showing all %d lines — click to collapse", len(rawLines))
 		for _, r := range msg {
 			moreLine = append(moreLine, Cell{R: r, S: dim})
 		}
 		for moreLine.Width() < width-1 {
-			moreLine = append(moreLine, Cell{R: ' ', S: tcell.StyleDefault})
+			moreLine = append(moreLine, Cell{R: ' ', S: th.Base()})
 		}
 		moreLine = append(moreLine, Cell{R: '│', S: border})
 		lines = append(lines, moreLine)
@@ -1093,7 +1092,7 @@ func (c *Chat) bashCardLines(it *ChatItem, width int) []Line {
 	sep2 = append(sep2, Cell{R: '┤', S: border})
 	lines = append(lines, sep2)
 
-	footer := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+	footer := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
 	exitStr := "exit code: 0"
 	if it.ToolErr != "" {
 		exitStr = "exit code: 1"
@@ -1107,16 +1106,16 @@ func (c *Chat) bashCardLines(it *ChatItem, width int) []Line {
 		expandHint = "[Enter] Collapse"
 	}
 	for footer.Width()+DisplayWidth(expandHint)+4 < width {
-		footer = append(footer, Cell{R: ' ', S: tcell.StyleDefault})
+		footer = append(footer, Cell{R: ' ', S: th.Base()})
 	}
 	for footer.Width() < width-1-DisplayWidth(expandHint) {
-		footer = append(footer, Cell{R: ' ', S: tcell.StyleDefault})
+		footer = append(footer, Cell{R: ' ', S: th.Base()})
 	}
 	for _, r := range expandHint {
 		footer = append(footer, Cell{R: r, S: dim})
 	}
 	for footer.Width() < width-1 {
-		footer = append(footer, Cell{R: ' ', S: tcell.StyleDefault})
+		footer = append(footer, Cell{R: ' ', S: th.Base()})
 	}
 	footer = append(footer, Cell{R: '│', S: border})
 	lines = append(lines, footer)
@@ -1168,7 +1167,7 @@ func (c *Chat) editCardLines(it *ChatItem, width int) []Line {
 		pathLine = append(pathLine, Cell{R: r, S: accent.Bold(true)})
 	}
 	for pathLine.Width() < width-1 {
-		pathLine = append(pathLine, Cell{R: ' ', S: tcell.StyleDefault})
+		pathLine = append(pathLine, Cell{R: ' ', S: th.Base()})
 	}
 	pathLine = append(pathLine, Cell{R: '│', S: border})
 	lines = append(lines, pathLine)
@@ -1217,7 +1216,7 @@ func (c *Chat) editCardLines(it *ChatItem, width int) []Line {
 				cl = append(cl, cell)
 			}
 			for cl.Width() < width-1 {
-				cl = append(cl, Cell{R: ' ', S: tcell.StyleDefault})
+				cl = append(cl, Cell{R: ' ', S: th.Base()})
 			}
 			cl = append(cl, Cell{R: '│', S: border})
 			lines = append(lines, cl)
@@ -1227,26 +1226,26 @@ func (c *Chat) editCardLines(it *ChatItem, width int) []Line {
 
 	if truncated {
 		remaining := allLines - maxCardRows
-		moreLine := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		moreLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
 		msg := fmt.Sprintf("··· %d more lines — click to expand", remaining)
 		for _, r := range msg {
 			moreLine = append(moreLine, Cell{R: r, S: dim})
 		}
 		for moreLine.Width() < width-1 {
-			moreLine = append(moreLine, Cell{R: ' ', S: tcell.StyleDefault})
+			moreLine = append(moreLine, Cell{R: ' ', S: th.Base()})
 		}
 		moreLine = append(moreLine, Cell{R: '│', S: border})
 		lines = append(lines, moreLine)
 	}
 
 	if it.Expanded {
-		moreLine := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		moreLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
 		msg := fmt.Sprintf("··· showing all %d lines — click to collapse", allLines)
 		for _, r := range msg {
 			moreLine = append(moreLine, Cell{R: r, S: dim})
 		}
 		for moreLine.Width() < width-1 {
-			moreLine = append(moreLine, Cell{R: ' ', S: tcell.StyleDefault})
+			moreLine = append(moreLine, Cell{R: ' ', S: th.Base()})
 		}
 		moreLine = append(moreLine, Cell{R: '│', S: border})
 		lines = append(lines, moreLine)
@@ -1311,7 +1310,7 @@ func (c *Chat) writeCardLines(it *ChatItem, width int) []Line {
 		pathLine = append(pathLine, Cell{R: r, S: accent.Bold(true)})
 	}
 	for pathLine.Width() < width-1 {
-		pathLine = append(pathLine, Cell{R: ' ', S: tcell.StyleDefault})
+		pathLine = append(pathLine, Cell{R: ' ', S: th.Base()})
 	}
 	pathLine = append(pathLine, Cell{R: '│', S: border})
 	lines = append(lines, pathLine)
@@ -1346,7 +1345,7 @@ func (c *Chat) writeCardLines(it *ChatItem, width int) []Line {
 			row = append(row, cell)
 		}
 		for row.Width() < width-1 {
-			row = append(row, Cell{R: ' ', S: tcell.StyleDefault})
+			row = append(row, Cell{R: ' ', S: th.Base()})
 		}
 		row = append(row, Cell{R: '│', S: border})
 		lines = append(lines, row)
@@ -1354,13 +1353,13 @@ func (c *Chat) writeCardLines(it *ChatItem, width int) []Line {
 
 	if truncated {
 		remaining := len(rawLines) - maxWriteLines
-		moreLine := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		moreLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
 		msg := fmt.Sprintf("··· %d more lines — click to expand", remaining)
 		for _, r := range msg {
 			moreLine = append(moreLine, Cell{R: r, S: dim})
 		}
 		for moreLine.Width() < width-1 {
-			moreLine = append(moreLine, Cell{R: ' ', S: tcell.StyleDefault})
+			moreLine = append(moreLine, Cell{R: ' ', S: th.Base()})
 		}
 		moreLine = append(moreLine, Cell{R: '│', S: border})
 		lines = append(lines, moreLine)
@@ -1368,13 +1367,13 @@ func (c *Chat) writeCardLines(it *ChatItem, width int) []Line {
 
 	if it.Expanded {
 		total := len(rawLines)
-		moreLine := Line{{R: '│', S: border}, {R: ' ', S: tcell.StyleDefault}}
+		moreLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
 		msg := fmt.Sprintf("··· showing all %d lines — click to collapse", total)
 		for _, r := range msg {
 			moreLine = append(moreLine, Cell{R: r, S: dim})
 		}
 		for moreLine.Width() < width-1 {
-			moreLine = append(moreLine, Cell{R: ' ', S: tcell.StyleDefault})
+			moreLine = append(moreLine, Cell{R: ' ', S: th.Base()})
 		}
 		moreLine = append(moreLine, Cell{R: '│', S: border})
 		lines = append(lines, moreLine)

@@ -255,6 +255,9 @@ func (s *Settings) openThemes() {
 	l.SetItems(items)
 	l.SetOnSelect(func(_ int, item components.ListItem) {
 		styles.Set(item.Label)
+		if s.onThemeChange != nil {
+			s.onThemeChange()
+		}
 		s.back()
 	})
 	s.openSub(&listModal{title: "Theme", list: l, onBack: s.back})
