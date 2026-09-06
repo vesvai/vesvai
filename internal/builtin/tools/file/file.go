@@ -17,6 +17,7 @@ func Tools(fs *vfs.VFS) []tool.Tool {
 		readTool(fs),
 		editTool(fs),
 		writeTool(fs),
+		deleteTool(fs),
 		listTool(fs),
 		globTool(fs),
 		grepTool(fs),
