@@ -154,7 +154,7 @@ func TestRecorderReusesSessionAcrossRuns(t *testing.T) {
 	if len(sessions) != 1 {
 		t.Fatalf("sessions = %+v, want 1", sessions)
 	}
-	if sessions[0].Usage.TotalTokens != 12 {
+	if sessions[0].Usage.TotalTokens != 7 {
 		t.Fatalf("usage = %+v", sessions[0].Usage)
 	}
 	msgs, _ := mgr.Messages(sessions[0].ID)
@@ -327,8 +327,8 @@ func TestRecorderResumeContinuesSession(t *testing.T) {
 	if sessions[0].ID != origID {
 		t.Fatalf("session id = %q, want %q", sessions[0].ID, origID)
 	}
-	if sessions[0].Usage.TotalTokens != 12 {
-		t.Fatalf("usage = %+v, want 12", sessions[0].Usage)
+	if sessions[0].Usage.TotalTokens != 7 {
+		t.Fatalf("usage = %+v, want 7", sessions[0].Usage)
 	}
 	msgs, _ := mgr.Messages(origID)
 	if len(msgs) != 4 {

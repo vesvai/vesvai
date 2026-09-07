@@ -127,7 +127,6 @@ func TestChatSubagentViewSwitch(t *testing.T) {
 	subID := "sub-view-1"
 	bus.Publish(agent.TopicAgentStarted, agent.AgentStarted{AgentID: subID, AgentName: "planner"})
 	bus.Publish(agent.TopicAgentToken, agent.AgentToken{AgentID: subID, AgentName: "planner", Content: "planning"})
-	bus.Publish(agent.TopicAgentFinished, agent.AgentFinished{AgentID: subID, AgentName: "planner"})
 
 	waitFor(t, 2*time.Second, func() bool {
 		app.chatMu.Lock()

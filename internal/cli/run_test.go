@@ -13,6 +13,7 @@ import (
 	"github.com/vesvai/vesvai/internal/agent/agents"
 	"github.com/vesvai/vesvai/internal/builtin/agents/orchestrator"
 	"github.com/vesvai/vesvai/internal/builtin/middlewares"
+	"github.com/vesvai/vesvai/internal/builtin/tools/shell"
 	"github.com/vesvai/vesvai/internal/builtin/tools/subagent"
 	"github.com/vesvai/vesvai/internal/builtin/tools/todo"
 	"github.com/vesvai/vesvai/internal/core/cache"
@@ -261,6 +262,7 @@ func newRunTestCLI(t *testing.T) (*CLI, *config.Config, *llm.Manager) {
 		t.Fatal(err)
 	}
 	todo.TodoTools(fs)
+	shell.ShellTools(fs)
 	subagent.SubAgentTools(sess)
 	middlewares.Create()
 	orchestrator.Register(fs)

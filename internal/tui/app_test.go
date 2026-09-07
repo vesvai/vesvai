@@ -188,9 +188,6 @@ func TestAppSessionLoadUpdatesHome(t *testing.T) {
 	if !hp.Chat().HasItems() {
 		t.Error("home chat should show the loaded session")
 	}
-	if got := hp.SessionTitle(); got != "My Session" {
-		t.Errorf("status session = %q, want My Session", got)
-	}
 	if a.getOverlay() != nil {
 		t.Error("settings modal should close automatically after loading a session")
 	}

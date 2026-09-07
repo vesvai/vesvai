@@ -36,9 +36,13 @@ type ChatItem struct {
 	ToolErr    string
 	Diff       []DiffHunk
 
-	AgentID        string
-	SubagentName   string
-	SubagentStatus string
+	AgentID          string
+	SubagentName     string
+	SubagentStatus   string
+	SubagentTask     string
+	SubagentOutput   string
+	SubagentUsage    llm.Usage
+	SubagentActivity string
 
 	Attachments []llm.Attachment
 
@@ -60,9 +64,10 @@ type Chat struct {
 	back        bool
 	hasMore     bool
 
-	onActivate func(*ChatItem)
-	onBack     func()
-	onLoadMore func()
+	onActivate        func(*ChatItem)
+	onBack            func()
+	onLoadMore        func()
+	onSubagentHistory func(agentID string)
 
 	flat       []Line
 	flatItems  []flatItem
@@ -75,6 +80,8 @@ type Chat struct {
 	indicatorVisible                     bool
 	backX0, backX1, backY                int
 	backVisible                          bool
+
+	historyButtons map[int]string
 
 	lastWidth   int
 	lastVisible int
@@ -152,7 +159,8 @@ func (c *Chat) SetOnActivate(fn func(*ChatItem)) { c.onActivate = fn }
 
 func (c *Chat) SetOnBack(fn func()) { c.onBack = fn }
 
-func (c *Chat) SetOnLoadMore(fn func()) { c.onLoadMore = fn }
+func (c *Chat) SetOnLoadMore(fn func())              { c.onLoadMore = fn }
+func (c *Chat) SetOnSubagentHistory(fn func(string)) { c.onSubagentHistory = fn }
 
 func (c *Chat) Invalidate() { c.lastWidth = -1; c.flatRev = -1 }
 
@@ -281,6 +289,14 @@ func (c *Chat) HandleClick(x, y, top int) bool {
 	if rel < 0 || rel >= len(c.flat) {
 		return false
 	}
+	if c.historyButtons != nil {
+		if agentID, ok := c.historyButtons[rel]; ok {
+			if c.onSubagentHistory != nil {
+				c.onSubagentHistory(agentID)
+			}
+			return true
+		}
+	}
 	for _, fi := range c.flatItems {
 		if rel >= fi.Start && rel < fi.End {
 			c.itemCursor = fi.ItemIdx
@@ -361,7 +377,7 @@ func (c *Chat) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 		} else {
 			s.SetContent(x, y, ' ', nil, bg)
 		}
-		DrawLine(s, x+1, y, c.flat[idx])
+		DrawLineBounded(s, x+1, y, bounds.Left+bounds.Width, c.flat[idx])
 	}
 
 	c.indicatorVisible = false
@@ -441,6 +457,7 @@ func (c *Chat) activateCursor() {
 func (c *Chat) rebuildFlat(width int) {
 	c.flat = nil
 	c.flatItems = nil
+	c.historyButtons = nil
 	total := 0
 	for i, it := range c.items {
 		lines := c.itemLines(it, width)
@@ -450,6 +467,12 @@ func (c *Chat) rebuildFlat(width int) {
 				Start:   total,
 				End:     total + len(lines),
 			})
+			if it.Kind == ItemSubagent && it.AgentID != "" {
+				if c.historyButtons == nil {
+					c.historyButtons = make(map[int]string)
+				}
+				c.historyButtons[total] = it.AgentID
+			}
 		}
 		c.flat = append(c.flat, lines...)
 		c.flat = append(c.flat, nil)
@@ -638,9 +661,7 @@ func (c *Chat) toolLines(it *ChatItem, width int) []Line {
 
 	isEdit := strings.HasPrefix(it.ToolName, "edit:") || it.ToolName == "edit"
 	isWrite := strings.HasPrefix(it.ToolName, "write:") || it.ToolName == "write"
-	isRead := strings.HasPrefix(it.ToolName, "read:") || it.ToolName == "read"
 	isList := strings.Contains(it.ToolName, "list-todo") || strings.Contains(it.ToolName, "update-todo")
-	isListTool := strings.HasPrefix(it.ToolName, "list:") || it.ToolName == "list"
 	isBash := strings.HasPrefix(it.ToolName, "bash:") || it.ToolName == "bash"
 	isRunning := it.ToolErr == "" && it.ToolOutput == ""
 
@@ -651,11 +672,6 @@ func (c *Chat) toolLines(it *ChatItem, width int) []Line {
 
 	if it.ToolErr != "" {
 		left := c.toolStatusLine(it, width, '✖', th.Error, " ✖ "+formatDuration(it.Duration))
-		return []Line{left}
-	}
-
-	if isRead || isListTool {
-		left := c.toolStatusLine(it, width, '✔', th.Success, " ✔ "+formatDuration(it.Duration))
 		return []Line{left}
 	}
 
@@ -674,12 +690,11 @@ func (c *Chat) toolLines(it *ChatItem, width int) []Line {
 		return c.writeCardLines(it, width)
 	}
 
-	left := c.toolStatusLine(it, width, '✔', th.Success, " ✔ "+formatDuration(it.Duration))
-
-	var lines []Line
-	lines = append(lines, left)
-
-	if it.ToolOutput != "" {
+	hasOutput := it.ToolOutput != ""
+	if it.Expanded && hasOutput {
+		left := c.toolStatusLine(it, width, '✔', th.Success, " ✔ "+formatDuration(it.Duration))
+		var lines []Line
+		lines = append(lines, left)
 		bodyStyle := th.Base().Foreground(th.TextDim).Background(th.Background)
 		wrapped := WrapText(it.ToolOutput, bodyStyle, width-4)
 		const maxOutputLines = 100
@@ -696,9 +711,18 @@ func (c *Chat) toolLines(it *ChatItem, width int) []Line {
 				{Text: "  … output truncated", Style: th.Base().Foreground(th.Muted).Background(th.Background)},
 			}, width))
 		}
+		lines = append(lines, LineFromSegments([]Segment{
+			{Text: "  [Enter] Collapse", Style: th.Base().Foreground(th.Muted).Background(th.Background)},
+		}, width))
+		return lines
 	}
 
-	return lines
+	if hasOutput {
+		lines := []Line{c.toolStatusLine(it, width, '✔', th.Success, " ✔ "+formatDuration(it.Duration)+"  [Enter] Expand")}
+		return lines
+	}
+
+	return []Line{c.toolStatusLine(it, width, '✔', th.Success, " ✔ "+formatDuration(it.Duration))}
 }
 
 func (c *Chat) toolStatusLine(it *ChatItem, width int, mark rune, color tcell.Color, statusText string) Line {
@@ -706,21 +730,34 @@ func (c *Chat) toolStatusLine(it *ChatItem, width int, mark rune, color tcell.Co
 	left := Line{
 		{R: mark, S: th.Base().Foreground(color).Background(th.Background)},
 		{R: ' ', S: th.Base()},
-		{R: '⚙', S: th.Base().Foreground(th.Muted).Background(th.Background)},
-		{R: ' ', S: th.Base()},
 	}
 	displayName := it.ToolName
+	toolType := ""
 	if idx := strings.Index(displayName, ":"); idx > 0 {
+		toolType = displayName[:idx]
 		displayName = displayName[idx+1:]
 	}
+	if toolType != "" {
+		capType := strings.ToUpper(toolType[:1]) + toolType[1:]
+		for _, r := range capType {
+			left = append(left, Cell{R: r, S: th.Base().Foreground(color).Bold(true).Background(th.Background)})
+		}
+		left = append(left, Cell{R: ':', S: th.Base().Foreground(color).Background(th.Background)})
+		left = append(left, Cell{R: ' ', S: th.Base()})
+	}
+	statusCells := LineFromSegments([]Segment{
+		{Text: statusText, Style: th.Base().Foreground(color).Background(th.Background)},
+	}, width)
+	statusW := statusCells.Width()
 	for _, r := range displayName {
+		if left.Width()+1+statusW >= width {
+			left = append(left, Cell{R: '…', S: th.Base().Foreground(th.Muted).Background(th.Background)})
+			break
+		}
 		left = append(left, Cell{R: r, S: th.Base().Foreground(th.Foreground).Bold(true).Background(th.Background)})
 	}
 	left = append(left, Cell{R: ' ', S: th.Base()})
-	statusCells := LineFromSegments([]Segment{
-		{Text: statusText, Style: th.Base().Foreground(color).Background(th.Background)},
-	}, len(statusText)+2)
-	for left.Width()+statusCells.Width() < width {
+	for left.Width()+statusW < width {
 		left = append(left, Cell{R: ' ', S: th.Base()})
 	}
 	left = append(left, statusCells...)
@@ -1045,11 +1082,12 @@ func (c *Chat) bashCardLines(it *ChatItem, width int) []Line {
 	bodyStyle := th.Base().Foreground(th.Foreground).Background(th.Background)
 	for _, ln := range shown {
 		row := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
-		for _, r := range ln {
+		hl := highlightByLangName(ln, "bash", th, bodyStyle)
+		for _, c := range hl {
 			if row.Width() >= width-2 {
 				break
 			}
-			row = append(row, Cell{R: r, S: bodyStyle})
+			row = append(row, c)
 		}
 		for row.Width() < width-1 {
 			row = append(row, Cell{R: ' ', S: th.Base()})
@@ -1391,14 +1429,22 @@ func (c *Chat) writeCardLines(it *ChatItem, width int) []Line {
 
 func (c *Chat) subagentLines(it *ChatItem, width int) []Line {
 	th := styles.Current()
+	if width < 12 {
+		return nil
+	}
+
+	border := th.Base().Foreground(th.Border).Background(th.Background)
+	accent := th.Base().Foreground(th.Accent).Background(th.Background)
 	dim := th.Base().Foreground(th.TextDim).Background(th.Background)
+	muted := th.Base().Foreground(th.Muted).Background(th.Background)
+	subagentColor := th.Base().Foreground(th.Subagent).Background(th.Background)
 
 	status := it.SubagentStatus
 	if status == "" {
 		status = "running"
 	}
-
 	isRunning := status == "running"
+
 	var mark rune
 	if isRunning {
 		mark = '◌'
@@ -1408,36 +1454,142 @@ func (c *Chat) subagentLines(it *ChatItem, width int) []Line {
 		mark = '✔'
 	}
 
-	markStyle := th.Base().Foreground(th.Subagent).Background(th.Background)
-	if isRunning {
-		markStyle = th.Base().Foreground(lerpColor(th.Subagent, th.Accent, glowT(c.now))).Background(th.Background)
-	}
+	var lines []Line
 
-	line := Line{
-		{R: mark, S: markStyle},
-		{R: ' ', S: dim},
-	}
-	nameStyle := th.Base().Foreground(th.Subagent).Background(th.Background)
+	top := Line{{R: '╭', S: border}}
+	top = append(top, Cell{R: '─', S: border})
+	top = append(top, Cell{R: ' ', S: th.Base()})
+	top = append(top, Cell{R: mark, S: subagentColor})
+	top = append(top, Cell{R: ' ', S: th.Base()})
 	for _, r := range it.SubagentName {
-		line = append(line, Cell{R: r, S: nameStyle})
+		top = append(top, Cell{R: r, S: subagentColor})
+	}
+	historyHint := "History"
+	historyStart := width - 1 - DisplayWidth(historyHint)
+	for top.Width() < historyStart {
+		top = append(top, Cell{R: '─', S: border})
+	}
+	for _, r := range historyHint {
+		top = append(top, Cell{R: r, S: muted})
+	}
+	top = append(top, Cell{R: '╮', S: border})
+	lines = append(lines, top)
+
+	task := it.SubagentTask
+	if task == "" {
+		task = "…"
+	}
+	taskLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
+	if DisplayWidth(task) > width-6 {
+		task = task[:width-6] + "…"
+	}
+	for _, r := range task {
+		taskLine = append(taskLine, Cell{R: r, S: th.Base().Foreground(th.Foreground).Background(th.Background)})
+	}
+	for taskLine.Width() < width-1 {
+		taskLine = append(taskLine, Cell{R: ' ', S: th.Base()})
+	}
+	taskLine = append(taskLine, Cell{R: '│', S: border})
+	lines = append(lines, taskLine)
+
+	sep := Line{{R: '├', S: border}}
+	for i := 0; i < width-2; i++ {
+		sep = append(sep, Cell{R: '─', S: border})
+	}
+	sep = append(sep, Cell{R: '┤', S: border})
+	lines = append(lines, sep)
+
+	if it.SubagentActivity != "" && isRunning {
+		activityLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
+		activityMark := '◌'
+		activityLine = append(activityLine, Cell{R: activityMark, S: th.Base().Foreground(lerpColor(th.Subagent, th.Accent, glowT(c.now))).Background(th.Background)})
+		activityLine = append(activityLine, Cell{R: ' ', S: th.Base()})
+		activity := it.SubagentActivity
+		if DisplayWidth(activity) > width-7 {
+			activity = activity[:width-7] + "…"
+		}
+		for _, r := range activity {
+			activityLine = append(activityLine, Cell{R: r, S: dim})
+		}
+		for activityLine.Width() < width-1 {
+			activityLine = append(activityLine, Cell{R: ' ', S: th.Base()})
+		}
+		activityLine = append(activityLine, Cell{R: '│', S: border})
+		lines = append(lines, activityLine)
+	} else if it.SubagentOutput != "" && !isRunning {
+		outputLines := strings.Split(it.SubagentOutput, "\n")
+		const maxOutputLines = 15
+		truncated := len(outputLines) > maxOutputLines && !it.Expanded
+		shown := outputLines
+		if truncated {
+			shown = outputLines[:maxOutputLines]
+		}
+		for _, ln := range shown {
+			row := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
+			if DisplayWidth(ln) > width-4 {
+				ln = ln[:width-4] + "…"
+			}
+			for _, r := range ln {
+				row = append(row, Cell{R: r, S: dim})
+			}
+			for row.Width() < width-1 {
+				row = append(row, Cell{R: ' ', S: th.Base()})
+			}
+			row = append(row, Cell{R: '│', S: border})
+			lines = append(lines, row)
+		}
+		if truncated {
+			remaining := len(outputLines) - maxOutputLines
+			moreLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
+			msg := fmt.Sprintf("··· %d more lines — click to expand", remaining)
+			for _, r := range msg {
+				moreLine = append(moreLine, Cell{R: r, S: dim})
+			}
+			for moreLine.Width() < width-1 {
+				moreLine = append(moreLine, Cell{R: ' ', S: th.Base()})
+			}
+			moreLine = append(moreLine, Cell{R: '│', S: border})
+			lines = append(lines, moreLine)
+		}
+		if it.Expanded {
+			moreLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
+			msg := fmt.Sprintf("··· showing all %d lines — click to collapse", len(outputLines))
+			for _, r := range msg {
+				moreLine = append(moreLine, Cell{R: r, S: dim})
+			}
+			for moreLine.Width() < width-1 {
+				moreLine = append(moreLine, Cell{R: ' ', S: th.Base()})
+			}
+			moreLine = append(moreLine, Cell{R: '│', S: border})
+			lines = append(lines, moreLine)
+		}
 	}
 
-	sepStyle := th.Base().Foreground(th.Muted).Background(th.Background)
-	line = append(line,
-		Cell{R: ' ', S: sepStyle},
-		Cell{R: '·', S: sepStyle},
-		Cell{R: ' ', S: sepStyle},
-	)
-
-	statusStyle := th.Base().Foreground(th.TextDim).Background(th.Background)
-	if status == "error" {
-		statusStyle = th.Base().Foreground(th.Error).Background(th.Background)
+	sep2 := Line{{R: '├', S: border}}
+	for i := 0; i < width-2; i++ {
+		sep2 = append(sep2, Cell{R: '─', S: border})
 	}
-	for _, r := range status {
-		line = append(line, Cell{R: r, S: statusStyle})
-	}
+	sep2 = append(sep2, Cell{R: '┤', S: border})
+	lines = append(lines, sep2)
 
-	return []Line{line}
+	footer := Line{{R: '╰', S: border}}
+	usageText := ""
+	if it.SubagentUsage.TotalTokens > 0 {
+		usageText = llm.FormatContextUsage(it.SubagentUsage, 0)
+	}
+	if usageText != "" {
+		footer = append(footer, Cell{R: ' ', S: th.Base()})
+		for _, r := range usageText {
+			footer = append(footer, Cell{R: r, S: accent})
+		}
+	}
+	for footer.Width() < width-1 {
+		footer = append(footer, Cell{R: '─', S: border})
+	}
+	footer = append(footer, Cell{R: '╯', S: border})
+	lines = append(lines, footer)
+
+	return lines
 }
 
 func (c *Chat) OnTick(blinkOn bool) {

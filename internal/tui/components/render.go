@@ -208,6 +208,24 @@ func DrawLine(s tcell.Screen, x, y int, l Line) {
 	}
 }
 
+func DrawLineBounded(s tcell.Screen, x, y, maxX int, l Line) {
+	sW, sH := s.Size()
+	if y < 0 || y >= sH || x >= sW {
+		return
+	}
+	if maxX > sW {
+		maxX = sW
+	}
+	px := x
+	for _, c := range l {
+		if px >= maxX {
+			return
+		}
+		s.SetContent(px, y, c.R, nil, c.S)
+		px += cellWidth(c.R)
+	}
+}
+
 func ClampScroll(offset, max int) int {
 	if offset < 0 {
 		return 0

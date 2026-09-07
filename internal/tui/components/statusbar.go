@@ -17,7 +17,6 @@ type StatusBar struct {
 	reasoningEffort string
 	usage           llm.Usage
 	maxInputTokens  int
-	session         string
 }
 
 func NewStatusBar() *StatusBar { return &StatusBar{} }
@@ -28,8 +27,6 @@ func (sb *StatusBar) SetProvider(p string)        { sb.provider = p }
 func (sb *StatusBar) SetReasoningEffort(e string) { sb.reasoningEffort = e }
 func (sb *StatusBar) SetUsage(u llm.Usage)        { sb.usage = u }
 func (sb *StatusBar) SetMaxInputTokens(n int)     { sb.maxInputTokens = n }
-func (sb *StatusBar) SetSession(title string)     { sb.session = title }
-func (sb *StatusBar) Session() string             { return sb.session }
 
 func (sb *StatusBar) HandleKey(*tcell.EventKey) bool { return false }
 
@@ -75,10 +72,6 @@ func (sb *StatusBar) Draw(s tcell.Screen, bounds layout.Region, _ bool) {
 	var segs []segment
 
 	segs = append(segs, segment{"Ctrl+P", base.Foreground(th.Foreground)})
-
-	if sb.session != "" {
-		segs = append(segs, segment{sb.session, base.Foreground(th.Hint)})
-	}
 
 	if sb.usage.Cost > 0 {
 		segs = append(segs, segment{fmt.Sprintf("$%.4f", sb.usage.Cost), base.Foreground(th.Foreground)})

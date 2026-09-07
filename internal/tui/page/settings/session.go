@@ -173,6 +173,7 @@ func (s *Settings) loadSession(id string) {
 		Model:           sess.Model,
 		ReasoningEffort: sess.ReasoningEffort,
 		Messages:        msgs,
+		Usage:           sess.Usage,
 	}
 	s.active = &info
 	s.errMsg = ""

@@ -36,6 +36,7 @@ type SessionInfo struct {
 	Model           string
 	ReasoningEffort string
 	Messages        []session.Message
+	Usage           llm.Usage
 }
 
 type Settings struct {

@@ -127,6 +127,11 @@ func (a *App) onAgentInput(e agent.AgentInput) {
 	t := a.transcriptFor(e.AgentID, e.AgentName)
 	it := &components.ChatItem{Kind: components.ItemUser, ID: e.AgentID, Text: e.Input, Attachments: e.Attachments}
 	a.appendItem(t, it)
+	if e.AgentID != a.agent.ID {
+		if sub := a.subItemByID[e.AgentID]; sub != nil {
+			sub.SubagentTask = e.Input
+		}
+	}
 	a.refreshChat()
 }
 
@@ -182,15 +187,13 @@ func (a *App) onAgentMessage(e agent.AgentMessage) {
 	t := a.transcriptFor(e.AgentID, e.AgentName)
 	msg := e.Message
 
-	if msg.Role == llm.RoleAssistant && t.assistant != nil {
+	t.thinking = nil
+
+	if t.assistant != nil {
 		t.assistant = nil
-		t.thinking = nil
 		return
 	}
 
-	for _, tc := range msg.ToolCalls {
-		a.addToolItem(t, tc, e.AgentID)
-	}
 	if text := messageContent(msg); text != "" {
 		it := &components.ChatItem{Kind: components.ItemAssistant, ID: e.AgentID, Text: text}
 		a.appendItem(t, it)
@@ -203,19 +206,100 @@ func (a *App) onAgentToolCall(e agent.AgentToolCall) {
 	defer a.chatMu.Unlock()
 	t := a.transcriptFor(e.AgentID, e.AgentName)
 	a.addToolItem(t, e.Call, e.AgentID)
+	if e.AgentID != a.agent.ID {
+		if sub := a.subItemByID[e.AgentID]; sub != nil {
+			sub.SubagentActivity = formatActivity(e.Call)
+		}
+	}
 	a.refreshChat()
+}
+
+func formatActivity(call llm.ToolCall) string {
+	name := call.Function.Name
+	args := call.Function.Arguments
+	switch name {
+	case "read":
+		var p struct {
+			FilePath string `json:"filePath"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.FilePath != "" {
+			return "Reading " + p.FilePath
+		}
+	case "write":
+		var p struct {
+			FilePath string `json:"filePath"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.FilePath != "" {
+			return "Writing " + p.FilePath
+		}
+	case "edit":
+		var p struct {
+			FilePath string `json:"filePath"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.FilePath != "" {
+			return "Editing " + p.FilePath
+		}
+	case "bash":
+		var p struct {
+			Command string `json:"command"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Command != "" {
+			cmd := p.Command
+			if len(cmd) > 50 {
+				cmd = cmd[:50] + "…"
+			}
+			return "Running " + cmd
+		}
+	case "glob":
+		var p struct {
+			Pattern string `json:"pattern"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Pattern != "" {
+			return "Finding " + p.Pattern
+		}
+	case "grep":
+		var p struct {
+			Pattern string `json:"pattern"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Pattern != "" {
+			return "Searching " + p.Pattern
+		}
+	case "list":
+		var p struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Path != "" {
+			return "Listing " + p.Path
+		}
+	case "webfetch":
+		var p struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.URL != "" {
+			return "Fetching " + p.URL
+		}
+	}
+	return name
 }
 
 func (a *App) onAgentToolResult(e agent.AgentToolResult) {
 	a.chatMu.Lock()
 	defer a.chatMu.Unlock()
 	t := a.transcriptFor(e.AgentID, e.AgentName)
-	if it, ok := t.toolByID[e.CallID]; ok {
-		if e.Err != nil {
-			it.ToolErr = e.Err.Error()
-		} else {
-			it.ToolOutput = e.Output
+	it, ok := t.toolByID[e.CallID]
+	if !ok {
+		it = &components.ChatItem{
+			Kind:     components.ItemTool,
+			ID:       e.CallID,
+			ToolName: e.ToolName,
 		}
+		t.toolByID[e.CallID] = it
+		a.appendItem(t, it)
+	}
+	if e.Err != nil {
+		it.ToolErr = e.Err.Error()
+	} else {
+		it.ToolOutput = e.Output
 	}
 	a.refreshChat()
 }
@@ -235,6 +319,9 @@ func (a *App) onAgentFinished(e agent.AgentFinished) {
 	}
 	if sub := a.subItemByID[e.AgentID]; sub != nil {
 		sub.SubagentStatus = "finished"
+		sub.SubagentOutput = e.Output
+		sub.SubagentActivity = ""
+		sub.SubagentUsage = e.Usage
 	}
 	a.appendItem(t, &components.ChatItem{Kind: components.ItemFinished, ID: e.AgentID})
 	a.refreshChat()
@@ -256,6 +343,8 @@ func (a *App) onAgentError(e agent.AgentError) {
 	}
 	if sub := a.subItemByID[e.AgentID]; sub != nil {
 		sub.SubagentStatus = "error"
+		sub.SubagentActivity = ""
+		sub.SubagentOutput = e.Err.Error()
 	}
 	a.appendItem(t, &components.ChatItem{Kind: components.ItemError, Text: e.Err.Error()})
 	a.refreshChat()
@@ -264,14 +353,21 @@ func (a *App) onAgentError(e agent.AgentError) {
 func (a *App) onAgentUsage(e agent.AgentUsage) {
 	a.chatMu.Lock()
 	defer a.chatMu.Unlock()
-	if a.agent == nil || e.AgentID != a.agent.ID {
+	if a.agent == nil {
 		return
 	}
-	a.usage.PromptTokens = e.Usage.PromptTokens
-	a.usage.CompletionTokens = e.Usage.CompletionTokens
-	a.usage.TotalTokens = e.Usage.TotalTokens
-	a.usage.Cost = e.Usage.Cost
-	a.refreshHomeLocked()
+	if e.AgentID == a.agent.ID {
+		a.usage.PromptTokens = e.Usage.PromptTokens
+		a.usage.CompletionTokens = e.Usage.CompletionTokens
+		a.usage.TotalTokens = e.Usage.TotalTokens
+		a.usage.Cost = e.Usage.Cost
+		a.refreshHomeLocked()
+		return
+	}
+	if sub := a.subItemByID[e.AgentID]; sub != nil {
+		sub.SubagentUsage = e.Usage
+		a.refreshChat()
+	}
 }
 
 func (a *App) onSessionAttached(e session.SessionAttached) {
@@ -356,6 +452,13 @@ func (a *App) addToolItem(t *agentTranscript, call llm.ToolCall, agentID string)
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.URL != "" {
 			it.ToolName = "webfetch:" + p.URL
 		}
+	case "list":
+		var p struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Path != "" {
+			it.ToolName = "list:" + p.Path
+		}
 	}
 
 	t.toolByID[call.ID] = it
@@ -428,21 +531,16 @@ func (a *App) runAgentWithAttachments(input string, attachments []llm.Attachment
 	a.chatMu.Unlock()
 
 	var result *agent.RunResult
-	var err error
 	handler := func(agent.StreamEvent) error { return nil }
 	if len(history) > 0 {
-		result, err = orch.ResumeStream(ctx, input, history, handler)
+		result, _ = orch.ResumeStream(ctx, input, history, handler)
 	} else {
-		result, err = orch.RunStream(ctx, input, handler)
+		result, _ = orch.RunStream(ctx, input, handler)
 	}
 
 	a.chatMu.Lock()
 	if result != nil {
 		a.history = result.History
-	} else if err != nil {
-		if a.main != nil {
-			a.appendItem(a.main, &components.ChatItem{Kind: components.ItemError, Text: err.Error()})
-		}
 	}
 	a.running = false
 	a.chatMu.Unlock()
@@ -457,10 +555,24 @@ func (a *App) activateItem(it *components.ChatItem) {
 		it.Expanded = !it.Expanded
 		a.refreshChat()
 	case components.ItemSubagent:
-		if t := a.subs[it.AgentID]; t != nil {
-			a.showTranscript(t)
-			a.chat.SetBack(true)
+		if it.SubagentStatus == "running" {
+			if t := a.subs[it.AgentID]; t != nil {
+				a.showTranscript(t)
+				a.chat.SetBack(true)
+			}
+		} else {
+			it.Expanded = !it.Expanded
+			a.refreshChat()
 		}
+	}
+}
+
+func (a *App) openSubagentHistory(agentID string) {
+	a.chatMu.Lock()
+	defer a.chatMu.Unlock()
+	if t := a.subs[agentID]; t != nil {
+		a.showTranscript(t)
+		a.chat.SetBack(true)
 	}
 }
 
@@ -623,6 +735,13 @@ func enrichToolItem(it *components.ChatItem) {
 		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.URL != "" {
 			it.ToolName = "webfetch:" + p.URL
+		}
+	case "list":
+		var p struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Path != "" {
+			it.ToolName = "list:" + p.Path
 		}
 	}
 }
