@@ -443,13 +443,13 @@ func (a *streamAccumulator) append(chunk llm.StreamChunk) {
 			a.order = append(a.order, tc.Index)
 		}
 		if tc.ID != "" {
-			acc.id = tc.ID
+			acc.id = string([]byte(tc.ID))
 		}
 		if tc.Type != "" {
-			acc.typ = tc.Type
+			acc.typ = string([]byte(tc.Type))
 		}
 		if tc.Function.Name != "" {
-			acc.name = tc.Function.Name
+			acc.name = string([]byte(tc.Function.Name))
 		}
 		acc.arguments += tc.Function.Arguments
 	}

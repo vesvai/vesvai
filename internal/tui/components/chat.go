@@ -361,7 +361,7 @@ func (c *Chat) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 		} else {
 			s.SetContent(x, y, ' ', nil, bg)
 		}
-		DrawLine(s, x+1, y, c.flat[idx])
+		DrawLineBounded(s, x+1, y, bounds.Left+bounds.Width, c.flat[idx])
 	}
 
 	c.indicatorVisible = false
@@ -638,9 +638,7 @@ func (c *Chat) toolLines(it *ChatItem, width int) []Line {
 
 	isEdit := strings.HasPrefix(it.ToolName, "edit:") || it.ToolName == "edit"
 	isWrite := strings.HasPrefix(it.ToolName, "write:") || it.ToolName == "write"
-	isRead := strings.HasPrefix(it.ToolName, "read:") || it.ToolName == "read"
 	isList := strings.Contains(it.ToolName, "list-todo") || strings.Contains(it.ToolName, "update-todo")
-	isListTool := strings.HasPrefix(it.ToolName, "list:") || it.ToolName == "list"
 	isBash := strings.HasPrefix(it.ToolName, "bash:") || it.ToolName == "bash"
 	isRunning := it.ToolErr == "" && it.ToolOutput == ""
 
@@ -651,11 +649,6 @@ func (c *Chat) toolLines(it *ChatItem, width int) []Line {
 
 	if it.ToolErr != "" {
 		left := c.toolStatusLine(it, width, '✖', th.Error, " ✖ "+formatDuration(it.Duration))
-		return []Line{left}
-	}
-
-	if isRead || isListTool {
-		left := c.toolStatusLine(it, width, '✔', th.Success, " ✔ "+formatDuration(it.Duration))
 		return []Line{left}
 	}
 
@@ -674,12 +667,11 @@ func (c *Chat) toolLines(it *ChatItem, width int) []Line {
 		return c.writeCardLines(it, width)
 	}
 
-	left := c.toolStatusLine(it, width, '✔', th.Success, " ✔ "+formatDuration(it.Duration))
-
-	var lines []Line
-	lines = append(lines, left)
-
-	if it.ToolOutput != "" {
+	hasOutput := it.ToolOutput != ""
+	if it.Expanded && hasOutput {
+		left := c.toolStatusLine(it, width, '✔', th.Success, " ✔ "+formatDuration(it.Duration))
+		var lines []Line
+		lines = append(lines, left)
 		bodyStyle := th.Base().Foreground(th.TextDim).Background(th.Background)
 		wrapped := WrapText(it.ToolOutput, bodyStyle, width-4)
 		const maxOutputLines = 100
@@ -696,9 +688,18 @@ func (c *Chat) toolLines(it *ChatItem, width int) []Line {
 				{Text: "  … output truncated", Style: th.Base().Foreground(th.Muted).Background(th.Background)},
 			}, width))
 		}
+		lines = append(lines, LineFromSegments([]Segment{
+			{Text: "  [Enter] Collapse", Style: th.Base().Foreground(th.Muted).Background(th.Background)},
+		}, width))
+		return lines
 	}
 
-	return lines
+	if hasOutput {
+		lines := []Line{c.toolStatusLine(it, width, '✔', th.Success, " ✔ "+formatDuration(it.Duration)+"  [Enter] Expand")}
+		return lines
+	}
+
+	return []Line{c.toolStatusLine(it, width, '✔', th.Success, " ✔ "+formatDuration(it.Duration))}
 }
 
 func (c *Chat) toolStatusLine(it *ChatItem, width int, mark rune, color tcell.Color, statusText string) Line {
@@ -706,21 +707,34 @@ func (c *Chat) toolStatusLine(it *ChatItem, width int, mark rune, color tcell.Co
 	left := Line{
 		{R: mark, S: th.Base().Foreground(color).Background(th.Background)},
 		{R: ' ', S: th.Base()},
-		{R: '⚙', S: th.Base().Foreground(th.Muted).Background(th.Background)},
-		{R: ' ', S: th.Base()},
 	}
 	displayName := it.ToolName
+	toolType := ""
 	if idx := strings.Index(displayName, ":"); idx > 0 {
+		toolType = displayName[:idx]
 		displayName = displayName[idx+1:]
 	}
+	if toolType != "" {
+		capType := strings.ToUpper(toolType[:1]) + toolType[1:]
+		for _, r := range capType {
+			left = append(left, Cell{R: r, S: th.Base().Foreground(color).Bold(true).Background(th.Background)})
+		}
+		left = append(left, Cell{R: ':', S: th.Base().Foreground(color).Background(th.Background)})
+		left = append(left, Cell{R: ' ', S: th.Base()})
+	}
+	statusCells := LineFromSegments([]Segment{
+		{Text: statusText, Style: th.Base().Foreground(color).Background(th.Background)},
+	}, width)
+	statusW := statusCells.Width()
 	for _, r := range displayName {
+		if left.Width()+1+statusW >= width {
+			left = append(left, Cell{R: '…', S: th.Base().Foreground(th.Muted).Background(th.Background)})
+			break
+		}
 		left = append(left, Cell{R: r, S: th.Base().Foreground(th.Foreground).Bold(true).Background(th.Background)})
 	}
 	left = append(left, Cell{R: ' ', S: th.Base()})
-	statusCells := LineFromSegments([]Segment{
-		{Text: statusText, Style: th.Base().Foreground(color).Background(th.Background)},
-	}, len(statusText)+2)
-	for left.Width()+statusCells.Width() < width {
+	for left.Width()+statusW < width {
 		left = append(left, Cell{R: ' ', S: th.Base()})
 	}
 	left = append(left, statusCells...)

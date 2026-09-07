@@ -182,15 +182,13 @@ func (a *App) onAgentMessage(e agent.AgentMessage) {
 	t := a.transcriptFor(e.AgentID, e.AgentName)
 	msg := e.Message
 
-	if msg.Role == llm.RoleAssistant && t.assistant != nil {
+	t.thinking = nil
+
+	if t.assistant != nil {
 		t.assistant = nil
-		t.thinking = nil
 		return
 	}
 
-	for _, tc := range msg.ToolCalls {
-		a.addToolItem(t, tc, e.AgentID)
-	}
 	if text := messageContent(msg); text != "" {
 		it := &components.ChatItem{Kind: components.ItemAssistant, ID: e.AgentID, Text: text}
 		a.appendItem(t, it)
@@ -355,6 +353,13 @@ func (a *App) addToolItem(t *agentTranscript, call llm.ToolCall, agentID string)
 		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.URL != "" {
 			it.ToolName = "webfetch:" + p.URL
+		}
+	case "list":
+		var p struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Path != "" {
+			it.ToolName = "list:" + p.Path
 		}
 	}
 
@@ -623,6 +628,13 @@ func enrichToolItem(it *components.ChatItem) {
 		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.URL != "" {
 			it.ToolName = "webfetch:" + p.URL
+		}
+	case "list":
+		var p struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Path != "" {
+			it.ToolName = "list:" + p.Path
 		}
 	}
 }
