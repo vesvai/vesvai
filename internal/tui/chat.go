@@ -208,12 +208,20 @@ func (a *App) onAgentToolResult(e agent.AgentToolResult) {
 	a.chatMu.Lock()
 	defer a.chatMu.Unlock()
 	t := a.transcriptFor(e.AgentID, e.AgentName)
-	if it, ok := t.toolByID[e.CallID]; ok {
-		if e.Err != nil {
-			it.ToolErr = e.Err.Error()
-		} else {
-			it.ToolOutput = e.Output
+	it, ok := t.toolByID[e.CallID]
+	if !ok {
+		it = &components.ChatItem{
+			Kind:     components.ItemTool,
+			ID:       e.CallID,
+			ToolName: e.ToolName,
 		}
+		t.toolByID[e.CallID] = it
+		a.appendItem(t, it)
+	}
+	if e.Err != nil {
+		it.ToolErr = e.Err.Error()
+	} else {
+		it.ToolOutput = e.Output
 	}
 	a.refreshChat()
 }
