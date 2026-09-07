@@ -74,6 +74,10 @@ func highlightLine(text string, filePath string, th styles.Theme, contentStyle t
 	return highlightByLang(text, lang, th, contentStyle)
 }
 
+func highlightByLangName(text string, lang string, th styles.Theme, contentStyle tcell.Style) Line {
+	return highlightByLang(text, lang, th, contentStyle)
+}
+
 func lineFromPlain(text string, style tcell.Style) Line {
 	var out Line
 	for _, r := range text {
@@ -290,6 +294,45 @@ func langKeywords(lang string) (keywords, types, builtins map[string]bool) {
 		builtins = map[string]bool{
 			"Some": true, "None": true, "Ok": true, "Err": true,
 			"println": true, "format": true, "clone": true, "unwrap": true,
+		}
+
+	case "bash":
+		keywords = map[string]bool{
+			"if": true, "then": true, "else": true, "elif": true,
+			"fi": true, "for": true, "while": true, "until": true,
+			"do": true, "done": true, "case": true, "esac": true,
+			"in": true, "function": true, "select": true,
+			"break": true, "continue": true, "return": true, "exit": true,
+			"local": true, "declare": true, "typeset": true, "readonly": true,
+			"export": true, "unset": true, "shift": true,
+			"time": true, "coproc": true,
+		}
+		types = map[string]bool{
+			"-a": true, "-b": true, "-c": true, "-d": true, "-e": true,
+			"-f": true, "-g": true, "-h": true, "-k": true, "-m": true,
+			"-n": true, "-o": true, "-p": true, "-r": true, "-s": true,
+			"-t": true, "-u": true, "-w": true, "-x": true, "-z": true,
+		}
+		builtins = map[string]bool{
+			"echo": true, "printf": true, "read": true, "mapfile": true,
+			"readarray": true, "cd": true, "pwd": true, "pushd": true,
+			"popd": true, "dirs": true, "let": true, "eval": true,
+			"exec": true, "trap": true, "wait": true, "bg": true,
+			"fg": true, "jobs": true, "kill": true, "exit": true,
+			"set": true, "shopt": true, "umask": true, "alias": true,
+			"unalias": true, "hash": true, "type": true, "command": true,
+			"builtin": true, "source": true, "test": true,
+			"true": true, "false": true, "yes": true,
+			"grep": true, "sed": true, "awk": true, "find": true,
+			"sort": true, "uniq": true, "wc": true, "head": true,
+			"tail": true, "cat": true, "less": true, "more": true,
+			"ls": true, "cp": true, "mv": true, "rm": true, "mkdir": true,
+			"chmod": true, "chown": true, "touch": true, "ln": true,
+			"tar": true, "gzip": true, "gunzip": true, "curl": true,
+			"wget": true, "ssh": true, "scp": true, "rsync": true,
+			"git": true, "docker": true, "make": true, "go": true,
+			"python": true, "node": true, "npm": true, "pip": true,
+			"cargo": true, "rustc": true, "gcc": true, "g++": true,
 		}
 	}
 

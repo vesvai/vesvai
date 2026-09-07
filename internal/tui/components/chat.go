@@ -1059,11 +1059,12 @@ func (c *Chat) bashCardLines(it *ChatItem, width int) []Line {
 	bodyStyle := th.Base().Foreground(th.Foreground).Background(th.Background)
 	for _, ln := range shown {
 		row := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
-		for _, r := range ln {
+		hl := highlightByLangName(ln, "bash", th, bodyStyle)
+		for _, c := range hl {
 			if row.Width() >= width-2 {
 				break
 			}
-			row = append(row, Cell{R: r, S: bodyStyle})
+			row = append(row, c)
 		}
 		for row.Width() < width-1 {
 			row = append(row, Cell{R: ' ', S: th.Base()})
