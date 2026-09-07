@@ -36,9 +36,13 @@ type ChatItem struct {
 	ToolErr    string
 	Diff       []DiffHunk
 
-	AgentID        string
-	SubagentName   string
-	SubagentStatus string
+	AgentID          string
+	SubagentName     string
+	SubagentStatus   string
+	SubagentTask     string
+	SubagentOutput   string
+	SubagentUsage    llm.Usage
+	SubagentActivity string
 
 	Attachments []llm.Attachment
 
@@ -60,9 +64,10 @@ type Chat struct {
 	back        bool
 	hasMore     bool
 
-	onActivate func(*ChatItem)
-	onBack     func()
-	onLoadMore func()
+	onActivate        func(*ChatItem)
+	onBack            func()
+	onLoadMore        func()
+	onSubagentHistory func(agentID string)
 
 	flat       []Line
 	flatItems  []flatItem
@@ -75,6 +80,8 @@ type Chat struct {
 	indicatorVisible                     bool
 	backX0, backX1, backY                int
 	backVisible                          bool
+
+	historyButtons map[int]string
 
 	lastWidth   int
 	lastVisible int
@@ -152,7 +159,8 @@ func (c *Chat) SetOnActivate(fn func(*ChatItem)) { c.onActivate = fn }
 
 func (c *Chat) SetOnBack(fn func()) { c.onBack = fn }
 
-func (c *Chat) SetOnLoadMore(fn func()) { c.onLoadMore = fn }
+func (c *Chat) SetOnLoadMore(fn func())              { c.onLoadMore = fn }
+func (c *Chat) SetOnSubagentHistory(fn func(string)) { c.onSubagentHistory = fn }
 
 func (c *Chat) Invalidate() { c.lastWidth = -1; c.flatRev = -1 }
 
@@ -280,6 +288,14 @@ func (c *Chat) HandleClick(x, y, top int) bool {
 	rel := y - top + c.scroll
 	if rel < 0 || rel >= len(c.flat) {
 		return false
+	}
+	if c.historyButtons != nil {
+		if agentID, ok := c.historyButtons[rel]; ok {
+			if c.onSubagentHistory != nil {
+				c.onSubagentHistory(agentID)
+			}
+			return true
+		}
 	}
 	for _, fi := range c.flatItems {
 		if rel >= fi.Start && rel < fi.End {
@@ -441,6 +457,7 @@ func (c *Chat) activateCursor() {
 func (c *Chat) rebuildFlat(width int) {
 	c.flat = nil
 	c.flatItems = nil
+	c.historyButtons = nil
 	total := 0
 	for i, it := range c.items {
 		lines := c.itemLines(it, width)
@@ -450,6 +467,12 @@ func (c *Chat) rebuildFlat(width int) {
 				Start:   total,
 				End:     total + len(lines),
 			})
+			if it.Kind == ItemSubagent && it.AgentID != "" {
+				if c.historyButtons == nil {
+					c.historyButtons = make(map[int]string)
+				}
+				c.historyButtons[total] = it.AgentID
+			}
 		}
 		c.flat = append(c.flat, lines...)
 		c.flat = append(c.flat, nil)
@@ -1406,14 +1429,22 @@ func (c *Chat) writeCardLines(it *ChatItem, width int) []Line {
 
 func (c *Chat) subagentLines(it *ChatItem, width int) []Line {
 	th := styles.Current()
+	if width < 12 {
+		return nil
+	}
+
+	border := th.Base().Foreground(th.Border).Background(th.Background)
+	accent := th.Base().Foreground(th.Accent).Background(th.Background)
 	dim := th.Base().Foreground(th.TextDim).Background(th.Background)
+	muted := th.Base().Foreground(th.Muted).Background(th.Background)
+	subagentColor := th.Base().Foreground(th.Subagent).Background(th.Background)
 
 	status := it.SubagentStatus
 	if status == "" {
 		status = "running"
 	}
-
 	isRunning := status == "running"
+
 	var mark rune
 	if isRunning {
 		mark = '◌'
@@ -1423,36 +1454,142 @@ func (c *Chat) subagentLines(it *ChatItem, width int) []Line {
 		mark = '✔'
 	}
 
-	markStyle := th.Base().Foreground(th.Subagent).Background(th.Background)
-	if isRunning {
-		markStyle = th.Base().Foreground(lerpColor(th.Subagent, th.Accent, glowT(c.now))).Background(th.Background)
-	}
+	var lines []Line
 
-	line := Line{
-		{R: mark, S: markStyle},
-		{R: ' ', S: dim},
-	}
-	nameStyle := th.Base().Foreground(th.Subagent).Background(th.Background)
+	top := Line{{R: '╭', S: border}}
+	top = append(top, Cell{R: '─', S: border})
+	top = append(top, Cell{R: ' ', S: th.Base()})
+	top = append(top, Cell{R: mark, S: subagentColor})
+	top = append(top, Cell{R: ' ', S: th.Base()})
 	for _, r := range it.SubagentName {
-		line = append(line, Cell{R: r, S: nameStyle})
+		top = append(top, Cell{R: r, S: subagentColor})
+	}
+	historyHint := "History"
+	historyStart := width - 1 - DisplayWidth(historyHint)
+	for top.Width() < historyStart {
+		top = append(top, Cell{R: '─', S: border})
+	}
+	for _, r := range historyHint {
+		top = append(top, Cell{R: r, S: muted})
+	}
+	top = append(top, Cell{R: '╮', S: border})
+	lines = append(lines, top)
+
+	task := it.SubagentTask
+	if task == "" {
+		task = "…"
+	}
+	taskLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
+	if DisplayWidth(task) > width-6 {
+		task = task[:width-6] + "…"
+	}
+	for _, r := range task {
+		taskLine = append(taskLine, Cell{R: r, S: th.Base().Foreground(th.Foreground).Background(th.Background)})
+	}
+	for taskLine.Width() < width-1 {
+		taskLine = append(taskLine, Cell{R: ' ', S: th.Base()})
+	}
+	taskLine = append(taskLine, Cell{R: '│', S: border})
+	lines = append(lines, taskLine)
+
+	sep := Line{{R: '├', S: border}}
+	for i := 0; i < width-2; i++ {
+		sep = append(sep, Cell{R: '─', S: border})
+	}
+	sep = append(sep, Cell{R: '┤', S: border})
+	lines = append(lines, sep)
+
+	if it.SubagentActivity != "" && isRunning {
+		activityLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
+		activityMark := '◌'
+		activityLine = append(activityLine, Cell{R: activityMark, S: th.Base().Foreground(lerpColor(th.Subagent, th.Accent, glowT(c.now))).Background(th.Background)})
+		activityLine = append(activityLine, Cell{R: ' ', S: th.Base()})
+		activity := it.SubagentActivity
+		if DisplayWidth(activity) > width-7 {
+			activity = activity[:width-7] + "…"
+		}
+		for _, r := range activity {
+			activityLine = append(activityLine, Cell{R: r, S: dim})
+		}
+		for activityLine.Width() < width-1 {
+			activityLine = append(activityLine, Cell{R: ' ', S: th.Base()})
+		}
+		activityLine = append(activityLine, Cell{R: '│', S: border})
+		lines = append(lines, activityLine)
+	} else if it.SubagentOutput != "" && !isRunning {
+		outputLines := strings.Split(it.SubagentOutput, "\n")
+		const maxOutputLines = 15
+		truncated := len(outputLines) > maxOutputLines && !it.Expanded
+		shown := outputLines
+		if truncated {
+			shown = outputLines[:maxOutputLines]
+		}
+		for _, ln := range shown {
+			row := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
+			if DisplayWidth(ln) > width-4 {
+				ln = ln[:width-4] + "…"
+			}
+			for _, r := range ln {
+				row = append(row, Cell{R: r, S: dim})
+			}
+			for row.Width() < width-1 {
+				row = append(row, Cell{R: ' ', S: th.Base()})
+			}
+			row = append(row, Cell{R: '│', S: border})
+			lines = append(lines, row)
+		}
+		if truncated {
+			remaining := len(outputLines) - maxOutputLines
+			moreLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
+			msg := fmt.Sprintf("··· %d more lines — click to expand", remaining)
+			for _, r := range msg {
+				moreLine = append(moreLine, Cell{R: r, S: dim})
+			}
+			for moreLine.Width() < width-1 {
+				moreLine = append(moreLine, Cell{R: ' ', S: th.Base()})
+			}
+			moreLine = append(moreLine, Cell{R: '│', S: border})
+			lines = append(lines, moreLine)
+		}
+		if it.Expanded {
+			moreLine := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
+			msg := fmt.Sprintf("··· showing all %d lines — click to collapse", len(outputLines))
+			for _, r := range msg {
+				moreLine = append(moreLine, Cell{R: r, S: dim})
+			}
+			for moreLine.Width() < width-1 {
+				moreLine = append(moreLine, Cell{R: ' ', S: th.Base()})
+			}
+			moreLine = append(moreLine, Cell{R: '│', S: border})
+			lines = append(lines, moreLine)
+		}
 	}
 
-	sepStyle := th.Base().Foreground(th.Muted).Background(th.Background)
-	line = append(line,
-		Cell{R: ' ', S: sepStyle},
-		Cell{R: '·', S: sepStyle},
-		Cell{R: ' ', S: sepStyle},
-	)
-
-	statusStyle := th.Base().Foreground(th.TextDim).Background(th.Background)
-	if status == "error" {
-		statusStyle = th.Base().Foreground(th.Error).Background(th.Background)
+	sep2 := Line{{R: '├', S: border}}
+	for i := 0; i < width-2; i++ {
+		sep2 = append(sep2, Cell{R: '─', S: border})
 	}
-	for _, r := range status {
-		line = append(line, Cell{R: r, S: statusStyle})
-	}
+	sep2 = append(sep2, Cell{R: '┤', S: border})
+	lines = append(lines, sep2)
 
-	return []Line{line}
+	footer := Line{{R: '╰', S: border}}
+	usageText := ""
+	if it.SubagentUsage.TotalTokens > 0 {
+		usageText = llm.FormatContextUsage(it.SubagentUsage, 0)
+	}
+	if usageText != "" {
+		footer = append(footer, Cell{R: ' ', S: th.Base()})
+		for _, r := range usageText {
+			footer = append(footer, Cell{R: r, S: accent})
+		}
+	}
+	for footer.Width() < width-1 {
+		footer = append(footer, Cell{R: '─', S: border})
+	}
+	footer = append(footer, Cell{R: '╯', S: border})
+	lines = append(lines, footer)
+
+	return lines
 }
 
 func (c *Chat) OnTick(blinkOn bool) {

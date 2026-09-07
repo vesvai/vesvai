@@ -201,6 +201,7 @@ func (a *App) build() {
 	a.chat.SetOnActivate(a.activateItem)
 	a.chat.SetOnBack(a.backFromSubagent)
 	a.chat.SetOnLoadMore(a.loadMore)
+	a.chat.SetOnSubagentHistory(a.openSubagentHistory)
 
 	var skillItems []components.ListItem
 	for _, sk := range skill.List() {
