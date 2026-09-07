@@ -219,22 +219,30 @@ func formatActivity(call llm.ToolCall) string {
 	args := call.Function.Arguments
 	switch name {
 	case "read":
-		var p struct{ FilePath string `json:"filePath"` }
+		var p struct {
+			FilePath string `json:"filePath"`
+		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.FilePath != "" {
 			return "Reading " + p.FilePath
 		}
 	case "write":
-		var p struct{ FilePath string `json:"filePath"` }
+		var p struct {
+			FilePath string `json:"filePath"`
+		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.FilePath != "" {
 			return "Writing " + p.FilePath
 		}
 	case "edit":
-		var p struct{ FilePath string `json:"filePath"` }
+		var p struct {
+			FilePath string `json:"filePath"`
+		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.FilePath != "" {
 			return "Editing " + p.FilePath
 		}
 	case "bash":
-		var p struct{ Command string `json:"command"` }
+		var p struct {
+			Command string `json:"command"`
+		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Command != "" {
 			cmd := p.Command
 			if len(cmd) > 50 {
@@ -243,22 +251,30 @@ func formatActivity(call llm.ToolCall) string {
 			return "Running " + cmd
 		}
 	case "glob":
-		var p struct{ Pattern string `json:"pattern"` }
+		var p struct {
+			Pattern string `json:"pattern"`
+		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Pattern != "" {
 			return "Finding " + p.Pattern
 		}
 	case "grep":
-		var p struct{ Pattern string `json:"pattern"` }
+		var p struct {
+			Pattern string `json:"pattern"`
+		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Pattern != "" {
 			return "Searching " + p.Pattern
 		}
 	case "list":
-		var p struct{ Path string `json:"path"` }
+		var p struct {
+			Path string `json:"path"`
+		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Path != "" {
 			return "Listing " + p.Path
 		}
 	case "webfetch":
-		var p struct{ URL string `json:"url"` }
+		var p struct {
+			URL string `json:"url"`
+		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.URL != "" {
 			return "Fetching " + p.URL
 		}
