@@ -1,0 +1,4 @@
+#!/bin/sh
+git diff --cached --name-only --diff-filter=d -- '*.go' | xargs -r gofmt -w
+
+git diff --cached --name-only --diff-filter=d -- '*.go' | xargs -r git add
