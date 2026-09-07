@@ -441,21 +441,16 @@ func (a *App) runAgentWithAttachments(input string, attachments []llm.Attachment
 	a.chatMu.Unlock()
 
 	var result *agent.RunResult
-	var err error
 	handler := func(agent.StreamEvent) error { return nil }
 	if len(history) > 0 {
-		result, err = orch.ResumeStream(ctx, input, history, handler)
+		result, _ = orch.ResumeStream(ctx, input, history, handler)
 	} else {
-		result, err = orch.RunStream(ctx, input, handler)
+		result, _ = orch.RunStream(ctx, input, handler)
 	}
 
 	a.chatMu.Lock()
 	if result != nil {
 		a.history = result.History
-	} else if err != nil {
-		if a.main != nil {
-			a.appendItem(a.main, &components.ChatItem{Kind: components.ItemError, Text: err.Error()})
-		}
 	}
 	a.running = false
 	a.chatMu.Unlock()
