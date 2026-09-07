@@ -313,6 +313,7 @@ func (a *App) onAgentFinished(e agent.AgentFinished) {
 	t.assistant = nil
 	if e.AgentID == a.agent.ID {
 		a.running = false
+		a.clearEscHint()
 		a.refreshHomeLocked()
 		a.appendItem(t, &components.ChatItem{Kind: components.ItemFinished, ID: e.AgentID})
 		return
@@ -337,6 +338,7 @@ func (a *App) onAgentError(e agent.AgentError) {
 	t.assistant = nil
 	if e.AgentID == a.agent.ID {
 		a.running = false
+		a.clearEscHint()
 		a.refreshHomeLocked()
 		a.appendItem(t, &components.ChatItem{Kind: components.ItemError, Text: e.Err.Error()})
 		return
@@ -506,7 +508,17 @@ func (a *App) runAgent(input string) {
 
 func (a *App) runAgentWithAttachments(input string, attachments []llm.Attachment) {
 	ctx, cancel := context.WithCancel(a.ctx)
-	defer cancel()
+
+	a.chatMu.Lock()
+	a.agentCancel = cancel
+	a.chatMu.Unlock()
+
+	defer func() {
+		a.chatMu.Lock()
+		a.agentCancel = nil
+		a.chatMu.Unlock()
+		cancel()
+	}()
 
 	orch := a.agent
 	a.chatMu.Lock()
