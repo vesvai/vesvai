@@ -108,6 +108,7 @@ func (c *CLI) registerDefaultCommands() {
 			c.newMCPCommand(),
 			c.newLSPCommand(),
 			c.newTUICommand(),
+			c.newServeCommand(),
 			c.newVersionCommand(),
 			c.newUpdateCommand(),
 		)

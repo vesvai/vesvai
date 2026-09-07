@@ -50,11 +50,19 @@ type LanguageServerConfig struct {
 	Enabled     *bool             `json:"enabled,omitempty"`
 }
 
+type ServerConfig struct {
+	Host            string            `json:"host,omitempty"`
+	Port            int               `json:"port,omitempty"`
+	RequiredHeaders map[string]string `json:"required_headers,omitempty"`
+	Headers         map[string]string `json:"headers,omitempty"`
+}
+
 type Config struct {
 	Providers       []LLMConfig                     `json:"providers"`
 	Logger          LoggerConfig                    `json:"logger"`
 	Cache           CacheConfig                     `json:"cache"`
 	Session         SessionConfig                   `json:"session"`
+	Server          ServerConfig                    `json:"server,omitempty"`
 	Theme           string                          `json:"theme,omitempty"`
 	MCPServers      map[string]MCPServerConfig      `json:"mcp_servers,omitempty"`
 	LanguageServers map[string]LanguageServerConfig `json:"language_servers,omitempty"`
@@ -71,6 +79,10 @@ func DefaultConfig() *Config {
 		},
 		Session: SessionConfig{
 			Driver: "sqlite",
+		},
+		Server: ServerConfig{
+			Host: "127.0.0.1",
+			Port: 8080,
 		},
 		Theme:           "dark",
 		MCPServers:      make(map[string]MCPServerConfig),
