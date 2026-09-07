@@ -467,6 +467,7 @@ func (a *App) openSettings() {
 		a.chatMu.Lock()
 		a.session = nil
 		a.history = nil
+		a.usage = llm.Usage{}
 		a.chat.Clear()
 		a.main = nil
 		a.refreshHomeLocked()
@@ -495,11 +496,6 @@ func (a *App) refreshHomeLocked() {
 	if a.model.model.Config != nil {
 		a.home.SetMaxInputTokens(a.model.model.MaxInputTokens())
 	}
-	if a.session == nil {
-		a.home.SetSession("")
-		return
-	}
-	a.home.SetSession(a.session.info.Title)
 }
 
 func (a *App) refreshMentionItemsLocked() {
@@ -539,6 +535,7 @@ func (a *App) loadSessionIntoChatLocked() {
 		}
 		a.main = newTranscript(id, "orchestrator")
 	}
+	a.usage = a.session.info.Usage
 	msgs := a.session.info.Messages
 	if len(msgs) > initialChatMessages {
 		msgs = msgs[len(msgs)-initialChatMessages:]
@@ -555,6 +552,7 @@ func (a *App) loadSessionIntoChatLocked() {
 		a.showTranscript(a.main)
 		a.chat.SetBack(false)
 	}
+	a.refreshHomeLocked()
 	a.seedHistoryFromSessionLocked()
 }
 
