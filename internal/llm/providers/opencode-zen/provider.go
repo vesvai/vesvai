@@ -20,7 +20,11 @@ func init() {
 
 func NewFromConfig(cfg config.LLMConfig) (llm.Provider, error) {
 	defaultHeaders := map[string]string{
-		"User-Agent": "opencode/1.18.25 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14",
+		"User-Agent":         "opencode/1.18.29 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14",
+		"x-opencode-client":  "vesvai",
+		"x-opencode-project": "vesvai",
+		"x-opencode-request": "vesvai",
+		"x-opencode-session": "vesvai",
 	}
 	maps.Copy(defaultHeaders, cfg.Headers)
 	return openaidriver.NewService(ProviderName, openaidriver.ServiceConfig{
