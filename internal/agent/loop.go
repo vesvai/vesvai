@@ -120,6 +120,11 @@ func (a *Agent) resume(ctx context.Context, input string, history []llm.Message,
 func (a *Agent) loop(ctx context.Context, state *runState, prov llm.Provider) (*RunResult, error) {
 	finished := false
 	for state.iterations < a.MaxIterations {
+		select {
+		case <-ctx.Done():
+			return nil, a.fail(ctx, ctx.Err())
+		default:
+		}
 		state.iterations++
 		msg, calls, err := a.iterate(ctx, state, prov)
 		if err != nil {

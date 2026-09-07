@@ -28,7 +28,10 @@ import (
 	"github.com/vesvai/vesvai/internal/tui/styles"
 )
 
-const blinkInterval = 450 * time.Millisecond
+const (
+	blinkInterval   = 450 * time.Millisecond
+	doubleEscWindow = 2 * time.Second
+)
 
 type redrawRequest struct{ tcell.EventTime }
 
@@ -64,6 +67,10 @@ type App struct {
 	cancel context.CancelFunc
 	blink  bool
 	quit   bool
+
+	lastEsc     time.Time
+	agentCancel context.CancelFunc
+	escTimer    *time.Timer
 
 	pasteActive bool
 	pasteBuffer strings.Builder
@@ -391,6 +398,34 @@ func (a *App) handleKey(ev *tcell.EventKey) bool {
 	}
 	kev := tcell.NewEventKey(ke.Key, ke.Rune, ke.Mod)
 
+	if kev.Key() == tcell.KeyEsc {
+		if a.running {
+			if !a.lastEsc.IsZero() && time.Since(a.lastEsc) < doubleEscWindow {
+				if a.agentCancel != nil {
+					a.agentCancel()
+				}
+				a.chatMu.Lock()
+				a.clearEscHint()
+				a.chatMu.Unlock()
+				return true
+			}
+			a.lastEsc = time.Now()
+			a.home.SetEscHint(true)
+			a.escTimer = time.AfterFunc(doubleEscWindow, func() {
+				a.chatMu.Lock()
+				a.clearEscHint()
+				a.chatMu.Unlock()
+			})
+		} else {
+			a.lastEsc = time.Time{}
+			a.home.SetEscHint(false)
+			if a.escTimer != nil {
+				a.escTimer.Stop()
+				a.escTimer = nil
+			}
+		}
+	}
+
 	if ov := a.getOverlay(); ov != nil {
 		if resolveGlobal(kev) == ActionQuit {
 			a.quit = true
@@ -484,6 +519,16 @@ func (a *App) openSettings() {
 		}
 	})
 	a.setOverlay(s)
+}
+
+func (a *App) clearEscHint() {
+	a.lastEsc = time.Time{}
+	if a.escTimer != nil {
+		a.escTimer.Stop()
+		a.escTimer = nil
+	}
+	a.home.SetEscHint(false)
+	a.requestRedraw()
 }
 
 func (a *App) refreshHomeLocked() {
