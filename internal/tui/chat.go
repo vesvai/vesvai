@@ -555,8 +555,15 @@ func (a *App) activateItem(it *components.ChatItem) {
 		it.Expanded = !it.Expanded
 		a.refreshChat()
 	case components.ItemSubagent:
-		it.Expanded = !it.Expanded
-		a.refreshChat()
+		if it.SubagentStatus == "running" {
+			if t := a.subs[it.AgentID]; t != nil {
+				a.showTranscript(t)
+				a.chat.SetBack(true)
+			}
+		} else {
+			it.Expanded = !it.Expanded
+			a.refreshChat()
+		}
 	}
 }
 

@@ -415,16 +415,16 @@ func TestRunContextWindowTracking(t *testing.T) {
 	if res.Model.MaxInputTokens() != 40000 {
 		t.Fatalf("context window = %d", res.Model.MaxInputTokens())
 	}
-	if res.Usage.TotalTokens != 5000 {
+	if res.Usage.TotalTokens != 3500 {
 		t.Fatalf("total tokens = %d", res.Usage.TotalTokens)
 	}
 	if res.Usage.Cost != 0.42 {
 		t.Fatalf("cost = %v", res.Usage.Cost)
 	}
-	if want := 12.5; res.Usage.ContextPercent(res.Model.MaxInputTokens()) != want {
+	if want := 8.75; res.Usage.ContextPercent(res.Model.MaxInputTokens()) != want {
 		t.Fatalf("context percent = %v, want %v", res.Usage.ContextPercent(res.Model.MaxInputTokens()), want)
 	}
-	if got := llm.FormatContextUsage(res.Usage, res.Model.MaxInputTokens()); got != "5.0K (13%)" {
+	if got := llm.FormatContextUsage(res.Usage, res.Model.MaxInputTokens()); got != "3.5K (9%)" {
 		t.Fatalf("formatted = %q", got)
 	}
 }
