@@ -127,9 +127,9 @@ func (m *Manager) AccumulateUsage(sessionID string, u llm.Usage) error {
 	if err != nil {
 		return err
 	}
-	s.Usage.PromptTokens += u.PromptTokens
-	s.Usage.CompletionTokens += u.CompletionTokens
-	s.Usage.TotalTokens += u.TotalTokens
+	s.Usage.PromptTokens = u.PromptTokens
+	s.Usage.CompletionTokens = u.CompletionTokens
+	s.Usage.TotalTokens = u.TotalTokens
 	s.Usage.Cost += u.Cost
 	s.UpdatedAt = time.Now()
 	return m.store.Update(*s)

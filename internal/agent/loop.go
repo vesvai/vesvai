@@ -408,9 +408,9 @@ func (a *Agent) fail(ctx context.Context, err error) error {
 }
 
 func (s *runState) accumulateUsage(u llm.Usage) {
-	s.usage.PromptTokens += u.PromptTokens
-	s.usage.CompletionTokens += u.CompletionTokens
-	s.usage.TotalTokens += u.TotalTokens
+	s.usage.PromptTokens = u.PromptTokens
+	s.usage.CompletionTokens = u.CompletionTokens
+	s.usage.TotalTokens = u.TotalTokens
 	s.usage.Cost += u.Cost
 }
 
