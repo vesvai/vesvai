@@ -13,6 +13,7 @@ import (
 	"github.com/vesvai/vesvai/internal/agent/agents"
 	"github.com/vesvai/vesvai/internal/builtin/agents/orchestrator"
 	"github.com/vesvai/vesvai/internal/builtin/middlewares"
+	"github.com/vesvai/vesvai/internal/builtin/tools/ask"
 	"github.com/vesvai/vesvai/internal/builtin/tools/shell"
 	"github.com/vesvai/vesvai/internal/builtin/tools/subagent"
 	"github.com/vesvai/vesvai/internal/builtin/tools/todo"
@@ -28,7 +29,7 @@ import (
 func TestRunRendererEvents(t *testing.T) {
 	bus := event.New()
 	var buf bytes.Buffer
-	r := newRunRenderer(&buf, "main-1", true, true)
+	r := newRunRenderer(&buf, nil, "main-1", true, true)
 	if err := r.subscribe(bus); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestRunRendererEvents(t *testing.T) {
 func TestRunRendererHidesThinking(t *testing.T) {
 	bus := event.New()
 	var buf bytes.Buffer
-	r := newRunRenderer(&buf, "main-1", false, false)
+	r := newRunRenderer(&buf, nil, "main-1", false, false)
 	if err := r.subscribe(bus); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestRunRendererHidesThinking(t *testing.T) {
 func TestRunRendererHidesSubagent(t *testing.T) {
 	bus := event.New()
 	var buf bytes.Buffer
-	r := newRunRenderer(&buf, "main-1", false, false)
+	r := newRunRenderer(&buf, nil, "main-1", false, false)
 	if err := r.subscribe(bus); err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +143,7 @@ func TestRunRendererHidesSubagent(t *testing.T) {
 func TestRunRendererSubagentMessage(t *testing.T) {
 	bus := event.New()
 	var buf bytes.Buffer
-	r := newRunRenderer(&buf, "main-1", true, true)
+	r := newRunRenderer(&buf, nil, "main-1", true, true)
 	if err := r.subscribe(bus); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +170,7 @@ func TestRunRendererSubagentMessage(t *testing.T) {
 func TestRunRendererToolError(t *testing.T) {
 	bus := event.New()
 	var buf bytes.Buffer
-	r := newRunRenderer(&buf, "main-1", true, true)
+	r := newRunRenderer(&buf, nil, "main-1", true, true)
 	if err := r.subscribe(bus); err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +188,7 @@ func TestRunRendererToolError(t *testing.T) {
 func TestRunRendererMainErrorSuppressed(t *testing.T) {
 	bus := event.New()
 	var buf bytes.Buffer
-	r := newRunRenderer(&buf, "main-1", true, true)
+	r := newRunRenderer(&buf, nil, "main-1", true, true)
 	if err := r.subscribe(bus); err != nil {
 		t.Fatal(err)
 	}
@@ -264,6 +265,7 @@ func newRunTestCLI(t *testing.T) (*CLI, *config.Config, *llm.Manager) {
 	todo.TodoTools(fs)
 	shell.ShellTools(fs)
 	subagent.SubAgentTools(sess)
+	ask.AskTool()
 	middlewares.Create()
 	orchestrator.Register(fs)
 	if _, err := agents.New("orchestrator"); err != nil {

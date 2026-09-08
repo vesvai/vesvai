@@ -12,6 +12,8 @@ const (
 	TopicAgentUsage      = "agent.usage"
 	TopicAgentFinished   = "agent.finished"
 	TopicAgentError      = "agent.error"
+	TopicAgentAsk        = "agent.ask"
+	TopicAgentAskAnswer  = "agent.ask.answer"
 )
 
 type AgentInput struct {
@@ -84,4 +86,23 @@ type AgentError struct {
 	AgentName string
 	Model     llm.Model
 	Err       error
+}
+
+type AgentAsk struct {
+	AgentID   string
+	AgentName string
+	Questions []AskQuestion
+}
+
+type AskQuestion struct {
+	ID       string   `json:"id"`
+	Question string   `json:"question"`
+	Type     string   `json:"type"`
+	Options  []string `json:"options,omitempty"`
+	Required bool     `json:"required"`
+}
+
+type AgentAskAnswer struct {
+	AgentID string
+	Answers map[string]string
 }

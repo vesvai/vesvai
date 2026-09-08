@@ -104,7 +104,12 @@ func (c *CLI) runRun(out io.Writer, in io.Reader, message string, opts runOption
 	orch.Model = mdl
 	orch.Bus = c.bus
 
-	renderer := newRunRenderer(out, orch.ID, opts.showThinking, opts.showSubagent)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	renderer := newRunRenderer(out, in, orch.ID, opts.showThinking, opts.showSubagent)
+	renderer.bus = c.bus
+	renderer.ctx = ctx
 	if err := renderer.subscribe(c.bus); err != nil {
 		return err
 	}
@@ -121,9 +126,6 @@ func (c *CLI) runRun(out io.Writer, in io.Reader, message string, opts runOption
 	if resume != nil {
 		renderer.renderSessionHistory(resumeMsgs)
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	history := make([]llm.Message, 0, len(resumeMsgs)+1)
 	if resume != nil {
@@ -534,6 +536,9 @@ type runAgentState struct {
 
 type runRenderer struct {
 	out          io.Writer
+	in           io.Reader
+	bus          event.Bus
+	ctx          context.Context
 	mu           sync.Mutex
 	colors       bool
 	showThinking bool
@@ -552,9 +557,10 @@ type runRenderer struct {
 	animDone      chan struct{}
 }
 
-func newRunRenderer(out io.Writer, mainID string, showThinking, showSubagent bool) *runRenderer {
+func newRunRenderer(out io.Writer, in io.Reader, mainID string, showThinking, showSubagent bool) *runRenderer {
 	return &runRenderer{
 		out:          out,
+		in:           in,
 		colors:       isTerminal(out),
 		showThinking: showThinking,
 		showSubagent: showSubagent,
@@ -589,6 +595,7 @@ func (r *runRenderer) subscribe(bus event.Bus) error {
 		{agent.TopicAgentToolResult, r.onToolResult},
 		{agent.TopicAgentFinished, r.onFinished},
 		{agent.TopicAgentError, r.onError},
+		{agent.TopicAgentAsk, r.onAsk},
 	}
 	for _, s := range subs {
 		if err := bus.Subscribe(s.topic, s.fn); err != nil {
@@ -611,6 +618,7 @@ func (r *runRenderer) unsubscribe(bus event.Bus) {
 		{agent.TopicAgentToolResult, r.onToolResult},
 		{agent.TopicAgentFinished, r.onFinished},
 		{agent.TopicAgentError, r.onError},
+		{agent.TopicAgentAsk, r.onAsk},
 	}
 	for _, s := range subs {
 		_ = bus.Unsubscribe(s.topic, s.fn)
@@ -961,6 +969,95 @@ func (r *runRenderer) onError(e agent.AgentError) {
 		r.subFinished(e.AgentName)
 		r.write("%s %s: %v\n", r.red("error"), e.AgentName, e.Err)
 	}
+}
+
+func (r *runRenderer) readLine() (string, bool) {
+	ch := make(chan string, 1)
+	go func() {
+		var b [1]byte
+		var line []byte
+		for {
+			n, err := r.in.Read(b[:])
+			if n > 0 {
+				if b[0] == '\n' {
+					ch <- string(line)
+					return
+				}
+				line = append(line, b[0])
+			}
+			if err != nil {
+				ch <- ""
+				return
+			}
+		}
+	}()
+	select {
+	case line := <-ch:
+		return line, true
+	case <-r.ctx.Done():
+		return "", false
+	}
+}
+
+func (r *runRenderer) onAsk(e agent.AgentAsk) {
+	if e.AgentID != r.mainID {
+		return
+	}
+	r.write("\n%s %s is asking:\n", r.green("ask"), e.AgentName)
+	answers := make(map[string]string)
+
+	for _, q := range e.Questions {
+		for {
+			r.write("\n%s (%s)", r.bold(q.Question), q.Type)
+			if q.Required {
+				r.write(" [required]")
+			}
+			r.write(":\n")
+
+			switch q.Type {
+			case "text":
+				r.write("> ")
+				val, ok := r.readLine()
+				if !ok {
+					goto done
+				}
+				val = strings.TrimSpace(val)
+				if val == "" && q.Required {
+					r.write("%s Answer is required.\n", r.red("!"))
+					continue
+				}
+				answers[q.ID] = val
+			case "select":
+				for i, opt := range q.Options {
+					r.write("  %d) %s\n", i+1, opt)
+				}
+				r.write("  %d) Custom answer...\n", len(q.Options)+1)
+				r.write("> ")
+				val, ok := r.readLine()
+				if !ok {
+					goto done
+				}
+				val = strings.TrimSpace(val)
+				if val == "" && q.Required {
+					r.write("%s Answer is required.\n", r.red("!"))
+					continue
+				}
+				idx := 0
+				if _, err := fmt.Sscanf(val, "%d", &idx); idx >= 1 && idx <= len(q.Options) && err == nil {
+					answers[q.ID] = q.Options[idx-1]
+				} else {
+					answers[q.ID] = val
+				}
+			}
+			break
+		}
+	}
+
+done:
+	r.bus.Publish(agent.TopicAgentAskAnswer, agent.AgentAskAnswer{
+		AgentID: e.AgentID,
+		Answers: answers,
+	})
 }
 
 func (r *runRenderer) bold(s string) string { return r.color("\x1b[1m", s) }
