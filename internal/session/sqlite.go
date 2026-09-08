@@ -3,9 +3,10 @@ package session
 import (
 	"database/sql"
 	"fmt"
-	json "github.com/goccy/go-json"
 	"os"
 	"path/filepath"
+
+	json "github.com/goccy/go-json"
 
 	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/llm"
@@ -61,7 +62,14 @@ func NewSQLiteStore() (*SQLiteStore, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newSQLiteStoreAt(dbPath)
+}
 
+func NewSQLiteStoreAt(dbPath string) (*SQLiteStore, error) {
+	return newSQLiteStoreAt(dbPath)
+}
+
+func newSQLiteStoreAt(dbPath string) (*SQLiteStore, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		return nil, fmt.Errorf("session: create data directory: %w", err)
 	}
