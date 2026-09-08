@@ -640,28 +640,58 @@ func (a *App) loadMore() {
 func messagesToItems(msgs []session.Message) []*components.ChatItem {
 	var out []*components.ChatItem
 	toolByID := make(map[string]*components.ChatItem)
+	pendingToolResults := make(map[string]string)
+
+	isErrorOutput := func(s string) bool {
+		return strings.HasPrefix(s, "Error: ")
+	}
+
+	var pendingReasoning string
+	var pendingText string
+	var pendingToolCalls []llm.ToolCall
+
+	flushAssistant := func() {
+		if pendingReasoning != "" {
+			out = append(out, &components.ChatItem{Kind: components.ItemThinking, Reasoning: pendingReasoning, Expanded: false})
+		}
+		for _, tc := range pendingToolCalls {
+			it := &components.ChatItem{
+				Kind:     components.ItemTool,
+				ID:       tc.ID,
+				ToolName: tc.Function.Name,
+				ToolArgs: tc.Function.Arguments,
+			}
+			enrichToolItem(it)
+			toolByID[tc.ID] = it
+			if output, ok := pendingToolResults[tc.ID]; ok {
+				if isErrorOutput(output) {
+					it.ToolErr = output
+				} else {
+					it.ToolOutput = output
+				}
+				delete(pendingToolResults, tc.ID)
+			}
+			out = append(out, it)
+		}
+		if pendingText != "" {
+			out = append(out, &components.ChatItem{Kind: components.ItemAssistant, Text: pendingText})
+		}
+		pendingReasoning = ""
+		pendingText = ""
+		pendingToolCalls = nil
+	}
 
 	for _, m := range msgs {
 		switch m.Role {
 		case llm.RoleUser:
+			flushAssistant()
 			out = append(out, &components.ChatItem{Kind: components.ItemUser, Text: messageText(m)})
 		case llm.RoleAssistant:
-			if reasoning := messageReasoning(m); reasoning != "" {
-				out = append(out, &components.ChatItem{Kind: components.ItemThinking, Reasoning: reasoning, Expanded: false})
-			}
-			for _, tc := range m.ToolCalls {
-				it := &components.ChatItem{
-					Kind:     components.ItemTool,
-					ID:       tc.ID,
-					ToolName: tc.Function.Name,
-					ToolArgs: tc.Function.Arguments,
-				}
-				enrichToolItem(it)
-				toolByID[tc.ID] = it
-				out = append(out, it)
-			}
-			if text := messageText(m); text != "" {
-				out = append(out, &components.ChatItem{Kind: components.ItemAssistant, Text: text})
+			pendingReasoning += messageReasoning(m)
+			pendingText += messageText(m)
+			if len(m.ToolCalls) > 0 {
+				pendingToolCalls = m.ToolCalls
+				flushAssistant()
 			}
 		case llm.RoleTool:
 			text := messageText(m)
@@ -669,12 +699,18 @@ func messagesToItems(msgs []session.Message) []*components.ChatItem {
 				text = fmt.Sprint(m.Content)
 			}
 			if it, ok := toolByID[m.ToolCallID]; ok {
-				it.ToolOutput = text
-			} else if len(out) > 0 && out[len(out)-1].Kind == components.ItemTool {
-				out[len(out)-1].ToolOutput = text
+				if isErrorOutput(text) {
+					it.ToolErr = text
+				} else {
+					it.ToolOutput = text
+				}
+			} else {
+				pendingToolResults[m.ToolCallID] = text
 			}
 		}
 	}
+	flushAssistant()
+
 	return out
 }
 
