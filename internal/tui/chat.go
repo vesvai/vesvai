@@ -91,6 +91,7 @@ func (a *App) subscribeChat(bus event.Bus) error {
 		{agent.TopicAgentFinished, a.onAgentFinished},
 		{agent.TopicAgentError, a.onAgentError},
 		{session.TopicSessionAttached, a.onSessionAttached},
+		{agent.TopicAgentAsk, a.onAgentAsk},
 	}
 	for _, s := range subs {
 		if err := bus.Subscribe(s.topic, s.fn); err != nil {
@@ -115,6 +116,7 @@ func (a *App) unsubscribeChat(bus event.Bus) {
 		{agent.TopicAgentFinished, a.onAgentFinished},
 		{agent.TopicAgentError, a.onAgentError},
 		{session.TopicSessionAttached, a.onSessionAttached},
+		{agent.TopicAgentAsk, a.onAgentAsk},
 	}
 	for _, s := range subs {
 		_ = bus.Unsubscribe(s.topic, s.fn)
@@ -352,6 +354,31 @@ func (a *App) onAgentError(e agent.AgentError) {
 	a.refreshChat()
 }
 
+func (a *App) onAgentAsk(e agent.AgentAsk) {
+	qs := make([]components.AskQuestion, len(e.Questions))
+	for i, q := range e.Questions {
+		qs[i] = components.AskQuestion{
+			ID:       q.ID,
+			Question: q.Question,
+			Type:     q.Type,
+			Options:  q.Options,
+			Required: q.Required,
+		}
+	}
+	a.home.SetAsk(qs)
+	a.home.AskPicker().SetOnSend(func(answers map[string]string) {
+		a.bus.Publish(agent.TopicAgentAskAnswer, agent.AgentAskAnswer{
+			AgentID: e.AgentID,
+			Answers: answers,
+		})
+	})
+	a.home.AskPicker().SetOnDone(func() {
+		a.home.ClearAsk()
+		a.requestRedraw()
+	})
+	a.requestRedraw()
+}
+
 func (a *App) onAgentUsage(e agent.AgentUsage) {
 	a.chatMu.Lock()
 	defer a.chatMu.Unlock()
@@ -447,6 +474,9 @@ func (a *App) addToolItem(t *agentTranscript, call llm.ToolCall, agentID string)
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Pattern != "" {
 			it.ToolName = "grep:" + p.Pattern
 		}
+	case "ask":
+		it.ToolArgs = args
+		it.ToolName = "ask"
 	case "webfetch":
 		var p struct {
 			URL string `json:"url"`

@@ -37,6 +37,7 @@ type Page struct {
 
 	skillPicker   *components.Picker
 	mentionPicker *components.Picker
+	askPicker     *components.AskPicker
 	focus         focusTarget
 	pickKind      pickKind
 
@@ -54,6 +55,7 @@ func New() *Page {
 		attachmentBar: components.NewAttachmentBar(),
 		skillPicker:   components.NewPicker("Skills — type to filter"),
 		mentionPicker: components.NewPicker("Mentions — type to filter"),
+		askPicker:     components.NewAskPicker(),
 		focus:         focusInput,
 		pickTokenAt:   -1,
 	}
@@ -84,6 +86,18 @@ func (p *Page) PickCount() int {
 func (p *Page) SkillPicker() *components.Picker { return p.skillPicker }
 
 func (p *Page) MentionPicker() *components.Picker { return p.mentionPicker }
+
+func (p *Page) AskPicker() *components.AskPicker { return p.askPicker }
+
+func (p *Page) AskOpen() bool { return p.askPicker.Active() }
+
+func (p *Page) SetAsk(items []components.AskQuestion) {
+	p.askPicker.SetQuestions(items)
+}
+
+func (p *Page) ClearAsk() {
+	p.askPicker.Clear()
+}
 
 func (p *Page) Input() *components.Input { return p.input }
 
@@ -174,6 +188,9 @@ func (p *Page) chatBounds(bounds layout.Region) layout.Region {
 }
 
 func (p *Page) HandleKey(ev *tcell.EventKey) bool {
+	if p.askPicker.Active() {
+		return p.askPicker.HandleKey(ev)
+	}
 	if ev.Key() == tcell.KeyTab {
 		if p.chat.HasItems() || p.attachmentBar.Count() > 0 {
 			switch p.focus {
@@ -471,6 +488,23 @@ func (p *Page) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 		}
 	}
 	p.status.Draw(s, statusRegion, true)
+
+	if p.askPicker.Active() {
+		pickH := p.askPicker.Height()
+		pickW := inputRegion.Width
+		if pickW < 24 {
+			pickW = 24
+		}
+		pickRegion := layout.Region{
+			Left:   bounds.Left + 2,
+			Top:    inputRegion.Top - pickH - 1,
+			Width:  pickW,
+			Height: pickH,
+		}.Clamp(bounds)
+		if pickRegion.Top >= bounds.Top {
+			p.askPicker.Draw(s, pickRegion)
+		}
+	}
 }
 
 func Fill(s tcell.Screen, bounds layout.Region, th styles.Theme) {

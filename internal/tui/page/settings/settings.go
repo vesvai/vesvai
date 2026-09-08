@@ -43,6 +43,7 @@ type Settings struct {
 	deps Deps
 
 	tab     tabKind
+	tabs    *components.Tabs
 	general *generalTab
 	mcp     *mcpTab
 	skills  *skillsTab
@@ -65,7 +66,7 @@ type Settings struct {
 }
 
 func New(deps Deps) *Settings {
-	s := &Settings{deps: deps}
+	s := &Settings{deps: deps, tabs: components.NewTabs(tabNames)}
 	s.general = newGeneral(s)
 	s.mcp = newMCP(s)
 	s.skills = newSkills(s)
@@ -151,10 +152,12 @@ func (s *Settings) CloseRequested() bool { return false }
 
 func (s *Settings) nextTab() {
 	s.tab = tabKind((int(s.tab) + 1) % len(tabNames))
+	s.tabs.SetActive(int(s.tab))
 }
 
 func (s *Settings) prevTab() {
 	s.tab = tabKind((int(s.tab) - 1 + len(tabNames)) % len(tabNames))
+	s.tabs.SetActive(int(s.tab))
 }
 
 func (s *Settings) back() { s.sub = nil }
@@ -220,15 +223,7 @@ func (s *Settings) Draw(screen tcell.Screen, bounds layout.Region, focused bool)
 	}
 	inner := components.DrawCenteredBox(screen, bounds, w, h, "Settings")
 
-	x := inner.Left + 1
-	for i, name := range tabNames {
-		style := th.Base().Foreground(th.Hint).Background(th.InputBg)
-		if tabKind(i) == s.tab {
-			style = th.Base().Foreground(th.InputBg).Background(th.Accent)
-		}
-		components.DrawText(screen, x, inner.Top, " "+name+" ", style)
-		x += len(name) + 3
-	}
+	s.tabs.Draw(screen, inner.Left+1, inner.Top)
 
 	if s.sub != nil {
 		s.sub.Draw(screen, inner, true)

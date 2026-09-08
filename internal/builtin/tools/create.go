@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"github.com/vesvai/vesvai/internal/builtin/tools/ask"
 	"github.com/vesvai/vesvai/internal/builtin/tools/file"
 	"github.com/vesvai/vesvai/internal/builtin/tools/shell"
 	"github.com/vesvai/vesvai/internal/builtin/tools/subagent"
@@ -16,4 +17,5 @@ func Create(fs *vfs.VFS, sess *session.Manager) {
 	shell.ShellTools(fs)
 	web.WebTools(fs)
 	subagent.SubAgentTools(sess)
+	ask.AskTool()
 }
