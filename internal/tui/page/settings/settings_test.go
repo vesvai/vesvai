@@ -55,12 +55,16 @@ func TestSettingsTabs(t *testing.T) {
 		t.Errorf("after Right tab = %v, want Skills", s.tab)
 	}
 	s.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0))
+	if s.tab != tabRules {
+		t.Errorf("after Right tab = %v, want Rules", s.tab)
+	}
+	s.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0))
 	if s.tab != tabGeneral {
 		t.Errorf("after wrap tab = %v, want General", s.tab)
 	}
 	s.HandleKey(tcell.NewEventKey(tcell.KeyLeft, 0, 0))
-	if s.tab != tabSkills {
-		t.Errorf("after Left tab = %v, want Skills", s.tab)
+	if s.tab != tabRules {
+		t.Errorf("after Left tab = %v, want Rules", s.tab)
 	}
 }
 
