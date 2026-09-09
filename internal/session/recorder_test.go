@@ -84,10 +84,10 @@ func TestRecorderCreatesSessionPerAgent(t *testing.T) {
 
 	var s1, s2 *Session
 	for i := range sessions {
-		if sessions[i].Title == "agent-one" {
+		if sessions[i].Provider == "groq" && sessions[i].Model == "llama-3.3" {
 			s1 = &sessions[i]
 		}
-		if sessions[i].Title == "agent-two" {
+		if sessions[i].Provider == "openai" && sessions[i].Model == "gpt-4o" {
 			s2 = &sessions[i]
 		}
 	}
