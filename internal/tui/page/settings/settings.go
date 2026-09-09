@@ -20,9 +20,10 @@ const (
 	tabSession
 	tabMCP
 	tabSkills
+	tabRules
 )
 
-var tabNames = []string{"General", "Session", "MCP", "Skills"}
+var tabNames = []string{"General", "Session", "MCP", "Skills", "Rules"}
 
 type selectedModel struct {
 	provider string
@@ -47,6 +48,7 @@ type Settings struct {
 	general *generalTab
 	mcp     *mcpTab
 	skills  *skillsTab
+	rules   *rulesTab
 	session *sessionTab
 
 	active *SessionInfo
@@ -70,6 +72,7 @@ func New(deps Deps) *Settings {
 	s.general = newGeneral(s)
 	s.mcp = newMCP(s)
 	s.skills = newSkills(s)
+	s.rules = newRules(s)
 	s.session = newSessionTab(s)
 	return s
 }
@@ -206,6 +209,8 @@ func (s *Settings) HandleKey(ev *tcell.EventKey) bool {
 		return s.mcp.HandleKey(ev)
 	case tabSkills:
 		return s.skills.HandleKey(ev)
+	case tabRules:
+		return s.rules.HandleKey(ev)
 	}
 	return false
 }
@@ -241,6 +246,8 @@ func (s *Settings) Draw(screen tcell.Screen, bounds layout.Region, focused bool)
 		s.mcp.Draw(screen, content, focused)
 	case tabSkills:
 		s.skills.Draw(screen, content, focused)
+	case tabRules:
+		s.rules.Draw(screen, content, focused)
 	}
 
 	if s.errMsg != "" {
