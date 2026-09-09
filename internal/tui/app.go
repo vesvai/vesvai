@@ -72,6 +72,9 @@ type App struct {
 	agentCancel context.CancelFunc
 	escTimer    *time.Timer
 
+	escHint  bool
+	errorMsg string
+
 	pasteActive bool
 	pasteBuffer strings.Builder
 }
@@ -410,7 +413,7 @@ func (a *App) handleKey(ev *tcell.EventKey) bool {
 				return true
 			}
 			a.lastEsc = time.Now()
-			a.home.SetEscHint(true)
+			a.escHint = true
 			a.escTimer = time.AfterFunc(doubleEscWindow, func() {
 				a.chatMu.Lock()
 				a.clearEscHint()
@@ -418,7 +421,7 @@ func (a *App) handleKey(ev *tcell.EventKey) bool {
 			})
 		} else {
 			a.lastEsc = time.Time{}
-			a.home.SetEscHint(false)
+			a.escHint = false
 			if a.escTimer != nil {
 				a.escTimer.Stop()
 				a.escTimer = nil
@@ -527,7 +530,7 @@ func (a *App) clearEscHint() {
 		a.escTimer.Stop()
 		a.escTimer = nil
 	}
-	a.home.SetEscHint(false)
+	a.escHint = false
 	a.requestRedraw()
 }
 
@@ -659,6 +662,15 @@ func (a *App) drawLocked() {
 	}
 	if ov := a.getOverlay(); ov != nil {
 		ov.Draw(a.screen, bounds, true)
+	}
+	th := styles.Current()
+	style := th.Base().Foreground(th.Error)
+	hintY := h - 2
+	switch {
+	case a.errorMsg != "":
+		components.DrawText(a.screen, 2, hintY, a.errorMsg, style)
+	case a.escHint:
+		components.DrawText(a.screen, 2, hintY, "Press Esc to interrupt", style)
 	}
 	a.screen.Show()
 }

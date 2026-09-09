@@ -24,7 +24,7 @@ func newDeveloperAgent(fs *vfs.VFS) (*agent.Agent, error) {
 		agent.WithSystemPrompt(sys),
 		agent.WithTools(file.Tools(fs)...),
 		agent.WithToolNames("bash", "web-fetch", "web-search", "list-todo", "update-todo"),
-		agent.WithMiddlewareNames("loop-detector", "redaction"),
+		agent.WithMiddlewareNames("loop-detector", "redaction", "retry"),
 	)
 
 	return main, nil

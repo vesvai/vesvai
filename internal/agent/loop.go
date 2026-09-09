@@ -200,7 +200,7 @@ func (a *Agent) iterate(ctx context.Context, state *runState, prov llm.Provider)
 		return a.iterateStream(ctx, state, prov, req)
 	}
 
-	resp, err := prov.Chat(ctx, req)
+	resp, err := a.chain.InvokeLLM(ctx, req, prov.Chat)
 	if err != nil {
 		return llm.Message{}, nil, err
 	}
@@ -231,7 +231,7 @@ func (a *Agent) iterate(ctx context.Context, state *runState, prov llm.Provider)
 
 func (a *Agent) iterateStream(ctx context.Context, state *runState, prov llm.Provider, req *llm.Request) (llm.Message, []llm.ToolCall, error) {
 	acc := newStreamAccumulator()
-	err := prov.ChatStream(ctx, req, func(chunk llm.StreamChunk) error {
+	err := a.chain.InvokeLLMStream(ctx, req, func(chunk llm.StreamChunk) error {
 		acc.append(chunk)
 		if chunk.Usage != nil {
 			state.accumulateUsage(*chunk.Usage)
@@ -278,7 +278,7 @@ func (a *Agent) iterateStream(ctx context.Context, state *runState, prov llm.Pro
 			})
 		}
 		return nil
-	})
+	}, prov.ChatStream)
 	if err != nil {
 		return llm.Message{}, nil, err
 	}

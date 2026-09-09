@@ -432,4 +432,47 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
+func TestAppErrorMessageShownAndCleared(t *testing.T) {
+	orch := agent.New("orch", agent.WithProvider(&chatEchoProvider{}), agent.WithModel(llm.Model{ID: "m"}))
+	app, bus := newChatApp(t, orch)
+
+	bus.Publish(agent.TopicErrorMessage, agent.ErrorMessage{
+		AgentID: orch.ID,
+		Message: "Request failed (attempt 2): connection reset — retrying in 10s",
+	})
+
+	waitFor(t, 2*time.Second, func() bool {
+		app.chatMu.Lock()
+		defer app.chatMu.Unlock()
+		return app.errorMsg != ""
+	})
+
+	app.chatMu.Lock()
+	got := app.errorMsg
+	app.chatMu.Unlock()
+	if !strings.Contains(got, "connection reset") || !strings.Contains(got, "attempt 2") || !strings.Contains(got, "10s") {
+		t.Fatalf("error msg = %q, want failure + attempt + backoff info", got)
+	}
+
+	bus.Publish(agent.TopicErrorMessageFinished, agent.ErrorMessageFinished{AgentID: orch.ID})
+	waitFor(t, 2*time.Second, func() bool {
+		app.chatMu.Lock()
+		defer app.chatMu.Unlock()
+		return app.errorMsg == ""
+	})
+}
+
+func TestAppErrorMessageIgnoresOtherAgents(t *testing.T) {
+	orch := agent.New("orch", agent.WithProvider(&chatEchoProvider{}), agent.WithModel(llm.Model{ID: "m"}))
+	app, bus := newChatApp(t, orch)
+
+	bus.Publish(agent.TopicErrorMessage, agent.ErrorMessage{AgentID: "sub-1", Message: "boom"})
+	time.Sleep(50 * time.Millisecond)
+	app.chatMu.Lock()
+	defer app.chatMu.Unlock()
+	if app.errorMsg != "" {
+		t.Fatalf("error msg = %q, want empty for subagent events", app.errorMsg)
+	}
+}
+
 var _ = tcell.NewEventKey

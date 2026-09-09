@@ -90,6 +90,38 @@ func (c *Chain) AfterTool(ctx context.Context, call llm.ToolCall, output string,
 	return nil
 }
 
+func (c *Chain) InvokeLLM(ctx context.Context, req *llm.Request, next LLMInvoker) (*llm.Response, error) {
+	mws := c.snapshot()
+	invoke := next
+	for i := len(mws) - 1; i >= 0; i-- {
+		w, ok := mws[i].(InvokeLLM)
+		if !ok {
+			continue
+		}
+		w, prev := w, invoke
+		invoke = func(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+			return w.InvokeLLM(ctx, req, prev)
+		}
+	}
+	return invoke(ctx, req)
+}
+
+func (c *Chain) InvokeLLMStream(ctx context.Context, req *llm.Request, handler llm.StreamHandler, next LLMStreamInvoker) error {
+	mws := c.snapshot()
+	invoke := next
+	for i := len(mws) - 1; i >= 0; i-- {
+		w, ok := mws[i].(InvokeLLMStream)
+		if !ok {
+			continue
+		}
+		w, prev := w, invoke
+		invoke = func(ctx context.Context, req *llm.Request, h llm.StreamHandler) error {
+			return w.InvokeLLMStream(ctx, req, h, prev)
+		}
+	}
+	return invoke(ctx, req, handler)
+}
+
 func (c *Chain) OnError(ctx context.Context, runErr error) error {
 	var last error
 	for _, m := range c.snapshot() {
