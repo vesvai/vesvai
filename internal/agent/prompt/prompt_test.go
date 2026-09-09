@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -805,6 +806,106 @@ func TestAgentsMd(t *testing.T) {
 		p := New().
 			Paragraph("before").
 			AgentsMd().
+			Paragraph("after")
+
+		got, err := p.Build(FormatMarkdown)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "before\n\nafter"
+		if got != want {
+			t.Fatalf("markdown:\ngot:\n%s\nwant:\n%s", got, want)
+		}
+	})
+}
+
+func TestRules(t *testing.T) {
+	t.Run("global and project rules", func(t *testing.T) {
+		homeDir := t.TempDir()
+		rulesDir := filepath.Join(homeDir, ".vesvai", "rules")
+		if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(filepath.Join(rulesDir, "01-global.md"), []byte("# Global Rule\nAlways be concise."), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		projectDir := t.TempDir()
+		projectRulesDir := filepath.Join(projectDir, ".vesvai", "rules")
+		if err := os.MkdirAll(projectRulesDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(filepath.Join(projectRulesDir, "02-project.md"), []byte("# Project Rule\nFollow conventions."), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		orig, _ := os.Getwd()
+		os.Chdir(projectDir)
+		defer os.Chdir(orig)
+
+		t.Setenv("HOME", homeDir)
+
+		p := New().
+			Paragraph("before").
+			Rules().
+			Paragraph("after")
+
+		got, err := p.Build(FormatMarkdown)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !strings.Contains(got, "# Rules") {
+			t.Fatal("missing Rules heading")
+		}
+		if !strings.Contains(got, "WARNING") {
+			t.Fatal("missing stern warning")
+		}
+		if !strings.Contains(got, "# Global Rule") {
+			t.Fatal("missing global rule content")
+		}
+		if !strings.Contains(got, "# Project Rule") {
+			t.Fatal("missing project rule content")
+		}
+	})
+
+	t.Run("no rules directories", func(t *testing.T) {
+		dir := t.TempDir()
+		orig, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(orig)
+
+		p := New().
+			Paragraph("before").
+			Rules().
+			Paragraph("after")
+
+		got, err := p.Build(FormatMarkdown)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "before\n\nafter"
+		if got != want {
+			t.Fatalf("markdown:\ngot:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("empty rules directory", func(t *testing.T) {
+		dir := t.TempDir()
+		rulesDir := filepath.Join(dir, ".vesvai", "rules")
+		if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		orig, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(orig)
+
+		p := New().
+			Paragraph("before").
+			Rules().
 			Paragraph("after")
 
 		got, err := p.Build(FormatMarkdown)
