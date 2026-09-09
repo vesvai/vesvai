@@ -90,6 +90,8 @@ func (a *App) subscribeChat(bus event.Bus) error {
 		{agent.TopicAgentUsage, a.onAgentUsage},
 		{agent.TopicAgentFinished, a.onAgentFinished},
 		{agent.TopicAgentError, a.onAgentError},
+		{agent.TopicErrorMessage, a.onErrorMessage},
+		{agent.TopicErrorMessageFinished, a.onErrorMessageFinished},
 		{session.TopicSessionAttached, a.onSessionAttached},
 		{agent.TopicAgentAsk, a.onAgentAsk},
 	}
@@ -115,6 +117,8 @@ func (a *App) unsubscribeChat(bus event.Bus) {
 		{agent.TopicAgentUsage, a.onAgentUsage},
 		{agent.TopicAgentFinished, a.onAgentFinished},
 		{agent.TopicAgentError, a.onAgentError},
+		{agent.TopicErrorMessage, a.onErrorMessage},
+		{agent.TopicErrorMessageFinished, a.onErrorMessageFinished},
 		{session.TopicSessionAttached, a.onSessionAttached},
 		{agent.TopicAgentAsk, a.onAgentAsk},
 	}
@@ -352,6 +356,26 @@ func (a *App) onAgentError(e agent.AgentError) {
 	}
 	a.appendItem(t, &components.ChatItem{Kind: components.ItemError, Text: e.Err.Error()})
 	a.refreshChat()
+}
+
+func (a *App) onErrorMessage(e agent.ErrorMessage) {
+	a.chatMu.Lock()
+	defer a.chatMu.Unlock()
+	if a.agent == nil || e.AgentID != a.agent.ID {
+		return
+	}
+	a.errorMsg = e.Message
+	a.requestRedraw()
+}
+
+func (a *App) onErrorMessageFinished(e agent.ErrorMessageFinished) {
+	a.chatMu.Lock()
+	defer a.chatMu.Unlock()
+	if a.agent == nil || e.AgentID != a.agent.ID {
+		return
+	}
+	a.errorMsg = ""
+	a.requestRedraw()
 }
 
 func (a *App) onAgentAsk(e agent.AgentAsk) {

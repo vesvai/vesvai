@@ -240,3 +240,121 @@ func TestBaseMiddlewareNoop(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+type wrapRecorder struct {
+	BaseMiddleware
+	name string
+	seen *[]string
+}
+
+func (w *wrapRecorder) InvokeLLM(ctx context.Context, req *llm.Request, next LLMInvoker) (*llm.Response, error) {
+	*w.seen = append(*w.seen, "before:"+w.name)
+	resp, err := next(ctx, req)
+	*w.seen = append(*w.seen, "after:"+w.name)
+	return resp, err
+}
+
+func (w *wrapRecorder) InvokeLLMStream(ctx context.Context, req *llm.Request, handler llm.StreamHandler, next LLMStreamInvoker) error {
+	*w.seen = append(*w.seen, "stream-before:"+w.name)
+	err := next(ctx, req, handler)
+	*w.seen = append(*w.seen, "stream-after:"+w.name)
+	return err
+}
+
+func TestChainInvokeLLMComposition(t *testing.T) {
+	var seen []string
+	outer := &wrapRecorder{name: "outer", seen: &seen}
+	inner := &wrapRecorder{name: "inner", seen: &seen}
+	c := NewChain(outer, inner)
+
+	ctx := context.Background()
+	req := llm.NewRequest("m", nil)
+	var calls int
+	resp, err := c.InvokeLLM(ctx, req, func(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+		calls++
+		return &llm.Response{Model: req.Model}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Model != "m" {
+		t.Fatalf("resp.Model = %q, want m", resp.Model)
+	}
+	if calls != 1 {
+		t.Fatalf("next calls = %d, want 1", calls)
+	}
+	want := []string{"before:outer", "before:inner", "after:inner", "after:outer"}
+	if !slices.Equal(seen, want) {
+		t.Fatalf("order = %v, want %v", seen, want)
+	}
+}
+
+func TestChainInvokeLLMTransparent(t *testing.T) {
+	r := &recorder{}
+	c := NewChain(r)
+
+	ctx := context.Background()
+	req := llm.NewRequest("m", nil)
+	var calls int
+	resp, err := c.InvokeLLM(ctx, req, func(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+		calls++
+		return &llm.Response{Model: "resp"}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Model != "resp" || calls != 1 {
+		t.Fatalf("resp=%v calls=%d, want resp with 1 call", resp, calls)
+	}
+}
+
+func TestChainInvokeLLMStreamComposition(t *testing.T) {
+	var seen []string
+	outer := &wrapRecorder{name: "outer", seen: &seen}
+	inner := &wrapRecorder{name: "inner", seen: &seen}
+	c := NewChain(outer, inner)
+
+	ctx := context.Background()
+	req := llm.NewRequest("m", nil)
+	var calls int
+	var chunks []string
+	err := c.InvokeLLMStream(ctx, req, func(chunk llm.StreamChunk) error {
+		chunks = append(chunks, chunk.Content)
+		return nil
+	}, func(ctx context.Context, req *llm.Request, handler llm.StreamHandler) error {
+		calls++
+		return handler(llm.StreamChunk{Content: "tok"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("next calls = %d, want 1", calls)
+	}
+	if !slices.Equal(chunks, []string{"tok"}) {
+		t.Fatalf("chunks = %v, want [tok]", chunks)
+	}
+	want := []string{"stream-before:outer", "stream-before:inner", "stream-after:inner", "stream-after:outer"}
+	if !slices.Equal(seen, want) {
+		t.Fatalf("order = %v, want %v", seen, want)
+	}
+}
+
+func TestChainInvokeLLMStreamTransparent(t *testing.T) {
+	r := &recorder{}
+	c := NewChain(r)
+
+	ctx := context.Background()
+	req := llm.NewRequest("m", nil)
+	var calls int
+	err := c.InvokeLLMStream(ctx, req, func(llm.StreamChunk) error { return nil }, func(ctx context.Context, req *llm.Request, handler llm.StreamHandler) error {
+		calls++
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("next calls = %d, want 1", calls)
+	}
+}

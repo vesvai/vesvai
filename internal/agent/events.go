@@ -3,17 +3,19 @@ package agent
 import "github.com/vesvai/vesvai/internal/llm"
 
 const (
-	TopicAgentStarted    = "agent.started"
-	TopicAgentInput      = "agent.input"
-	TopicAgentMessage    = "agent.message"
-	TopicAgentToken      = "agent.token"
-	TopicAgentToolCall   = "agent.tool.call"
-	TopicAgentToolResult = "agent.tool.result"
-	TopicAgentUsage      = "agent.usage"
-	TopicAgentFinished   = "agent.finished"
-	TopicAgentError      = "agent.error"
-	TopicAgentAsk        = "agent.ask"
-	TopicAgentAskAnswer  = "agent.ask.answer"
+	TopicAgentStarted         = "agent.started"
+	TopicAgentInput           = "agent.input"
+	TopicAgentMessage         = "agent.message"
+	TopicAgentToken           = "agent.token"
+	TopicAgentToolCall        = "agent.tool.call"
+	TopicAgentToolResult      = "agent.tool.result"
+	TopicAgentUsage           = "agent.usage"
+	TopicAgentFinished        = "agent.finished"
+	TopicAgentError           = "agent.error"
+	TopicAgentAsk             = "agent.ask"
+	TopicAgentAskAnswer       = "agent.ask.answer"
+	TopicErrorMessage         = "agent.error.message"
+	TopicErrorMessageFinished = "agent.error.message.finished"
 )
 
 type AgentInput struct {
@@ -105,4 +107,21 @@ type AskQuestion struct {
 type AgentAskAnswer struct {
 	AgentID string
 	Answers map[string]string
+}
+
+// ErrorMessage is published by middlewares (e.g. the retry middleware) when a
+// transient error occurs during an LLM request and needs to be surfaced to the
+// user. Consumers display the message and clear it on ErrorMessageFinished.
+type ErrorMessage struct {
+	AgentID   string
+	AgentName string
+	Message   string
+}
+
+// ErrorMessageFinished erases the active error message for the agent. It is
+// published once the error condition has ended (retry succeeded or the request
+// was abandoned).
+type ErrorMessageFinished struct {
+	AgentID   string
+	AgentName string
 }

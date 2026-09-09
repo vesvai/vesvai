@@ -7,4 +7,5 @@ import (
 func Create() {
 	middlewares.Register("loop-detector", NewLoopDetector())
 	middlewares.Register("redaction", NewRedaction())
+	middlewares.Register("retry", NewRetry())
 }

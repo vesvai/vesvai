@@ -16,6 +16,18 @@ type Middleware interface {
 	OnError(ctx context.Context, runErr error) error
 }
 
+type LLMInvoker func(ctx context.Context, req *llm.Request) (*llm.Response, error)
+
+type LLMStreamInvoker func(ctx context.Context, req *llm.Request, handler llm.StreamHandler) error
+
+type InvokeLLM interface {
+	InvokeLLM(ctx context.Context, req *llm.Request, next LLMInvoker) (*llm.Response, error)
+}
+
+type InvokeLLMStream interface {
+	InvokeLLMStream(ctx context.Context, req *llm.Request, handler llm.StreamHandler, next LLMStreamInvoker) error
+}
+
 type BaseMiddleware struct{}
 
 func (BaseMiddleware) BeforeRun(context.Context, string, string) error              { return nil }

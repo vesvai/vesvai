@@ -43,7 +43,6 @@ type Page struct {
 
 	pickDismissed bool
 	pickTokenAt   int
-	escHint       bool
 }
 
 func New() *Page {
@@ -126,7 +125,6 @@ func (p *Page) SetRunning(r bool)           { p.status.SetRunning(r) }
 func (p *Page) SetReasoningEffort(e string) { p.status.SetReasoningEffort(e) }
 func (p *Page) SetUsage(u llm.Usage)        { p.status.SetUsage(u) }
 func (p *Page) SetMaxInputTokens(n int)     { p.status.SetMaxInputTokens(n) }
-func (p *Page) SetEscHint(b bool)           { p.escHint = b }
 
 func (p *Page) SetChatFocus(b bool) {
 	if b {
@@ -443,14 +441,6 @@ func (p *Page) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 	}
 
 	p.input.Draw(s, inputRegion, focused && p.focus == focusInput)
-
-	if p.escHint {
-		hintY := statusRegion.Top - 1
-		hint := "Press Esc to interrupt"
-		th := styles.Current()
-		style := th.Base().Foreground(th.Error)
-		components.DrawText(s, inputRegion.Left, hintY, hint, style)
-	}
 
 	p.syncPickers()
 	if p.pickKind != pickNone {
