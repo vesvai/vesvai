@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	json "github.com/goccy/go-json"
+	"github.com/vesvai/vesvai/internal/core/config"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -184,6 +187,62 @@ func (p *Prompt) AgentsMd() *Prompt {
 	}
 	return p.Add(Heading(1, "Project Instructions")).
 		Add(Raw(string(content)))
+}
+
+func (p *Prompt) Rules() *Prompt {
+	globalDir, _ := config.GetConfigPath("rules")
+	projectDir, _ := config.GetProjectConfigPath("rules")
+
+	var allRules []string
+
+	if rules := readRuleDir(globalDir); len(rules) > 0 {
+		allRules = append(allRules, rules...)
+	}
+
+	if rules := readRuleDir(projectDir); len(rules) > 0 {
+		allRules = append(allRules, rules...)
+	}
+
+	if len(allRules) == 0 {
+		return p
+	}
+
+	p = p.Add(Heading(1, "Rules")).
+		Add(Paragraph("WARNING: You MUST strictly follow these rules. Violation of these rules is unacceptable."))
+
+	for _, content := range allRules {
+		p = p.Add(Raw(content))
+	}
+
+	return p
+}
+
+func readRuleDir(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+
+	sort.Strings(names)
+
+	var rules []string
+	for _, name := range names {
+		content, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || len(content) == 0 {
+			continue
+		}
+		rules = append(rules, string(content))
+	}
+
+	return rules
 }
 
 func Render(text string, vars Vars) (string, error) {
