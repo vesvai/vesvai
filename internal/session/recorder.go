@@ -13,11 +13,17 @@ import (
 
 const chunksPerCommit = 10
 
+type sessionInfo struct {
+	sessionID string
+	provider  llm.Provider
+	model     llm.Model
+}
+
 type Recorder struct {
 	mgr      *Manager
 	log      *logger.Logger
 	mu       sync.Mutex
-	sessions map[string]string
+	sessions map[string]*sessionInfo
 	resumed  map[string]string
 	pending  map[string]*pendingMessage
 }
@@ -32,7 +38,7 @@ func NewRecorder(mgr *Manager, log *logger.Logger) *Recorder {
 	return &Recorder{
 		mgr:      mgr,
 		log:      log,
-		sessions: make(map[string]string),
+		sessions: make(map[string]*sessionInfo),
 		resumed:  make(map[string]string),
 		pending:  make(map[string]*pendingMessage),
 	}
@@ -86,8 +92,18 @@ func (r *Recorder) Stop(bus event.Bus) error {
 func (r *Recorder) sessionID(agentID string) (string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	id, ok := r.sessions[agentID]
-	return id, ok
+	info, ok := r.sessions[agentID]
+	if !ok {
+		return "", false
+	}
+	return info.sessionID, true
+}
+
+func (r *Recorder) getSessionInfo(agentID string) (*sessionInfo, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	info, ok := r.sessions[agentID]
+	return info, ok
 }
 
 func (r *Recorder) handleResume(e SessionResume) {
@@ -109,7 +125,7 @@ func (r *Recorder) handleStarted(e agent.AgentStarted) {
 	r.mu.Unlock()
 
 	if sessID == "" {
-		opts := CreateOptions{Title: e.AgentName}
+		opts := CreateOptions{}
 		if e.Provider != nil {
 			opts.Provider = e.Provider.Name()
 		}
@@ -127,8 +143,13 @@ func (r *Recorder) handleStarted(e agent.AgentStarted) {
 		sessID = s.ID
 	}
 
+	info := &sessionInfo{
+		sessionID: sessID,
+		provider:  e.Provider,
+		model:     e.Model,
+	}
 	r.mu.Lock()
-	r.sessions[e.AgentID] = sessID
+	r.sessions[e.AgentID] = info
 	r.mu.Unlock()
 
 	r.mgr.publish(TopicSessionAttached, SessionAttached{
@@ -138,16 +159,36 @@ func (r *Recorder) handleStarted(e agent.AgentStarted) {
 }
 
 func (r *Recorder) handleInput(e agent.AgentInput) {
-	if id, ok := r.sessionID(e.AgentID); ok {
-		if _, err := r.mgr.AppendMessage(id, llm.UserMessage(e.Input)); err != nil {
-			r.log.Fdebug("session recorder: append input: %v", err)
+	id, ok := r.sessionID(e.AgentID)
+	if !ok {
+		return
+	}
+	if _, err := r.mgr.AppendMessage(id, llm.UserMessage(e.Input)); err != nil {
+		r.log.Fdebug("session recorder: append input: %v", err)
+		return
+	}
+
+	if info, ok := r.getSessionInfo(e.AgentID); ok && info.provider != nil {
+		go r.generateTitle(id, info.provider, info.model, e.Input)
+	}
+}
+
+func (r *Recorder) generateTitle(sessionID string, provider llm.Provider, model llm.Model, input string) {
+	title, err := GenerateSessionTitle(provider, model, input)
+	if err != nil {
+		r.log.Fdebug("session recorder: generate title: %v", err)
+		return
+	}
+	if title != "" {
+		if err := r.mgr.SetTitle(sessionID, title); err != nil {
+			r.log.Fdebug("session recorder: set title: %v", err)
 		}
 	}
 }
 
 func (r *Recorder) handleToken(e agent.AgentToken) {
 	r.mu.Lock()
-	sessID, ok := r.sessions[e.AgentID]
+	info, ok := r.sessions[e.AgentID]
 	p := r.pending[e.AgentID]
 	if p == nil {
 		p = &pendingMessage{}
@@ -163,7 +204,7 @@ func (r *Recorder) handleToken(e agent.AgentToken) {
 		return
 	}
 	if commit {
-		r.commitPending(e.AgentID, sessID)
+		r.commitPending(e.AgentID, info.sessionID)
 	}
 }
 

@@ -58,8 +58,12 @@ func TestManagerCreateEvents(t *testing.T) {
 	if created == nil || created.SessionID != s.ID {
 		t.Fatalf("created event = %+v", created)
 	}
-	if _, err := mgr.Create(CreateOptions{}); !errors.Is(err, ErrEmptyTitle) {
-		t.Fatalf("want ErrEmptyTitle, got %v", err)
+	s2, err := mgr.Create(CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s2.Title == "" {
+		t.Fatalf("session with empty title should get default title, got empty")
 	}
 }
 

@@ -25,7 +25,7 @@ func NewManager(store Store, bus event.Bus, log *logger.Logger) *Manager {
 
 func (m *Manager) Create(opts CreateOptions) (*Session, error) {
 	if opts.Title == "" {
-		return nil, ErrEmptyTitle
+		opts.Title = "New Session " + time.Now().Format("2006-01-02 15:04:05")
 	}
 	now := time.Now()
 	s := &Session{

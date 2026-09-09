@@ -126,9 +126,8 @@ func (s *Settings) openSessionList() {
 		sort.Slice(sessions, func(i, j int) bool { return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt) })
 		for _, sess := range sessions {
 			items = append(items, components.ListItem{
-				Label:  sess.Title,
-				Detail: sess.Provider + "/" + sess.Model + " · " + sess.UpdatedAt.Format("2006-01-02 15:04"),
-				Data:   sess.ID,
+				Label: sess.Title,
+				Data:  sess.ID,
 			})
 		}
 	} else {
