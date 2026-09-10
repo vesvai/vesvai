@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/plugin"
 )
 
@@ -20,6 +21,7 @@ func (c *CLI) newPluginCommand() *cobra.Command {
 	cmd.AddCommand(
 		c.newPluginListCommand(),
 		c.newPluginInfoCommand(),
+		c.newPluginToggleCommand(),
 	)
 
 	return cmd
@@ -88,6 +90,27 @@ func (c *CLI) newPluginInfoCommand() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "Description: %s\n", p.Description)
 			fmt.Fprintf(cmd.OutOrStdout(), "Path:        %s\n", p.Path)
 
+			return nil
+		},
+	}
+}
+
+func (c *CLI) newPluginToggleCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "toggle [name]",
+		Short: "Toggle plugin enabled/disabled",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			enabled, err := config.TogglePlugin(name)
+			if err != nil {
+				return fmt.Errorf("toggle plugin: %w", err)
+			}
+			state := "enabled"
+			if !enabled {
+				state = "disabled"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Plugin %s is now %s\n", name, state)
 			return nil
 		},
 	}
