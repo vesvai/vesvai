@@ -65,6 +65,11 @@ type PermissionConfig struct {
 	Rules         map[string]string `json:"rules,omitempty"`
 }
 
+type PluginConfig struct {
+	Enabled bool     `json:"enabled,omitempty"`
+	Exclude []string `json:"exclude,omitempty"`
+}
+
 type Config struct {
 	Providers       []LLMConfig                     `json:"providers"`
 	Logger          LoggerConfig                    `json:"logger"`
@@ -73,6 +78,7 @@ type Config struct {
 	Server          ServerConfig                    `json:"server,omitempty"`
 	Theme           string                          `json:"theme,omitempty"`
 	Permission      *PermissionConfig               `json:"permission,omitempty"`
+	Plugins         PluginConfig                    `json:"plugins,omitempty"`
 	MCPServers      map[string]MCPServerConfig      `json:"mcp_servers,omitempty"`
 	LanguageServers map[string]LanguageServerConfig `json:"language_servers,omitempty"`
 }
@@ -93,7 +99,10 @@ func DefaultConfig() *Config {
 			Host: "127.0.0.1",
 			Port: 8080,
 		},
-		Theme:           "dark",
+		Theme: "dark",
+		Plugins: PluginConfig{
+			Enabled: true,
+		},
 		MCPServers:      make(map[string]MCPServerConfig),
 		LanguageServers: make(map[string]LanguageServerConfig),
 	}

@@ -144,6 +144,7 @@ nav:
         - Rules: vesvai/configurations/rules.md
         - MCP: vesvai/configurations/mcp.md
         - LSP: vesvai/configurations/lsp.md
+        - Plugins: vesvai/configurations/plugins.md
       - Features:
         - Subagents: vesvai/features/subagents.md
         - Commands: vesvai/features/commands.md
@@ -157,3 +158,8 @@ nav:
       - Files: sdk/files.md
       - Extending: sdk/extending.md
       - Events & Errors: sdk/events-errors.md
+  - Plugin:
+      - Overview: plugin/index.md
+      - Quickstart: plugin/quickstart.md
+      - Interface: plugin/interface.md
+      - Development Guide: plugin/development.md

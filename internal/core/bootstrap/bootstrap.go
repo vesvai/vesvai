@@ -18,6 +18,7 @@ import (
 	_ "github.com/vesvai/vesvai/internal/llm/providers"
 	"github.com/vesvai/vesvai/internal/lsp"
 	"github.com/vesvai/vesvai/internal/mcp"
+	"github.com/vesvai/vesvai/internal/plugin"
 	"github.com/vesvai/vesvai/internal/session"
 	"github.com/vesvai/vesvai/internal/skill"
 	"github.com/vesvai/vesvai/internal/utils/query"
@@ -123,6 +124,14 @@ func Run(args []string) error {
 		return fmt.Errorf("bootstrap: init lsp: %w", err)
 	}
 	defer lspMgr.Close()
+
+	pluginMgr, err := plugin.Module(cfg, bus, log, cacheStore, mgr, sess, fs, mcpMgr, lspMgr)
+	if err != nil {
+		log.Fwarn("plugin: failed to initialize: %v", err)
+	}
+	if pluginMgr != nil {
+		defer pluginMgr.Close()
+	}
 
 	log.Info("application started")
 
