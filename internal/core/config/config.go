@@ -285,3 +285,30 @@ func SaveTheme(theme string) error {
 	cfg.Theme = theme
 	return Save(cfg)
 }
+
+func TogglePlugin(name string) (bool, error) {
+	cfg, err := Load()
+	if err != nil {
+		return false, err
+	}
+
+	exclude := cfg.Plugins.Exclude
+	found := false
+	for i, n := range exclude {
+		if n == name {
+			exclude = append(exclude[:i], exclude[i+1:]...)
+			found = true
+			break
+		}
+	}
+	if !found {
+		exclude = append(exclude, name)
+	}
+	cfg.Plugins.Exclude = exclude
+
+	if err := Save(cfg); err != nil {
+		return false, err
+	}
+
+	return !found, nil
+}

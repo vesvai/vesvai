@@ -16,6 +16,7 @@ import (
 	"github.com/vesvai/vesvai/internal/llm"
 	"github.com/vesvai/vesvai/internal/lsp"
 	"github.com/vesvai/vesvai/internal/mcp"
+	"github.com/vesvai/vesvai/internal/plugin"
 	"github.com/vesvai/vesvai/internal/session"
 	"github.com/vesvai/vesvai/internal/tui"
 	"github.com/vesvai/vesvai/internal/tui/page/settings"
@@ -23,34 +24,36 @@ import (
 )
 
 type CLI struct {
-	bus      event.Bus
-	cfg      *config.Config
-	log      *logger.Logger
-	sessions *session.Manager
-	llmMgr   *llm.Manager
-	mcpMgr   *mcp.Manager
-	lspMgr   *lsp.Manager
-	fs       *vfs.VFS
-	cache    cache.Cache
-	root     *cobra.Command
-	commands hook.Hook[[]*cobra.Command]
-	added    bool
-	picker   func(items []string, label string) (int, error)
+	bus       event.Bus
+	cfg       *config.Config
+	log       *logger.Logger
+	sessions  *session.Manager
+	llmMgr    *llm.Manager
+	mcpMgr    *mcp.Manager
+	lspMgr    *lsp.Manager
+	fs        *vfs.VFS
+	cache     cache.Cache
+	pluginMgr *plugin.Manager
+	added     bool
+	root      *cobra.Command
+	commands  hook.Hook[[]*cobra.Command]
+	picker    func(items []string, label string) (int, error)
 }
 
-func New(bus event.Bus, cfg *config.Config, log *logger.Logger, vfs *vfs.VFS, sessions *session.Manager, llmMgr *llm.Manager, mcpMgr *mcp.Manager, lspMgr *lsp.Manager, cache cache.Cache) *CLI {
+func New(bus event.Bus, cfg *config.Config, log *logger.Logger, vfs *vfs.VFS, sessions *session.Manager, llmMgr *llm.Manager, mcpMgr *mcp.Manager, lspMgr *lsp.Manager, cache cache.Cache, pluginMgr *plugin.Manager) *CLI {
 	c := &CLI{
-		bus:      bus,
-		cfg:      cfg,
-		log:      log,
-		fs:       vfs,
-		cache:    cache,
-		sessions: sessions,
-		llmMgr:   llmMgr,
-		mcpMgr:   mcpMgr,
-		lspMgr:   lspMgr,
-		root:     newRootCommand(),
-		picker:   defaultPicker,
+		bus:       bus,
+		cfg:       cfg,
+		log:       log,
+		fs:        vfs,
+		cache:     cache,
+		sessions:  sessions,
+		llmMgr:    llmMgr,
+		mcpMgr:    mcpMgr,
+		lspMgr:    lspMgr,
+		pluginMgr: pluginMgr,
+		root:      newRootCommand(),
+		picker:    defaultPicker,
 	}
 
 	c.root.RunE = func(cmd *cobra.Command, args []string) error {
@@ -132,6 +135,7 @@ func (c *CLI) tuiDeps() (settings.Deps, error) {
 		Bus:      c.bus,
 		VFS:      c.fs,
 		Cache:    c.cache,
+		Plugin:   c.pluginMgr,
 	}, nil
 }
 

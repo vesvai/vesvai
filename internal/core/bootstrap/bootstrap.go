@@ -135,7 +135,7 @@ func Run(args []string) error {
 
 	log.Info("application started")
 
-	app := cli.New(bus, cfg, log, fs, sess, mgr, mcpMgr, lspMgr, cacheStore)
+	app := cli.New(bus, cfg, log, fs, sess, mgr, mcpMgr, lspMgr, cacheStore, pluginMgr)
 	if err := app.Execute(args); err != nil {
 		return fmt.Errorf("bootstrap: cli: %w", err)
 	}

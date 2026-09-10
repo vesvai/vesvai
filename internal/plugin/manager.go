@@ -69,7 +69,7 @@ func (m *Manager) SetExcludedPlugins(exclude []string) {
 }
 
 func (m *Manager) LoadPlugins() error {
-	pluginDir, err := getPluginDir()
+	pluginDir, err := GetPluginDir()
 	if err != nil {
 		return fmt.Errorf("get plugin dir: %w", err)
 	}
@@ -198,7 +198,7 @@ func (m *Manager) Close() {
 	m.clients = make(map[string]*goplugin.Client)
 }
 
-func getPluginDir() (string, error) {
+func GetPluginDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("get home dir: %w", err)
