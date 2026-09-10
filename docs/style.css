@@ -1,0 +1,22 @@
+.grid.cards a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.grid.cards li {
+  position: relative;
+}
+
+.grid.cards li a::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+}
+
+.grid.cards.cards-list {
+  grid-template-columns: 1fr;
+}

@@ -54,17 +54,6 @@ plugins:
   - search
   - tags
   - markdown-exec
-  - redirects:
-      redirect_maps:
-        setup/extensions/about.md: compatibility/markdown/index.md
-        setup/extensions/glightbox.md: compatibility/mkdocs/plugins.md#glightbox
-        setup/extensions/macros.md: compatibility/mkdocs/plugins.md#macros
-        setup/extensions/markdown-exec.md: compatibility/mkdocs/plugins.md#markdown-exec
-        setup/extensions/mkdocstrings.md: compatibility/mkdocs/plugins.md#mkdocstrings
-        setup/extensions/python-markdown.md: compatibility/markdown/python-markdown.md
-        setup/extensions/python-markdown-extensions.md: compatibility/markdown/python-markdown-extensions.md
-        setup/versioning.md: compatibility/mkdocs/mike.md
-        setup/social-cards.md: compatibility/mkdocs/index.md
 
 extra:
   homepage: https://vesv.ai
@@ -78,6 +67,9 @@ extra:
   social:
   tags:
     default: default
+
+extra_css:
+  - style.css
 
 markdown_extensions:
   - abbr
@@ -135,11 +127,33 @@ markdown_extensions:
 
 nav:
   - Home: https://vesv.ai
-  - Get started:
-      - Get started: index.md
-  - Cli:
-      - Cli: cli/index.md
-  - Tui:
-      - Tui: tui/index.md
+  - Vesvai:
+      - Overview: vesvai/overview.md
+      - Installation: vesvai/installation.md
+      - Providers & Models: vesvai/providers-and-models.md
+      - Config: vesvai/config.md
+      - Troubleshooting: vesvai/troubleshooting.md
+      - Usage:
+        - CLI: vesvai/usage/cli.md
+        - TUI: vesvai/usage/tui.md
+        - HTTP: vesvai/usage/http.md
+        - ACP: vesvai/usage/acp.md
+      - Configurations:
+        - Tools: vesvai/configurations/tools.md
+        - Skills: vesvai/configurations/skills.md
+        - Rules: vesvai/configurations/rules.md
+        - MCP: vesvai/configurations/mcp.md
+        - LSP: vesvai/configurations/lsp.md
+      - Features:
+        - Subagents: vesvai/features/subagents.md
+        - Commands: vesvai/features/commands.md
+        - Adding Context: vesvai/features/adding-context.md
+        - Sessions: vesvai/features/sessions.md
+        - Permissions: vesvai/features/permissions.md
   - Sdk:
-      - Sdk: sdk/index.md
+      - Get Started: sdk/index.md
+      - Chat: sdk/chat.md
+      - Sessions: sdk/sessions.md
+      - Files: sdk/files.md
+      - Extending: sdk/extending.md
+      - Events & Errors: sdk/events-errors.md
