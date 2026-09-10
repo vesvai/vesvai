@@ -2,6 +2,7 @@ package vfs
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -27,7 +28,11 @@ type ListResult struct {
 }
 
 func (v *VFS) List(vdir string) (ListResult, error) {
-	phys, rel, isDir, err := v.resolveChecked(vdir)
+	return v.ListCtx(context.Background(), vdir)
+}
+
+func (v *VFS) ListCtx(ctx context.Context, vdir string) (ListResult, error) {
+	phys, rel, isDir, err := v.resolveCheckedCtx(ctx, vdir)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -68,10 +73,14 @@ func (v *VFS) List(vdir string) (ListResult, error) {
 }
 
 func (v *VFS) Glob(pattern, path string) ([]string, error) {
+	return v.GlobCtx(context.Background(), pattern, path)
+}
+
+func (v *VFS) GlobCtx(ctx context.Context, pattern, path string) ([]string, error) {
 	if path == "" {
 		path = "."
 	}
-	basePhys, baseRel, isDir, err := v.resolveChecked(path)
+	basePhys, baseRel, isDir, err := v.resolveCheckedCtx(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -224,6 +233,10 @@ type GrepResult struct {
 var errGrepLimit = errors.New("vfs: grep result limit reached")
 
 func (v *VFS) Grep(pattern, path string, include []string, mode GrepMode, headLimit int) ([]GrepResult, error) {
+	return v.GrepCtx(context.Background(), pattern, path, include, mode, headLimit)
+}
+
+func (v *VFS) GrepCtx(ctx context.Context, pattern, path string, include []string, mode GrepMode, headLimit int) ([]GrepResult, error) {
 	if mode == "" {
 		mode = GrepModeContent
 	}
@@ -241,7 +254,7 @@ func (v *VFS) Grep(pattern, path string, include []string, mode GrepMode, headLi
 	if path == "" {
 		path = "."
 	}
-	phys, rel, isDir, err := v.resolveChecked(path)
+	phys, rel, isDir, err := v.resolveCheckedCtx(ctx, path)
 	if err != nil {
 		return nil, err
 	}

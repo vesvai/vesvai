@@ -50,7 +50,7 @@ func TestMain(m *testing.M) {
 		), nil
 	})
 	SubAgentTools(testMgr)
-	builtinmw.Create()
+	builtinmw.Create(builtinmw.Deps{})
 	tools.Register(tool.NewSpec("now", "stub", map[string]any{}, func(ctx context.Context, args string) (string, error) {
 		return "now", nil
 	}))

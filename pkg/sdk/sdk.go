@@ -133,7 +133,7 @@ func (e *Engine) init() error {
 
 	if !e.opts.DisableBuiltins {
 		builtinsOnce.Do(func() {
-			_ = builtin.Create(fs, e.sessions)
+			_ = builtin.Create(fs, e.sessions, builtin.Options{LLM: e.llm, Config: cfg})
 		})
 	}
 

@@ -1,6 +1,9 @@
 package vfs
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	ErrOutOfBounds     = errors.New("vfs: path escapes the workspace root")
@@ -11,3 +14,15 @@ var (
 	ErrNoMatch         = errors.New("vfs: pattern does not match file content")
 	ErrInvalidGrepMode = errors.New("vfs: invalid grep output mode")
 )
+
+type OutOfBoundsError struct {
+	Path string
+}
+
+func (e *OutOfBoundsError) Error() string {
+	return fmt.Sprintf("%s: %s", ErrOutOfBounds, e.Path)
+}
+
+func (e *OutOfBoundsError) Unwrap() error {
+	return ErrOutOfBounds
+}

@@ -266,7 +266,7 @@ func newRunTestCLI(t *testing.T) (*CLI, *config.Config, *llm.Manager) {
 	shell.ShellTools(fs)
 	subagent.SubAgentTools(sess)
 	ask.AskTool()
-	middlewares.Create()
+	middlewares.Create(middlewares.Deps{})
 	orchestrator.Register(fs)
 	if _, err := agents.New("orchestrator"); err != nil {
 		t.Fatal(err)

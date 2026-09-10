@@ -358,3 +358,60 @@ func TestChainInvokeLLMStreamTransparent(t *testing.T) {
 		t.Fatalf("next calls = %d, want 1", calls)
 	}
 }
+
+type toolWrapRecorder struct {
+	BaseMiddleware
+	name string
+	seen *[]string
+}
+
+func (w *toolWrapRecorder) InvokeTool(ctx context.Context, call llm.ToolCall, next ToolInvoker) (string, error) {
+	*w.seen = append(*w.seen, "before:"+w.name)
+	out, err := next(ctx, call)
+	*w.seen = append(*w.seen, "after:"+w.name)
+	return out, err
+}
+
+func TestChainInvokeToolComposition(t *testing.T) {
+	var seen []string
+	outer := &toolWrapRecorder{name: "outer", seen: &seen}
+	inner := &toolWrapRecorder{name: "inner", seen: &seen}
+	c := NewChain(outer, inner)
+
+	ctx := context.Background()
+	call := llm.ToolCall{ID: "c1", Function: llm.Function{Name: "read"}}
+	var calls int
+	out, err := c.InvokeTool(ctx, call, func(ctx context.Context, call llm.ToolCall) (string, error) {
+		calls++
+		return "output", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "output" || calls != 1 {
+		t.Fatalf("out = %q calls = %d", out, calls)
+	}
+	want := []string{"before:outer", "before:inner", "after:inner", "after:outer"}
+	if !slices.Equal(seen, want) {
+		t.Fatalf("order = %v, want %v", seen, want)
+	}
+}
+
+func TestChainInvokeToolTransparent(t *testing.T) {
+	r := &recorder{}
+	c := NewChain(r)
+
+	ctx := context.Background()
+	call := llm.ToolCall{ID: "c1"}
+	var calls int
+	out, err := c.InvokeTool(ctx, call, func(ctx context.Context, call llm.ToolCall) (string, error) {
+		calls++
+		return "output", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "output" || calls != 1 {
+		t.Fatalf("out = %q calls = %d", out, calls)
+	}
+}

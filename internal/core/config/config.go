@@ -2,9 +2,10 @@ package config
 
 import (
 	"fmt"
-	json "github.com/goccy/go-json"
 	"os"
 	"path/filepath"
+
+	json "github.com/goccy/go-json"
 )
 
 type LLMConfig struct {
@@ -57,6 +58,13 @@ type ServerConfig struct {
 	Headers         map[string]string `json:"headers,omitempty"`
 }
 
+type PermissionConfig struct {
+	Default       string            `json:"default"`
+	JudgeProvider string            `json:"judge_provider,omitempty"`
+	JudgeModel    string            `json:"judge_model,omitempty"`
+	Rules         map[string]string `json:"rules,omitempty"`
+}
+
 type Config struct {
 	Providers       []LLMConfig                     `json:"providers"`
 	Logger          LoggerConfig                    `json:"logger"`
@@ -64,6 +72,7 @@ type Config struct {
 	Session         SessionConfig                   `json:"session"`
 	Server          ServerConfig                    `json:"server,omitempty"`
 	Theme           string                          `json:"theme,omitempty"`
+	Permission      *PermissionConfig               `json:"permission,omitempty"`
 	MCPServers      map[string]MCPServerConfig      `json:"mcp_servers,omitempty"`
 	LanguageServers map[string]LanguageServerConfig `json:"language_servers,omitempty"`
 }

@@ -1,6 +1,7 @@
 package vfs
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,7 +18,11 @@ type FileInfo struct {
 }
 
 func (v *VFS) Write(vpath string, data []byte) (string, error) {
-	phys, rel, _, err := v.resolveWriteChecked(vpath)
+	return v.WriteCtx(context.Background(), vpath, data)
+}
+
+func (v *VFS) WriteCtx(ctx context.Context, vpath string, data []byte) (string, error) {
+	phys, rel, _, err := v.resolveWriteCheckedCtx(ctx, vpath)
 	if err != nil {
 		return "", err
 	}
@@ -34,7 +39,11 @@ func (v *VFS) Write(vpath string, data []byte) (string, error) {
 }
 
 func (v *VFS) Edit(vpath, oldString, newString string, replaceAll bool) (string, error) {
-	phys, rel, _, err := v.resolveWriteChecked(vpath)
+	return v.EditCtx(context.Background(), vpath, oldString, newString, replaceAll)
+}
+
+func (v *VFS) EditCtx(ctx context.Context, vpath, oldString, newString string, replaceAll bool) (string, error) {
+	phys, rel, _, err := v.resolveWriteCheckedCtx(ctx, vpath)
 	if err != nil {
 		return "", err
 	}
@@ -76,14 +85,18 @@ func (v *VFS) Edit(vpath, oldString, newString string, replaceAll bool) (string,
 }
 
 func (v *VFS) Delete(vpath string) error {
-	phys, rel, _, err := v.resolveWriteChecked(vpath)
+	return v.DeleteCtx(context.Background(), vpath)
+}
+
+func (v *VFS) DeleteCtx(ctx context.Context, vpath string) error {
+	phys, rel, _, err := v.resolveWriteCheckedCtx(ctx, vpath)
 	if err != nil {
 		return err
 	}
 
 	ev := v.hooks.onDelete.Apply(FileDelete{Path: rel})
 	if ev.Path != rel {
-		phys, rel, _, err = v.resolveWriteChecked(ev.Path)
+		phys, rel, _, err = v.resolveWriteCheckedCtx(ctx, ev.Path)
 		if err != nil {
 			return err
 		}

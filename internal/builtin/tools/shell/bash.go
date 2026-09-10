@@ -58,7 +58,7 @@ func bashTool(fs *vfs.VFS) tool.Tool {
 
 			workdir := fs.Root()
 			if params.Workdir != "" {
-				resolved, err := fs.Resolve(params.Workdir)
+				resolved, err := fs.ResolveCtx(ctx, params.Workdir)
 				if err != nil {
 					return "", fmt.Errorf("bash: resolve workdir: %w", err)
 				}

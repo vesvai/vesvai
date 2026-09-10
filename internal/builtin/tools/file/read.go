@@ -49,9 +49,9 @@ func readTool(fs *vfs.VFS) tool.Tool {
 			var result string
 			var err error
 			if params.Offset > 0 || params.Limit > 0 {
-				result, err = fs.ReadRange(params.FilePath, params.Offset, params.Limit)
+				result, err = fs.ReadRangeCtx(ctx, params.FilePath, params.Offset, params.Limit)
 			} else {
-				result, err = fs.Read(params.FilePath)
+				result, err = fs.ReadCtx(ctx, params.FilePath)
 			}
 			if err != nil {
 				return "", fmt.Errorf("read: %w", err)
@@ -59,5 +59,5 @@ func readTool(fs *vfs.VFS) tool.Tool {
 
 			return result, nil
 		},
-	)
+	).SetPermissionError(isScopeError)
 }

@@ -130,7 +130,7 @@ func (a *AskPicker) Height() int {
 		}
 		return h
 	}
-	return 7
+	return 11
 }
 
 func (a *AskPicker) current() *askPS {

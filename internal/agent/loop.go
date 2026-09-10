@@ -349,7 +349,9 @@ func (a *Agent) executeTool(ctx context.Context, state *runState, call llm.ToolC
 		output = fmt.Sprintf("Error: tool %q is not registered", call.Function.Name)
 		toolErr = fmt.Errorf("%w: %s", tool.ErrNotFound, call.Function.Name)
 	} else {
-		output, toolErr = t.Execute(ctx, call.Function.Arguments)
+		output, toolErr = a.chain.InvokeTool(ctx, call, func(ctx context.Context, call llm.ToolCall) (string, error) {
+			return t.Execute(ctx, call.Function.Arguments)
+		})
 		if toolErr != nil {
 			output = fmt.Sprintf("Error: %v", toolErr)
 			toolErr = fmt.Errorf("%w: %s: %v", ErrToolExecutionFailed, t.Name(), toolErr)

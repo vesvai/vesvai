@@ -40,7 +40,7 @@ func globTool(fs *vfs.VFS) tool.Tool {
 				return "", fmt.Errorf("glob: pattern is required")
 			}
 
-			results, err := fs.Glob(params.Pattern, params.Path)
+			results, err := fs.GlobCtx(ctx, params.Pattern, params.Path)
 			if err != nil {
 				return "", fmt.Errorf("glob: %w", err)
 			}
@@ -56,5 +56,5 @@ func globTool(fs *vfs.VFS) tool.Tool {
 			}
 			return b.String(), nil
 		},
-	)
+	).SetPermissionError(isScopeError)
 }
