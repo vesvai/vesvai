@@ -1,6 +1,7 @@
 package vfs
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -121,15 +122,23 @@ func (v *VFS) ensureScopeDir(relScope, clean string) error {
 }
 
 func (v *VFS) Resolve(vpath string) (string, error) {
+	return v.resolve(vpath, nil)
+}
+
+func (v *VFS) ResolveCtx(ctx context.Context, vpath string) (string, error) {
+	return v.resolve(vpath, ctx)
+}
+
+func (v *VFS) resolve(vpath string, ctx context.Context) (string, error) {
 	if vpath == "" || strings.ContainsRune(vpath, 0) {
-		return "", ErrOutOfBounds
+		return "", v.outOfBounds("")
 	}
 	path := filepath.ToSlash(vpath)
 
 	if path == "~" || strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return "", ErrOutOfBounds
+			return "", v.outOfBounds("")
 		}
 		if path == "~" {
 			path = home
@@ -138,7 +147,7 @@ func (v *VFS) Resolve(vpath string) (string, error) {
 		}
 	}
 	if strings.HasPrefix(path, "/") {
-		return v.evalWithinRoot(filepath.Clean(filepath.FromSlash(path)))
+		return v.evalWithinRootCtx(ctx, filepath.Clean(filepath.FromSlash(path)))
 	}
 
 	clean := filepath.Clean(filepath.FromSlash(path))
@@ -149,9 +158,13 @@ func (v *VFS) Resolve(vpath string) (string, error) {
 		return v.root, nil
 	}
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", ErrOutOfBounds
+		abs := filepath.Clean(filepath.Join(v.root, filepath.FromSlash(clean)))
+		if v.escapeAllowed(ctx, abs) {
+			return abs, nil
+		}
+		return "", v.outOfBounds(abs)
 	}
-	return v.evalWithinRoot(filepath.Join(v.root, clean))
+	return v.evalWithinRootCtx(ctx, filepath.Join(v.root, clean))
 }
 
 func (v *VFS) Virtual(ppath string) string {
@@ -167,6 +180,10 @@ func (v *VFS) Virtual(ppath string) string {
 }
 
 func (v *VFS) evalWithinRoot(phys string) (string, error) {
+	return v.evalWithinRootCtx(nil, phys)
+}
+
+func (v *VFS) evalWithinRootCtx(ctx context.Context, phys string) (string, error) {
 	var rest []string
 	probe := phys
 	for {
@@ -174,7 +191,10 @@ func (v *VFS) evalWithinRoot(phys string) (string, error) {
 		if err == nil {
 			full := filepath.Clean(filepath.Join(resolved, filepath.Join(rest...)))
 			if !v.within(full) {
-				return "", ErrOutOfBounds
+				if v.escapeAllowed(ctx, full) {
+					return full, nil
+				}
+				return "", v.outOfBounds(full)
 			}
 			return full, nil
 		}
@@ -222,7 +242,11 @@ func (v *VFS) ignored(rel string, isDir bool) bool {
 }
 
 func (v *VFS) resolveChecked(vpath string) (string, string, bool, error) {
-	phys, err := v.Resolve(vpath)
+	return v.resolveCheckedCtx(nil, vpath)
+}
+
+func (v *VFS) resolveCheckedCtx(ctx context.Context, vpath string) (string, string, bool, error) {
+	phys, err := v.ResolveCtx(ctx, vpath)
 	if err != nil {
 		return "", "", false, err
 	}
@@ -230,6 +254,9 @@ func (v *VFS) resolveChecked(vpath string) (string, string, bool, error) {
 	isDir := false
 	if fi, err := os.Stat(phys); err == nil {
 		isDir = fi.IsDir()
+	}
+	if !v.within(phys) {
+		return phys, rel, isDir, nil
 	}
 	if v.ignored(rel, isDir) {
 		return "", "", false, ErrIgnored
@@ -238,17 +265,24 @@ func (v *VFS) resolveChecked(vpath string) (string, string, bool, error) {
 }
 
 func (v *VFS) resolveWriteChecked(vpath string) (string, string, bool, error) {
-	phys, err := v.Resolve(vpath)
+	return v.resolveWriteCheckedCtx(nil, vpath)
+}
+
+func (v *VFS) resolveWriteCheckedCtx(ctx context.Context, vpath string) (string, string, bool, error) {
+	phys, err := v.ResolveCtx(ctx, vpath)
 	if err != nil {
 		return "", "", false, err
 	}
-	if !v.writeAllowed(phys) {
-		return "", "", false, ErrOutOfBounds
+	if !v.writeAllowed(phys) && !v.escapeAllowed(ctx, phys) {
+		return "", "", false, v.outOfBounds(phys)
 	}
 	rel := v.Virtual(phys)
 	isDir := false
 	if fi, err := os.Stat(phys); err == nil {
 		isDir = fi.IsDir()
+	}
+	if !v.within(phys) {
+		return phys, rel, isDir, nil
 	}
 	if v.ignored(rel, isDir) {
 		return "", "", false, ErrIgnored
@@ -257,15 +291,23 @@ func (v *VFS) resolveWriteChecked(vpath string) (string, string, bool, error) {
 }
 
 func (v *VFS) Read(vpath string) (string, error) {
-	return v.readRange(vpath, 0, 0)
+	return v.ReadCtx(context.Background(), vpath)
+}
+
+func (v *VFS) ReadCtx(ctx context.Context, vpath string) (string, error) {
+	return v.readRange(ctx, vpath, 0, 0)
 }
 
 func (v *VFS) ReadRange(vpath string, offset, limit int) (string, error) {
-	return v.readRange(vpath, offset, limit)
+	return v.ReadRangeCtx(context.Background(), vpath, offset, limit)
 }
 
-func (v *VFS) readRange(vpath string, offset, limit int) (string, error) {
-	phys, rel, _, err := v.resolveChecked(vpath)
+func (v *VFS) ReadRangeCtx(ctx context.Context, vpath string, offset, limit int) (string, error) {
+	return v.readRange(ctx, vpath, offset, limit)
+}
+
+func (v *VFS) readRange(ctx context.Context, vpath string, offset, limit int) (string, error) {
+	phys, rel, _, err := v.resolveCheckedCtx(ctx, vpath)
 	if err != nil {
 		return "", err
 	}

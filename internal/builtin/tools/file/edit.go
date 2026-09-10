@@ -52,12 +52,12 @@ func editTool(fs *vfs.VFS) tool.Tool {
 				return "", fmt.Errorf("edit: oldString is required")
 			}
 
-			result, err := fs.Edit(params.FilePath, params.OldString, params.NewString, params.ReplaceAll)
+			result, err := fs.EditCtx(ctx, params.FilePath, params.OldString, params.NewString, params.ReplaceAll)
 			if err != nil {
 				return "", fmt.Errorf("edit: %w", err)
 			}
 
 			return result, nil
 		},
-	)
+	).SetPermissionError(isScopeError)
 }

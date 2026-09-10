@@ -34,11 +34,11 @@ func deleteTool(fs *vfs.VFS) tool.Tool {
 				return "", fmt.Errorf("delete: filePath is required")
 			}
 
-			if err := fs.Delete(params.FilePath); err != nil {
+			if err := fs.DeleteCtx(ctx, params.FilePath); err != nil {
 				return "", fmt.Errorf("delete: %w", err)
 			}
 
 			return "File deleted successfully.", nil
 		},
-	)
+	).SetPermissionError(isScopeError)
 }

@@ -34,6 +34,9 @@ type Agent struct {
 	ToolNames       []string
 	ReasoningEffort string
 
+	structuredName   string
+	structuredSchema any
+
 	chain           *middleware.Chain
 	middlewareNames []string
 	Bus             event.Bus
@@ -153,6 +156,15 @@ func WithLogger(l *logger.Logger) Option {
 
 func WithReasoningEffort(effort string) Option {
 	return func(a *Agent) { a.ReasoningEffort = effort }
+}
+
+// WithStructuredOutput makes the agent request a JSON response matching the
+// given JSON schema from the LLM provider.
+func WithStructuredOutput(name string, schema any) Option {
+	return func(a *Agent) {
+		a.structuredName = name
+		a.structuredSchema = schema
+	}
 }
 
 func (a *Agent) Run(ctx context.Context, input string) (*RunResult, error) {

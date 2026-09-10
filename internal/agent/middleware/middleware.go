@@ -28,6 +28,12 @@ type InvokeLLMStream interface {
 	InvokeLLMStream(ctx context.Context, req *llm.Request, handler llm.StreamHandler, next LLMStreamInvoker) error
 }
 
+type ToolInvoker func(ctx context.Context, call llm.ToolCall) (string, error)
+
+type InvokeTool interface {
+	InvokeTool(ctx context.Context, call llm.ToolCall, next ToolInvoker) (string, error)
+}
+
 type BaseMiddleware struct{}
 
 func (BaseMiddleware) BeforeRun(context.Context, string, string) error              { return nil }

@@ -2,7 +2,9 @@ package session
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/vesvai/vesvai/internal/agent"
 	"github.com/vesvai/vesvai/internal/core/event"
@@ -351,5 +353,77 @@ func TestRecorderPublishesSessionAttached(t *testing.T) {
 	publishStarted(bus, "a1", "agent-one", "groq", "llama-3.3")
 	if attached.AgentID != "a1" || attached.SessionID == "" {
 		t.Fatalf("attached = %+v, want agent a1 with session", attached)
+	}
+}
+
+type titleCountingProvider struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *titleCountingProvider) Name() string { return "title" }
+
+func (p *titleCountingProvider) Chat(_ context.Context, _ *llm.Request) (*llm.Response, error) {
+	p.mu.Lock()
+	p.calls++
+	p.mu.Unlock()
+	msg := llm.AssistantMessage("Session title")
+	fr := llm.FinishReasonStop
+	return &llm.Response{Choices: []llm.Choice{{Message: &msg, FinishReason: &fr}}}, nil
+}
+
+func (p *titleCountingProvider) ChatStream(context.Context, *llm.Request, llm.StreamHandler) error {
+	return nil
+}
+
+func (p *titleCountingProvider) ListModels(context.Context) ([]llm.Model, error) { return nil, nil }
+
+func (p *titleCountingProvider) Count() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
+}
+
+func TestRecorderGeneratesTitleOnlyOnFirstMessage(t *testing.T) {
+	mgr, _, bus := newTestRecorder(t)
+	prov := &titleCountingProvider{}
+
+	attached := make(chan string, 1)
+	bus.Subscribe(TopicSessionAttached, func(e SessionAttached) {
+		attached <- e.SessionID
+	})
+	bus.Publish(agent.TopicAgentStarted, agent.AgentStarted{
+		AgentID:   "a1",
+		AgentName: "agent-one",
+		Model:     llm.Model{ID: "m"},
+		Provider:  prov,
+	})
+
+	bus.Publish(agent.TopicAgentInput, agent.AgentInput{AgentID: "a1", Input: "first message"})
+
+	sessID := <-attached
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		s, err := mgr.Get(sessID)
+		if err == nil && s.Title == "Session title" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	s, err := mgr.Get(sessID)
+	if err != nil || s.Title != "Session title" {
+		t.Fatalf("title not generated after first message: %+v, err=%v", s, err)
+	}
+	if prov.Count() != 1 {
+		t.Fatalf("title provider calls = %d, want 1 after first message", prov.Count())
+	}
+
+	bus.Publish(agent.TopicAgentInput, agent.AgentInput{AgentID: "a1", Input: "second message"})
+	time.Sleep(200 * time.Millisecond)
+	if prov.Count() != 1 {
+		t.Fatalf("title provider calls = %d, want 1 (title must only be generated on the first message)", prov.Count())
+	}
+	if s, err := mgr.Get(sessID); err != nil || s.Title != "Session title" {
+		t.Fatalf("title changed on follow-up message: %+v, err=%v", s, err)
 	}
 }

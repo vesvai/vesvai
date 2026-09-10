@@ -39,12 +39,12 @@ func writeTool(fs *vfs.VFS) tool.Tool {
 				return "", fmt.Errorf("write: filePath is required")
 			}
 
-			result, err := fs.Write(params.FilePath, []byte(params.Content))
+			result, err := fs.WriteCtx(ctx, params.FilePath, []byte(params.Content))
 			if err != nil {
 				return "", fmt.Errorf("write: %w", err)
 			}
 
 			return result, nil
 		},
-	)
+	).SetPermissionError(isScopeError)
 }

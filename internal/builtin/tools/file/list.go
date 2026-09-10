@@ -36,14 +36,14 @@ func listTool(fs *vfs.VFS) tool.Tool {
 				dir = "."
 			}
 
-			result, err := fs.List(dir)
+			result, err := fs.ListCtx(ctx, dir)
 			if err != nil {
 				return "", fmt.Errorf("list: %w", err)
 			}
 
 			return formatListResult(result), nil
 		},
-	)
+	).SetPermissionError(isScopeError)
 }
 
 func formatListResult(r vfs.ListResult) string {

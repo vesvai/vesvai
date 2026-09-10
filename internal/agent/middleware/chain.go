@@ -122,6 +122,22 @@ func (c *Chain) InvokeLLMStream(ctx context.Context, req *llm.Request, handler l
 	return invoke(ctx, req, handler)
 }
 
+func (c *Chain) InvokeTool(ctx context.Context, call llm.ToolCall, next ToolInvoker) (string, error) {
+	mws := c.snapshot()
+	invoke := next
+	for i := len(mws) - 1; i >= 0; i-- {
+		w, ok := mws[i].(InvokeTool)
+		if !ok {
+			continue
+		}
+		w, prev := w, invoke
+		invoke = func(ctx context.Context, call llm.ToolCall) (string, error) {
+			return w.InvokeTool(ctx, call, prev)
+		}
+	}
+	return invoke(ctx, call)
+}
+
 func (c *Chain) OnError(ctx context.Context, runErr error) error {
 	var last error
 	for _, m := range c.snapshot() {

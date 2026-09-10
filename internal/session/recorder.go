@@ -163,14 +163,25 @@ func (r *Recorder) handleInput(e agent.AgentInput) {
 	if !ok {
 		return
 	}
+	first := r.isFirstMessage(id)
 	if _, err := r.mgr.AppendMessage(id, llm.UserMessage(e.Input)); err != nil {
 		r.log.Fdebug("session recorder: append input: %v", err)
 		return
 	}
 
-	if info, ok := r.getSessionInfo(e.AgentID); ok && info.provider != nil {
-		go r.generateTitle(id, info.provider, info.model, e.Input)
+	if first {
+		if info, ok := r.getSessionInfo(e.AgentID); ok && info.provider != nil {
+			go r.generateTitle(id, info.provider, info.model, e.Input)
+		}
 	}
+}
+
+func (r *Recorder) isFirstMessage(sessionID string) bool {
+	msgs, err := r.mgr.Messages(sessionID)
+	if err != nil {
+		return false
+	}
+	return len(msgs) == 0
 }
 
 func (r *Recorder) generateTitle(sessionID string, provider llm.Provider, model llm.Model, input string) {

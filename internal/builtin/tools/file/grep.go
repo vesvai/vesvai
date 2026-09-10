@@ -65,7 +65,7 @@ func grepTool(fs *vfs.VFS) tool.Tool {
 				mode = vfs.GrepModeContent
 			}
 
-			results, err := fs.Grep(params.Pattern, params.Path, params.Include, mode, params.HeadLimit)
+			results, err := fs.GrepCtx(ctx, params.Pattern, params.Path, params.Include, mode, params.HeadLimit)
 			if err != nil {
 				return "", fmt.Errorf("grep: %w", err)
 			}
@@ -76,7 +76,7 @@ func grepTool(fs *vfs.VFS) tool.Tool {
 
 			return formatGrepResults(results, mode), nil
 		},
-	)
+	).SetPermissionError(isScopeError)
 }
 
 func formatGrepResults(results []vfs.GrepResult, mode vfs.GrepMode) string {

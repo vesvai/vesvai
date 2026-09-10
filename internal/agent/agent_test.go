@@ -326,6 +326,25 @@ func TestRunMiddlewareRequestMutation(t *testing.T) {
 	}
 }
 
+func TestRunStructuredOutput(t *testing.T) {
+	schema := map[string]any{"type": "object"}
+	a, prov := newTestAgent(t, WithStructuredOutput("my_verdict", schema))
+	prov.responses = []mockResponse{{content: `{"ok": true}`}}
+
+	if _, err := a.Run(context.Background(), "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if prov.lastReq == nil || prov.lastReq.ResponseFormat == nil {
+		t.Fatalf("expected structured output on the request, req = %+v", prov.lastReq)
+	}
+	if prov.lastReq.ResponseFormat.Type != llm.ResponseFormatJSONSchema {
+		t.Fatalf("response format type = %q", prov.lastReq.ResponseFormat.Type)
+	}
+	if prov.lastReq.ResponseFormat.JSONSchema == nil || prov.lastReq.ResponseFormat.JSONSchema.Name != "my_verdict" {
+		t.Fatalf("response format = %+v", prov.lastReq.ResponseFormat)
+	}
+}
+
 type abortingMiddleware struct {
 	middleware.BaseMiddleware
 }
@@ -741,6 +760,31 @@ func TestRunReasoning(t *testing.T) {
 	}
 	if res.History[1].Role != llm.RoleAssistant || res.History[1].Reasoning != "thinking..." {
 		t.Fatalf("reasoning not carried: %+v", res.History)
+	}
+}
+
+func TestEmptyAssistantMessage(t *testing.T) {
+	m := llm.AssistantMessage("")
+	m.Reasoning = "thinking hard"
+	if !emptyAssistantMessage(m) {
+		t.Fatal("reasoning-only message must be considered empty")
+	}
+
+	if emptyAssistantMessage(llm.AssistantMessage("answer")) {
+		t.Fatal("message with content must not be considered empty")
+	}
+
+	m2 := llm.AssistantMessage("")
+	m2.ToolCalls = []llm.ToolCall{{ID: "t1", Function: llm.Function{Name: "read"}}}
+	if emptyAssistantMessage(m2) {
+		t.Fatal("tool-call message must not be considered empty")
+	}
+
+	if emptyAssistantMessage(llm.UserMessage("hi")) {
+		t.Fatal("user message must not be considered empty")
+	}
+	if emptyAssistantMessage(llm.ToolMessage("out", "t1")) {
+		t.Fatal("tool message must not be considered empty")
 	}
 }
 
