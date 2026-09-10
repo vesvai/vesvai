@@ -401,6 +401,9 @@ func (a *Agent) buildRequest(state *runState) *llm.Request {
 	if a.ReasoningEffort != "" {
 		req.ReasoningEffort = a.ReasoningEffort
 	}
+	if a.structuredName != "" && a.structuredSchema != nil {
+		req.WithStructuredOutput(a.structuredName, a.structuredSchema)
+	}
 	if tools := a.Tools.LLMTools(); len(tools) > 0 {
 		req.Tools = tools
 	}

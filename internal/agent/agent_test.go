@@ -326,6 +326,25 @@ func TestRunMiddlewareRequestMutation(t *testing.T) {
 	}
 }
 
+func TestRunStructuredOutput(t *testing.T) {
+	schema := map[string]any{"type": "object"}
+	a, prov := newTestAgent(t, WithStructuredOutput("my_verdict", schema))
+	prov.responses = []mockResponse{{content: `{"ok": true}`}}
+
+	if _, err := a.Run(context.Background(), "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if prov.lastReq == nil || prov.lastReq.ResponseFormat == nil {
+		t.Fatalf("expected structured output on the request, req = %+v", prov.lastReq)
+	}
+	if prov.lastReq.ResponseFormat.Type != llm.ResponseFormatJSONSchema {
+		t.Fatalf("response format type = %q", prov.lastReq.ResponseFormat.Type)
+	}
+	if prov.lastReq.ResponseFormat.JSONSchema == nil || prov.lastReq.ResponseFormat.JSONSchema.Name != "my_verdict" {
+		t.Fatalf("response format = %+v", prov.lastReq.ResponseFormat)
+	}
+}
+
 type abortingMiddleware struct {
 	middleware.BaseMiddleware
 }

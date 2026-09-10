@@ -3,6 +3,7 @@ package permission
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/vesvai/vesvai/internal/agent"
@@ -69,5 +70,30 @@ func TestJudgeDeniesOnResolutionFailure(t *testing.T) {
 	}
 	if runs != 0 {
 		t.Fatalf("runs = %d, want 0", runs)
+	}
+}
+
+func TestGenerateJudgeSystemPrompt(t *testing.T) {
+	sys, err := generateJudgeSystemPrompt()
+	if err != nil {
+		t.Fatalf("generate system prompt: %v", err)
+	}
+	for _, want := range []string{"permission judge", "allow", "reason"} {
+		if !strings.Contains(sys, want) {
+			t.Errorf("system prompt missing %q:\n%s", want, sys)
+		}
+	}
+}
+
+func TestBuildJudgePrompt(t *testing.T) {
+	call := llm.ToolCall{Function: llm.Function{Name: "read", Arguments: `{"filePath":"/etc/passwd"}`}}
+	input, err := buildJudgePrompt(call, errors.New("path escapes the workspace root"))
+	if err != nil {
+		t.Fatalf("build prompt: %v", err)
+	}
+	for _, want := range []string{"read", "filePath", "/etc/passwd", "path escapes the workspace root"} {
+		if !strings.Contains(input, want) {
+			t.Errorf("judge prompt missing %q:\n%s", want, input)
+		}
 	}
 }

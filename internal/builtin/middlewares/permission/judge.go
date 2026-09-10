@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/vesvai/vesvai/internal/agent"
+	"github.com/vesvai/vesvai/internal/agent/prompt"
 	"github.com/vesvai/vesvai/internal/llm"
 )
 
@@ -15,6 +16,16 @@ var (
 	errJudgeUnconfigured = errors.New("permission: judge provider/model not configured")
 	errJudgeModelMissing = errors.New("permission: judge model not found")
 )
+
+var judgeVerdictSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"allow":  map[string]any{"type": "boolean"},
+		"reason": map[string]any{"type": "string"},
+	},
+	"required":             []string{"allow", "reason"},
+	"additionalProperties": false,
+}
 
 func (m *Middleware) resolveJudge() (llm.Provider, llm.Model, bool) {
 	if m.llm == nil {
@@ -52,17 +63,22 @@ func (m *Middleware) resolveJudge() (llm.Provider, llm.Model, bool) {
 	return prov, res.Model, true
 }
 
-const judgeSystemPrompt = `You are a permission judge for an AI coding assistant. A tool call is proposed. Decide whether it should be allowed.
-
-Consider:
-- Whether the operation is reasonable for a coding assistant to perform.
-- If a sandbox denial is included, the user has been asked to approve the operation; judge whether it is acceptable anyway.
-- Read-only and low-risk operations are usually allowed. Destructive, secret-exposing, or out-of-scope operations should be denied.
-
-Respond with ONLY a JSON object, no other text:
-{"allow": true|false, "reason": "short justification"}
-
-The "reason" field is REQUIRED and must be non-empty when "allow" is false.`
+func generateJudgeSystemPrompt() (string, error) {
+	return prompt.New().
+		Paragraph("You are a permission judge for an AI coding assistant. A tool call is proposed. You decide whether it should be allowed.").
+		XMLTag("task",
+			prompt.Paragraph("You will be given a tool call the assistant wants to perform."),
+			prompt.Paragraph("Decide whether the operation should be allowed."),
+			prompt.Paragraph("Respond using the structured output schema: a JSON object with two fields."),
+			prompt.KV("allow", "boolean: true if the call should be allowed, false otherwise"),
+			prompt.KV("reason", "string: a short justification. REQUIRED and must be non-empty when allow is false")).
+		XMLTag("rules",
+			prompt.List("Read-only and low-risk operations are usually allowed",
+				"Destructive, secret-exposing, or out-of-scope operations should be denied",
+				"If a sandbox denial is included, the user has already been asked to approve the operation; judge whether it is acceptable anyway",
+				"Always provide a reason, even for approvals")).
+		Build(prompt.FormatMarkdown)
+}
 
 type judgeVerdict struct {
 	Allow  bool   `json:"allow"`
@@ -70,24 +86,29 @@ type judgeVerdict struct {
 }
 
 func newJudgeAgent(prov llm.Provider, model llm.Model) *agent.Agent {
+	sys, err := generateJudgeSystemPrompt()
+	if err != nil {
+		sys = "You are a permission judge for an AI coding assistant."
+	}
 	return agent.New("judge",
 		agent.WithProvider(prov),
 		agent.WithModel(model),
-		agent.WithSystemPrompt(judgeSystemPrompt),
+		agent.WithSystemPrompt(sys),
 		agent.WithMaxIterations(1),
+		agent.WithStructuredOutput("judge_verdict", judgeVerdictSchema),
 	)
 }
 
-func buildJudgePrompt(call llm.ToolCall, permErr error) string {
-	var b strings.Builder
-	b.WriteString("A tool call requires permission approval.\n\n")
-	fmt.Fprintf(&b, "Tool: %s\n", call.Function.Name)
-	fmt.Fprintf(&b, "Arguments: %s\n", call.Function.Arguments)
+func buildJudgePrompt(call llm.ToolCall, permErr error) (string, error) {
+	p := prompt.New().
+		Paragraph("A tool call requires permission approval. Decide whether it should be allowed.").
+		XMLTag("tool",
+			prompt.KV("name", call.Function.Name),
+			prompt.KV("arguments", call.Function.Arguments))
 	if permErr != nil {
-		fmt.Fprintf(&b, "Sandbox denial: %s\n", permErr.Error())
+		p = p.XMLTag("sandbox-denial", prompt.Paragraph(permErr.Error()))
 	}
-	b.WriteString("\nDecide whether this tool call should be allowed.")
-	return b.String()
+	return p.Build(prompt.FormatMarkdown)
 }
 
 func (m *Middleware) askJudge(ctx context.Context, call llm.ToolCall, permErr error) (*decision, error) {
@@ -95,7 +116,11 @@ func (m *Middleware) askJudge(ctx context.Context, call llm.ToolCall, permErr er
 	if judge == nil {
 		return nil, fmt.Errorf("judge provider unavailable")
 	}
-	res, err := judge.Run(ctx, buildJudgePrompt(call, permErr))
+	input, err := buildJudgePrompt(call, permErr)
+	if err != nil {
+		return nil, fmt.Errorf("judge: build prompt: %w", err)
+	}
+	res, err := judge.Run(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("judge request failed: %w", err)
 	}
