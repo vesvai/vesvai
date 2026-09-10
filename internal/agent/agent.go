@@ -39,6 +39,7 @@ type Agent struct {
 
 	chain           *middleware.Chain
 	middlewareNames []string
+	namesResolved   bool
 	Bus             event.Bus
 	log             *logger.Logger
 }
@@ -212,6 +213,9 @@ func (a *Agent) resolveToolNames() error {
 }
 
 func (a *Agent) resolveMiddlewareNames() error {
+	if a.namesResolved {
+		return nil
+	}
 	for _, name := range a.middlewareNames {
 		m, ok := middlewares.Get(name)
 		if !ok {
@@ -219,5 +223,6 @@ func (a *Agent) resolveMiddlewareNames() error {
 		}
 		a.chain.Append(m)
 	}
+	a.namesResolved = true
 	return nil
 }
