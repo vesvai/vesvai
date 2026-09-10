@@ -17,7 +17,7 @@ type Options struct {
 
 func Create(fs *vfs.VFS, sess *session.Manager, opts Options) error {
 	tools.Create(fs, sess)
-	middlewares.Create(middlewares.Deps{
+	middlewares.Create(fs, middlewares.Deps{
 		Config: opts.Config,
 		LLM:    opts.LLM,
 	})

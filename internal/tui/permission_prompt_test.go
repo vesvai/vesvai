@@ -97,6 +97,7 @@ func newDbgApp(t *testing.T, fill func(*dbgProvider, *vfs.VFS)) (*App, *vfs.VFS,
 	}
 	prov := &dbgProvider{}
 	mw := permission.New(permission.Deps{})
+	fs.OnAccessCheck(mw.AccessChecker)
 	orch := agent.New("orch",
 		agent.WithModel(llm.Model{ID: "m"}),
 		agent.WithProvider(prov),

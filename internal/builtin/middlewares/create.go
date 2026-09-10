@@ -5,6 +5,7 @@ import (
 	"github.com/vesvai/vesvai/internal/builtin/middlewares/permission"
 	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/llm"
+	"github.com/vesvai/vesvai/internal/vfs"
 )
 
 type Deps struct {
@@ -12,14 +13,18 @@ type Deps struct {
 	LLM    *llm.Manager
 }
 
-func Create(deps Deps) {
+func Create(fs *vfs.VFS, deps Deps) {
 	middlewares.Register("loop-detector", NewLoopDetector())
 	middlewares.Register("redaction", NewRedaction())
 	middlewares.Register("retry", NewRetry())
-	middlewares.Register("permission", permission.New(permission.Deps{
+	perm := permission.New(permission.Deps{
 		Config: permissionConfig(deps.Config),
 		LLM:    deps.LLM,
-	}))
+	})
+	middlewares.Register("permission", perm)
+	if fs != nil {
+		fs.OnAccessCheck(perm.AccessChecker)
+	}
 }
 
 func permissionConfig(cfg *config.Config) *config.PermissionConfig {

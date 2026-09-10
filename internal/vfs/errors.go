@@ -3,6 +3,7 @@ package vfs
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 )
 
 var (
@@ -25,4 +26,11 @@ func (e *OutOfBoundsError) Error() string {
 
 func (e *OutOfBoundsError) Unwrap() error {
 	return ErrOutOfBounds
+}
+
+func (v *VFS) outOfBounds(path string) error {
+	if path == "" {
+		return ErrOutOfBounds
+	}
+	return &OutOfBoundsError{Path: filepath.Clean(path)}
 }

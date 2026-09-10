@@ -159,10 +159,15 @@ func (v *VFS) resolve(vpath string, ctx context.Context) (string, error) {
 	}
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		abs := filepath.Clean(filepath.Join(v.root, filepath.FromSlash(clean)))
-		if v.escapeAllowed(ctx, abs) {
+		req := AccessRequest{Op: OpResolve, Path: abs, Ctx: ctx}
+		verdict := v.checkAccess(req)
+		if verdict.Allow {
+			if verdict.Path != "" {
+				return verdict.Path, nil
+			}
 			return abs, nil
 		}
-		return "", v.outOfBounds(abs)
+		return "", v.denyAccess(req, verdict)
 	}
 	return v.evalWithinRootCtx(ctx, filepath.Join(v.root, clean))
 }
@@ -191,10 +196,15 @@ func (v *VFS) evalWithinRootCtx(ctx context.Context, phys string) (string, error
 		if err == nil {
 			full := filepath.Clean(filepath.Join(resolved, filepath.Join(rest...)))
 			if !v.within(full) {
-				if v.escapeAllowed(ctx, full) {
+				req := AccessRequest{Op: OpResolve, Path: full, Ctx: ctx}
+				verdict := v.checkAccess(req)
+				if verdict.Allow {
+					if verdict.Path != "" {
+						return verdict.Path, nil
+					}
 					return full, nil
 				}
-				return "", v.outOfBounds(full)
+				return "", v.denyAccess(req, verdict)
 			}
 			return full, nil
 		}
@@ -265,16 +275,20 @@ func (v *VFS) resolveCheckedCtx(ctx context.Context, vpath string) (string, stri
 }
 
 func (v *VFS) resolveWriteChecked(vpath string) (string, string, bool, error) {
-	return v.resolveWriteCheckedCtx(nil, vpath)
+	return v.resolveWriteCheckedCtx(nil, OpWrite, vpath)
 }
 
-func (v *VFS) resolveWriteCheckedCtx(ctx context.Context, vpath string) (string, string, bool, error) {
+func (v *VFS) resolveWriteCheckedCtx(ctx context.Context, op AccessOp, vpath string) (string, string, bool, error) {
 	phys, err := v.ResolveCtx(ctx, vpath)
 	if err != nil {
 		return "", "", false, err
 	}
-	if !v.writeAllowed(phys) && !v.escapeAllowed(ctx, phys) {
-		return "", "", false, v.outOfBounds(phys)
+	if !v.writeAllowed(phys) {
+		req := AccessRequest{Op: op, Path: phys, Ctx: ctx}
+		verdict := v.checkAccess(req)
+		if !verdict.Allow {
+			return "", "", false, v.denyAccess(req, verdict)
+		}
 	}
 	rel := v.Virtual(phys)
 	isDir := false
