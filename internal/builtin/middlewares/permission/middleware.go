@@ -138,7 +138,7 @@ func (m *Middleware) InvokeTool(ctx context.Context, call llm.ToolCall, next age
 
 	switch mode {
 	case ModeAllow:
-		return next(vfs.WithUnrestricted(ctx), call)
+		return next(WithUnrestricted(ctx), call)
 
 	case ModeAsk, ModeJudge:
 		return m.gate(ctx, call, next, mode, nil)
@@ -212,11 +212,11 @@ func (m *Middleware) gate(ctx context.Context, call llm.ToolCall, next agentmw.T
 }
 
 func (m *Middleware) runApproved(ctx context.Context, call llm.ToolCall, next agentmw.ToolInvoker, permErr error) (string, error) {
-	runCtx := vfs.WithUnrestricted(ctx)
+	runCtx := WithUnrestricted(ctx)
 	if permErr != nil {
 		var oob *vfs.OutOfBoundsError
 		if errors.As(permErr, &oob) && oob.Path != "" {
-			runCtx = vfs.WithPermittedPath(ctx, oob.Path)
+			runCtx = WithPermittedPath(ctx, oob.Path)
 		}
 	}
 	return next(runCtx, call)

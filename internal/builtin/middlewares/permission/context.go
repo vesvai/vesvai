@@ -1,8 +1,10 @@
-package vfs
+package permission
 
 import (
 	"context"
 	"path/filepath"
+
+	"github.com/vesvai/vesvai/internal/vfs"
 )
 
 type permitCtxKey struct{}
@@ -48,26 +50,23 @@ func withPermit(ctx context.Context, mutate func(*permitState)) context.Context 
 	return context.WithValue(ctx, permitCtxKey{}, copy)
 }
 
-func (v *VFS) escapeAllowed(ctx context.Context, absPath string) bool {
-	if ctx == nil {
-		return false
+func (m *Middleware) AccessChecker(req vfs.AccessRequest, verdict vfs.AccessVerdict) vfs.AccessVerdict {
+	if req.Ctx == nil {
+		return verdict
 	}
-	st, ok := ctx.Value(permitCtxKey{}).(*permitState)
+	st, ok := req.Ctx.Value(permitCtxKey{}).(*permitState)
 	if !ok || st == nil {
-		return false
+		return verdict
 	}
 	if st.unrestricted {
-		return true
+		verdict.Allow = true
+		verdict.Err = nil
+		return verdict
 	}
-	if _, ok := st.paths[filepath.Clean(absPath)]; ok {
-		return true
+	if _, ok := st.paths[filepath.Clean(req.Path)]; ok {
+		verdict.Allow = true
+		verdict.Err = nil
+		return verdict
 	}
-	return false
-}
-
-func (v *VFS) outOfBounds(path string) error {
-	if path == "" {
-		return ErrOutOfBounds
-	}
-	return &OutOfBoundsError{Path: filepath.Clean(path)}
+	return verdict
 }

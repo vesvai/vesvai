@@ -110,6 +110,7 @@ func TestAllowModeRunsUnrestricted(t *testing.T) {
 	_ = os.WriteFile(outside, []byte("secret\n"), 0o644)
 
 	m := testMiddleware(t, Deps{Config: &config.PermissionConfig{Default: "allow"}})
+	fs.OnAccessCheck(m.AccessChecker)
 	var runs int
 	output, err := m.InvokeTool(ctx, llm.ToolCall{Function: llm.Function{Name: "read", Arguments: `{"filePath": "` + outside + `"}`}}, func(ctx context.Context, call llm.ToolCall) (string, error) {
 		runs++
@@ -232,6 +233,7 @@ func TestSemiAskPermissionErrorAsksAndReruns(t *testing.T) {
 	respondToAsks(bus, a.ID, map[string]string{"decision": "Allow"}, nil, nil)
 
 	m := testMiddleware(t, Deps{})
+	fs.OnAccessCheck(m.AccessChecker)
 	var runs int
 	output, err := m.InvokeTool(ctx, llm.ToolCall{Function: llm.Function{Name: "read", Arguments: `{"filePath": "` + outside + `"}`}}, func(ctx context.Context, call llm.ToolCall) (string, error) {
 		runs++

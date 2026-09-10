@@ -17,6 +17,7 @@ type vfsHooks struct {
 	beforeRead *hook.Hook[TransformContext]
 	afterWrite *hook.Hook[TransformContext]
 	onDelete   *hook.Hook[FileDelete]
+	access     *hook.Hook[accessCheck]
 }
 
 func newHooks() vfsHooks {
@@ -24,6 +25,7 @@ func newHooks() vfsHooks {
 		beforeRead: hook.NewHook[TransformContext](),
 		afterWrite: hook.NewHook[TransformContext](),
 		onDelete:   hook.NewHook[FileDelete](),
+		access:     hook.NewHook[accessCheck](),
 	}
 }
 
