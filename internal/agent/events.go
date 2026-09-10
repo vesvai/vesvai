@@ -109,18 +109,12 @@ type AgentAskAnswer struct {
 	Answers map[string]string
 }
 
-// ErrorMessage is published by middlewares (e.g. the retry middleware) when a
-// transient error occurs during an LLM request and needs to be surfaced to the
-// user. Consumers display the message and clear it on ErrorMessageFinished.
 type ErrorMessage struct {
 	AgentID   string
 	AgentName string
 	Message   string
 }
 
-// ErrorMessageFinished erases the active error message for the agent. It is
-// published once the error condition has ended (retry succeeded or the request
-// was abandoned).
 type ErrorMessageFinished struct {
 	AgentID   string
 	AgentName string
