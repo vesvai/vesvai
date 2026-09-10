@@ -20,6 +20,26 @@ func (c *Content) HasAttachments() bool {
 	return len(c.Attachments) > 0
 }
 
+func MessageText(m Message) string {
+	switch c := m.Content.(type) {
+	case string:
+		return c
+	case Content:
+		return c.Text
+	case []any:
+		for _, item := range c {
+			if mm, ok := item.(map[string]any); ok {
+				if t, ok := mm["type"].(string); ok && t == "text" {
+					if text, ok := mm["text"].(string); ok {
+						return text
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
 type Message struct {
 	Role       Role       `json:"role"`
 	Content    any        `json:"content"`

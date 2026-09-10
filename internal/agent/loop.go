@@ -38,6 +38,7 @@ func (a *Agent) run(ctx context.Context, input string, stream StreamHandler) (*R
 
 	ctx = WithAgent(ctx, a)
 	state := &runState{agent: a, stream: stream}
+	ctx = WithHistory(ctx, &state.history)
 	a.debugf("agent %q started run", a.Name)
 	a.publish(TopicAgentStarted, AgentStarted{
 		AgentID:         a.ID,
@@ -87,6 +88,7 @@ func (a *Agent) resume(ctx context.Context, input string, history []llm.Message,
 
 	ctx = WithAgent(ctx, a)
 	state := &runState{agent: a, stream: stream}
+	ctx = WithHistory(ctx, &state.history)
 	a.debugf("agent %q resumed run", a.Name)
 	a.publish(TopicAgentStarted, AgentStarted{
 		AgentID:         a.ID,
@@ -130,7 +132,9 @@ func (a *Agent) loop(ctx context.Context, state *runState, prov llm.Provider) (*
 		if err != nil {
 			return nil, a.fail(ctx, err)
 		}
-		state.history = append(state.history, msg)
+		if !emptyAssistantMessage(msg) {
+			state.history = append(state.history, msg)
+		}
 		a.publish(TopicAgentMessage, AgentMessage{
 			AgentID:   a.ID,
 			AgentName: a.Name,
@@ -189,6 +193,10 @@ func (a *Agent) userMessage(input string) llm.Message {
 		return llm.UserMessage(input)
 	}
 	return llm.UserMessage(llm.ContentWithAttachments(input, a.Attachments))
+}
+
+func emptyAssistantMessage(m llm.Message) bool {
+	return m.Role == llm.RoleAssistant && len(m.ToolCalls) == 0 && llm.MessageText(m) == ""
 }
 
 func (a *Agent) iterate(ctx context.Context, state *runState, prov llm.Provider) (llm.Message, []llm.ToolCall, error) {

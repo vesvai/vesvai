@@ -99,16 +99,99 @@ func newJudgeAgent(prov llm.Provider, model llm.Model) *agent.Agent {
 	)
 }
 
-func buildJudgePrompt(call llm.ToolCall, permErr error) (string, error) {
+const judgeHistoryMax = 5
+
+func buildJudgePrompt(call llm.ToolCall, permErr error, history []llm.Message) (string, error) {
 	p := prompt.New().
 		Paragraph("A tool call requires permission approval. Decide whether it should be allowed.").
 		XMLTag("tool",
 			prompt.KV("name", call.Function.Name),
 			prompt.KV("arguments", call.Function.Arguments))
+	if ctx := formatHistory(history); ctx != "" {
+		p = p.XMLTag("context", prompt.Raw(ctx))
+	}
 	if permErr != nil {
 		p = p.XMLTag("sandbox-denial", prompt.Paragraph(permErr.Error()))
 	}
 	return p.Build(prompt.FormatMarkdown)
+}
+
+func formatHistory(msgs []llm.Message) string {
+	start := 0
+	seen := 0
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := msgs[i]
+		if m.Role == llm.RoleUser || (m.Role == llm.RoleAssistant && !emptyBlock(m)) {
+			seen++
+			if seen == judgeHistoryMax {
+				start = i
+				break
+			}
+		}
+	}
+	if seen == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for i := start; i < len(msgs); i++ {
+		m := msgs[i]
+		if m.Role != llm.RoleUser && m.Role != llm.RoleAssistant && m.Role != llm.RoleTool {
+			continue
+		}
+		if emptyBlock(m) {
+			continue
+		}
+		text := renderContextMessage(m)
+		if text == "" {
+			continue
+		}
+		if len(text) > 1000 {
+			text = text[:1000] + "…"
+		}
+		b.WriteString(text)
+		b.WriteString("\n")
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+func emptyBlock(m llm.Message) bool {
+	return m.Role == llm.RoleAssistant &&
+		len(m.ToolCalls) == 0 &&
+		llm.MessageText(m) == "" &&
+		reasoningText(m) == ""
+}
+
+func renderContextMessage(m llm.Message) string {
+	switch m.Role {
+	case llm.RoleUser:
+		return "user: " + llm.MessageText(m)
+	case llm.RoleAssistant:
+		var lines []string
+		if len(m.ToolCalls) > 0 {
+			var names []string
+			for _, tc := range m.ToolCalls {
+				names = append(names, tc.Function.Name)
+			}
+			lines = append(lines, "assistant: tool call: "+strings.Join(names, ", "))
+		} else if text := llm.MessageText(m); text != "" {
+			lines = append(lines, "assistant: "+text)
+		}
+		if r := reasoningText(m); r != "" {
+			lines = append(lines, "assistant thinking: "+r)
+		}
+		return strings.Join(lines, "\n")
+	case llm.RoleTool:
+		return "tool: " + llm.MessageText(m)
+	}
+	return ""
+}
+
+func reasoningText(m llm.Message) string {
+	if r, ok := m.Reasoning.(string); ok {
+		return r
+	}
+	return ""
 }
 
 func (m *Middleware) askJudge(ctx context.Context, call llm.ToolCall, permErr error) (*decision, error) {
@@ -116,7 +199,7 @@ func (m *Middleware) askJudge(ctx context.Context, call llm.ToolCall, permErr er
 	if judge == nil {
 		return nil, fmt.Errorf("judge provider unavailable")
 	}
-	input, err := buildJudgePrompt(call, permErr)
+	input, err := buildJudgePrompt(call, permErr, agent.HistoryFrom(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("judge: build prompt: %w", err)
 	}

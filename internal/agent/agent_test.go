@@ -763,6 +763,31 @@ func TestRunReasoning(t *testing.T) {
 	}
 }
 
+func TestEmptyAssistantMessage(t *testing.T) {
+	m := llm.AssistantMessage("")
+	m.Reasoning = "thinking hard"
+	if !emptyAssistantMessage(m) {
+		t.Fatal("reasoning-only message must be considered empty")
+	}
+
+	if emptyAssistantMessage(llm.AssistantMessage("answer")) {
+		t.Fatal("message with content must not be considered empty")
+	}
+
+	m2 := llm.AssistantMessage("")
+	m2.ToolCalls = []llm.ToolCall{{ID: "t1", Function: llm.Function{Name: "read"}}}
+	if emptyAssistantMessage(m2) {
+		t.Fatal("tool-call message must not be considered empty")
+	}
+
+	if emptyAssistantMessage(llm.UserMessage("hi")) {
+		t.Fatal("user message must not be considered empty")
+	}
+	if emptyAssistantMessage(llm.ToolMessage("out", "t1")) {
+		t.Fatal("tool message must not be considered empty")
+	}
+}
+
 func TestRunProviderError(t *testing.T) {
 	a, prov := newTestAgent(t)
 	prov.responses = nil
