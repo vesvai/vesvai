@@ -9,10 +9,11 @@ import (
 )
 
 type ListItem struct {
-	Label  string
-	Detail string
-	Data   any
-	Marked bool
+	Label    string
+	Detail   string
+	Data     any
+	Marked   bool
+	Disabled bool
 }
 
 type List struct {
@@ -212,6 +213,8 @@ func (l *List) Draw(s tcell.Screen, bounds layout.Region, _ bool) {
 		rowStyle := style
 		if idx == l.index {
 			rowStyle = th.Base().Foreground(th.InputText).Background(th.Selection)
+		} else if item.Disabled {
+			rowStyle = th.Base().Foreground(th.Muted).Background(th.InputBg)
 		}
 		label := item.Label
 		if item.Marked {

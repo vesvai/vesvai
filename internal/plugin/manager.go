@@ -6,8 +6,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
+	"github.com/hashicorp/go-hclog"
 	goplugin "github.com/hashicorp/go-plugin"
 	"github.com/vesvai/vesvai/internal/core/cache"
 	"github.com/vesvai/vesvai/internal/core/config"
@@ -28,6 +30,15 @@ type Manager struct {
 	plugins map[string]*PluginInstance
 	clients map[string]*goplugin.Client
 	exclude map[string]bool
+}
+
+type logWriter struct {
+	log *logger.Logger
+}
+
+func (w *logWriter) Write(p []byte) (int, error) {
+	w.log.Finfo("plugin: %s", strings.TrimSpace(string(p)))
+	return len(p), nil
 }
 
 type PluginInstance struct {
@@ -69,7 +80,7 @@ func (m *Manager) SetExcludedPlugins(exclude []string) {
 }
 
 func (m *Manager) LoadPlugins() error {
-	pluginDir, err := getPluginDir()
+	pluginDir, err := GetPluginDir()
 	if err != nil {
 		return fmt.Errorf("get plugin dir: %w", err)
 	}
@@ -117,6 +128,10 @@ func (m *Manager) loadPlugin(path string) error {
 		Plugins:          shared.PluginMap,
 		Cmd:              pluginCmd(path),
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolNetRPC},
+		Logger: hclog.New(&hclog.LoggerOptions{
+			Output: &logWriter{log: m.log},
+			Level:  hclog.Info,
+		}),
 	})
 
 	rpcClient, err := client.Client()
@@ -198,7 +213,7 @@ func (m *Manager) Close() {
 	m.clients = make(map[string]*goplugin.Client)
 }
 
-func getPluginDir() (string, error) {
+func GetPluginDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("get home dir: %w", err)

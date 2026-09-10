@@ -7,8 +7,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/vesvai/vesvai/internal/agent/middleware"
+	"github.com/vesvai/vesvai/internal/agent/middlewares"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/agent/tools"
 	"github.com/vesvai/vesvai/internal/core/event"
@@ -116,6 +118,41 @@ func echoTool() tool.Tool {
 	return tool.NewSpec("echo", "echoes the input", map[string]any{"type": "object"}, func(_ context.Context, args string) (string, error) {
 		return "echo:" + args, nil
 	})
+}
+
+type countingMiddleware struct {
+	middleware.BaseMiddleware
+	count *int
+}
+
+func (m *countingMiddleware) BeforeRun(_ context.Context, _, _ string) error {
+	*m.count++
+	return nil
+}
+
+func TestMiddlewareNamesResolvedOnce(t *testing.T) {
+	count := 0
+	name := fmt.Sprintf("counting-%d", time.Now().UnixNano())
+	if err := middlewares.Register(name, &countingMiddleware{count: &count}); err != nil {
+		t.Fatal(err)
+	}
+	defer middlewares.Unregister(name)
+
+	a, prov := newTestAgent(t, WithMiddlewareNames(name))
+	prov.responses = []mockResponse{{content: "one"}, {content: "two"}}
+
+	if _, err := a.Run(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("after first run, count = %d, want 1", count)
+	}
+	if _, err := a.Run(context.Background(), "second"); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("after second run, count = %d, want 2 (middleware must not duplicate)", count)
+	}
 }
 
 func TestRunToolNameResolution(t *testing.T) {
