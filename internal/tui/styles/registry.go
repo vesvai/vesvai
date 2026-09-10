@@ -88,9 +88,14 @@ func Set(name string) bool {
 	t, ok := registry[name]
 	if ok {
 		currentName = name
-		current = onChange.Apply(t)
 	}
 	registryMu.Unlock()
+	if ok {
+		t = onChange.Apply(t)
+		registryMu.Lock()
+		current = t
+		registryMu.Unlock()
+	}
 	return ok
 }
 

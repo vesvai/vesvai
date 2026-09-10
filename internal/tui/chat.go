@@ -535,7 +535,7 @@ func (a *App) submitMessage(input string) {
 	a.refreshHomeLocked()
 	a.chatMu.Unlock()
 
-	dispatchSubmit(input)
+	input = dispatchSubmit(input)
 
 	a.chatMu.Lock()
 	if a.running || a.agent == nil {
