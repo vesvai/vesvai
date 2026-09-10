@@ -34,6 +34,7 @@ type CLI struct {
 	cache    cache.Cache
 	root     *cobra.Command
 	commands hook.Hook[[]*cobra.Command]
+	added    bool
 	picker   func(items []string, label string) (int, error)
 }
 
@@ -135,8 +136,11 @@ func (c *CLI) tuiDeps() (settings.Deps, error) {
 }
 
 func (c *CLI) Execute(args []string) error {
-	for _, cmd := range c.commands.Apply(nil) {
-		c.root.AddCommand(cmd)
+	if !c.added {
+		for _, cmd := range c.commands.Apply(nil) {
+			c.root.AddCommand(cmd)
+		}
+		c.added = true
 	}
 
 	c.root.SetArgs(args)
