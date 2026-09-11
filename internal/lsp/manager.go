@@ -289,7 +289,18 @@ func (m *Manager) notifyDiagnostics(path string) []diagnostic.Diagnostic {
 		}
 	}
 	if !notified {
-		return m.Diagnostics(path)
+		deadline := time.After(5 * time.Second)
+		for {
+			diags := m.Diagnostics(path)
+			if len(diags) > 0 {
+				return diags
+			}
+			select {
+			case <-deadline:
+				return m.Diagnostics(path)
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
 	}
 	return m.waitDiagnostics(path, before)
 }

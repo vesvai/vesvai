@@ -8,15 +8,9 @@ func TestWriteTool(t *testing.T) {
 	fs := setupTestVFS(t, map[string]string{})
 	tool := writeTool(fs)
 
-	out, err := tool.Execute(t.Context(), `{"filePath": "newfile.txt", "content": "hello world"}`)
+	_, err := tool.Execute(t.Context(), `{"filePath": "newfile.txt", "content": "hello world"}`)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if !contains(t, out, "newfile.txt") {
-		t.Errorf("expected output to contain 'newfile.txt', got:\n%s", out)
-	}
-	if !contains(t, out, "written") {
-		t.Errorf("expected output to contain 'written', got:\n%s", out)
 	}
 
 	result, err := fs.Read("newfile.txt")

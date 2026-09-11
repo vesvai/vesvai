@@ -2,7 +2,6 @@ package vfs
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +32,7 @@ func (v *VFS) WriteCtx(ctx context.Context, vpath string, data []byte) (string, 
 	v.setSnapshot(rel, hash)
 	v.debug("vfs: wrote %s (%d bytes)", rel, len(data))
 
-	out := fmt.Sprintf("Path: %s | Size: %d bytes | Hash: %s\nFile written successfully.", rel, len(data), hash)
+	out := ""
 	tc := v.hooks.afterWrite.Apply(TransformContext{Path: rel, Content: out})
 	return tc.Content, nil
 }
