@@ -80,7 +80,7 @@ func updateTodoTool(fs *vfs.VFS) tool.Tool {
 				return "", fmt.Errorf("update-todo: invalid arguments: %w", err)
 			}
 
-			if err := store.setAll(params.Todos); err != nil {
+			if err := store.setAll(ctx, params.Todos); err != nil {
 				return "", fmt.Errorf("update-todo: %w", err)
 			}
 			return fmt.Sprintf("Set %d todos.\n", len(params.Todos)), nil

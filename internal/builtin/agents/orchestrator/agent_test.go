@@ -25,7 +25,7 @@ func newTestFS(t *testing.T) *vfs.VFS {
 
 func TestOrchestratorAgentTools(t *testing.T) {
 	fs := newTestFS(t)
-	todo.TodoTools(fs)
+	todo.TodoTools(fs, nil)
 	subagent.SubAgentTools(nil)
 
 	a, err := newOrchestratorAgent(fs)

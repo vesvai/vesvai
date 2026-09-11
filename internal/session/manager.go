@@ -261,6 +261,10 @@ func (m *Manager) Messages(sessionID string) ([]Message, error) {
 	return m.store.Messages(sessionID)
 }
 
+func (m *Manager) Bus() event.Bus {
+	return m.bus
+}
+
 func (m *Manager) SetCurrent(id string) error {
 	if id != "" {
 		if _, err := m.store.Get(id); err != nil {

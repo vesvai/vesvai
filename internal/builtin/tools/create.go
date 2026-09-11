@@ -13,7 +13,7 @@ import (
 
 func Create(fs *vfs.VFS, sess *session.Manager) {
 	file.FileTools(fs)
-	todo.TodoTools(fs)
+	todo.TodoTools(fs, sess.Bus())
 	shell.ShellTools(fs)
 	web.WebTools(fs)
 	subagent.SubAgentTools(sess)

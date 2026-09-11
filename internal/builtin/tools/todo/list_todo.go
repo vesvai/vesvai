@@ -33,7 +33,7 @@ func listTodoTool(fs *vfs.VFS) tool.Tool {
 			"required":   []string{},
 		},
 		func(ctx context.Context, args string) (string, error) {
-			all, err := store.all()
+			all, err := store.all(ctx)
 			if err != nil {
 				return "", fmt.Errorf("list-todo: %w", err)
 			}

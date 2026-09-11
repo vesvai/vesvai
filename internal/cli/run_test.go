@@ -262,7 +262,7 @@ func newRunTestCLI(t *testing.T) (*CLI, *config.Config, *llm.Manager) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	todo.TodoTools(fs)
+	todo.TodoTools(fs, bus)
 	shell.ShellTools(fs)
 	subagent.SubAgentTools(sess)
 	ask.AskTool()

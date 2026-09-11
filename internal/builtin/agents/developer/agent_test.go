@@ -27,7 +27,7 @@ func newTestFS(t *testing.T) *vfs.VFS {
 
 func TestDeveloperAgentTools(t *testing.T) {
 	fs := newTestFS(t)
-	todo.TodoTools(fs)
+	todo.TodoTools(fs, nil)
 	shell.ShellTools(fs)
 	web.WebTools(fs)
 

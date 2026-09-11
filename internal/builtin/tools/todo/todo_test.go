@@ -1,9 +1,14 @@
 package todo
 
 import (
+	"context"
 	"os"
 	"testing"
+
+	"github.com/vesvai/vesvai/internal/agent"
 )
+
+const testSessionID = "test-session"
 
 func setupTodoTest(t *testing.T) {
 	t.Helper()
@@ -14,9 +19,24 @@ func setupTodoTest(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.mu.Lock()
-	store.file = ""
-	store.todos = make(map[string]*Todo)
-	store.loaded = false
+	store.sessions = make(map[string]*sessionStore)
+	store.agentSessions = make(map[string]string)
+	store.mu.Unlock()
+}
+
+func sessionContext(t *testing.T) context.Context {
+	t.Helper()
+	a := &agent.Agent{ID: "test-agent"}
+	store.mu.Lock()
+	store.agentSessions[a.ID] = testSessionID
+	store.mu.Unlock()
+	return agent.WithAgent(context.Background(), a)
+}
+
+func resetSession(t *testing.T) {
+	t.Helper()
+	store.mu.Lock()
+	delete(store.sessions, testSessionID)
 	store.mu.Unlock()
 }
 
@@ -24,7 +44,7 @@ func TestListTodoToolEmpty(t *testing.T) {
 	setupTodoTest(t)
 	tool := listTodoTool(nil)
 
-	out, err := tool.Execute(t.Context(), `{}`)
+	out, err := tool.Execute(sessionContext(t), `{}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +57,7 @@ func TestUpdateTodoToolSet(t *testing.T) {
 	setupTodoTest(t)
 	tool := updateTodoTool(nil)
 
-	out, err := tool.Execute(t.Context(), `{"todos": [
+	out, err := tool.Execute(sessionContext(t), `{"todos": [
 		{"id": "todo-1", "title": "fix bug", "description": "fix the critical bug", "status": "pending", "priority": "high"}
 	]}`)
 	if err != nil {
@@ -47,7 +67,7 @@ func TestUpdateTodoToolSet(t *testing.T) {
 		t.Errorf("expected 'Set 1 todos', got:\n%s", out)
 	}
 
-	all, err := store.all()
+	all, err := store.all(sessionContext(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,14 +85,15 @@ func TestUpdateTodoToolSet(t *testing.T) {
 func TestUpdateTodoToolReplace(t *testing.T) {
 	setupTodoTest(t)
 	tool := updateTodoTool(nil)
+	ctx := sessionContext(t)
 
-	if _, err := tool.Execute(t.Context(), `{"todos": [
+	if _, err := tool.Execute(ctx, `{"todos": [
 		{"id": "todo-1", "title": "first", "status": "pending", "priority": "medium"}
 	]}`); err != nil {
 		t.Fatal(err)
 	}
 
-	out, err := tool.Execute(t.Context(), `{"todos": [
+	out, err := tool.Execute(ctx, `{"todos": [
 		{"id": "todo-1", "title": "first updated", "status": "completed", "priority": "high"},
 		{"id": "todo-2", "title": "second", "status": "pending", "priority": "low"}
 	]}`)
@@ -83,7 +104,7 @@ func TestUpdateTodoToolReplace(t *testing.T) {
 		t.Errorf("expected 'Set 2 todos', got:\n%s", out)
 	}
 
-	all, err := store.all()
+	all, err := store.all(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,18 +116,19 @@ func TestUpdateTodoToolReplace(t *testing.T) {
 func TestUpdateTodoToolClear(t *testing.T) {
 	setupTodoTest(t)
 	tool := updateTodoTool(nil)
+	ctx := sessionContext(t)
 
-	if _, err := tool.Execute(t.Context(), `{"todos": [
+	if _, err := tool.Execute(ctx, `{"todos": [
 		{"id": "todo-1", "title": "first", "status": "pending", "priority": "medium"}
 	]}`); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := tool.Execute(t.Context(), `{"todos": []}`); err != nil {
+	if _, err := tool.Execute(ctx, `{"todos": []}`); err != nil {
 		t.Fatal(err)
 	}
 
-	all, err := store.all()
+	all, err := store.all(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +141,7 @@ func TestUpdateTodoToolInvalidJSON(t *testing.T) {
 	setupTodoTest(t)
 	tool := updateTodoTool(nil)
 
-	if _, err := tool.Execute(t.Context(), `not json`); err == nil {
+	if _, err := tool.Execute(sessionContext(t), `not json`); err == nil {
 		t.Fatal("expected error for invalid json")
 	}
 }
@@ -127,8 +149,9 @@ func TestUpdateTodoToolInvalidJSON(t *testing.T) {
 func TestUpdateTodoToolWithDependsOn(t *testing.T) {
 	setupTodoTest(t)
 	tool := updateTodoTool(nil)
+	ctx := sessionContext(t)
 
-	_, err := tool.Execute(t.Context(), `{"todos": [
+	_, err := tool.Execute(ctx, `{"todos": [
 		{"id": "todo-1", "title": "first", "status": "completed", "priority": "medium"},
 		{"id": "todo-2", "title": "second", "status": "pending", "priority": "medium", "dependsOn": ["todo-1"]}
 	]}`)
@@ -137,7 +160,7 @@ func TestUpdateTodoToolWithDependsOn(t *testing.T) {
 	}
 
 	listTool := listTodoTool(nil)
-	listOut, err := listTool.Execute(t.Context(), `{}`)
+	listOut, err := listTool.Execute(ctx, `{}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,24 +172,56 @@ func TestUpdateTodoToolWithDependsOn(t *testing.T) {
 func TestTodoPersistence(t *testing.T) {
 	setupTodoTest(t)
 	tool := updateTodoTool(nil)
+	ctx := sessionContext(t)
 
-	if _, err := tool.Execute(t.Context(), `{"todos": [
+	if _, err := tool.Execute(ctx, `{"todos": [
 		{"id": "todo-1", "title": "persistent task", "status": "pending", "priority": "medium"}
 	]}`); err != nil {
 		t.Fatal(err)
 	}
 
-	store.mu.Lock()
-	store.loaded = false
-	store.mu.Unlock()
+	resetSession(t)
 
 	listTool := listTodoTool(nil)
-	out, err := listTool.Execute(t.Context(), `{}`)
+	out, err := listTool.Execute(ctx, `{}`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !contains(t, out, "persistent task") {
 		t.Errorf("expected todo to persist, got:\n%s", out)
+	}
+}
+
+func TestTodoSessionIsolation(t *testing.T) {
+	setupTodoTest(t)
+	tool := updateTodoTool(nil)
+
+	ctxA := sessionContext(t)
+	ctxB := agent.WithAgent(context.Background(), &agent.Agent{ID: "other-agent"})
+	store.mu.Lock()
+	store.agentSessions["other-agent"] = "other-session"
+	store.mu.Unlock()
+
+	if _, err := tool.Execute(ctxA, `{"todos": [
+		{"id": "todo-1", "title": "session a task", "status": "pending", "priority": "medium"}
+	]}`); err != nil {
+		t.Fatal(err)
+	}
+
+	listA, err := store.all(ctxA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listA) != 1 {
+		t.Fatalf("expected 1 todo in session A, got %d", len(listA))
+	}
+
+	listB, err := store.all(ctxB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listB) != 0 {
+		t.Fatalf("expected no todos in session B, got %d", len(listB))
 	}
 }
 
