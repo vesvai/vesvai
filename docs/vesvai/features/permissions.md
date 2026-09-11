@@ -30,7 +30,7 @@ to `ask`.
 | `bash` | `semi-judge` |
 | `list-todo`, `update-todo`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message` | `allow` |
 | `ask` | `allow` (never gated) |
-| `web-search`, `web-fetch` | `semi-ask` |
+| `websearch`, `webfetch` | `semi-ask` |
 
 MCP tools default to `permission.default`. Override any tool with the
 `permission.rules` map:

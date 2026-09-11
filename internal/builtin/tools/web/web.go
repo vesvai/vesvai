@@ -6,6 +6,6 @@ import (
 )
 
 func WebTools(fs *vfs.VFS) {
-	tools.Register(fetchTool(fs))
-	tools.Register(searchTool(fs))
+	tools.Register(webfetchTool(fs))
+	tools.Register(websearchTool(fs))
 }

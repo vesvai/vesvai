@@ -2,7 +2,7 @@ package web
 
 import "github.com/vesvai/vesvai/internal/agent/prompt"
 
-func fetchToolPromptBuilder() *prompt.Prompt {
+func webfetchToolPromptBuilder() *prompt.Prompt {
 	return prompt.New().
 		List("Fetches content from a specified URL",
 			"Takes a URL and a prompt as input",

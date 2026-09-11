@@ -16,8 +16,8 @@ import (
 	"github.com/vesvai/vesvai/internal/vfs"
 )
 
-func generateFetchToolPrompt() (string, error) {
-	sys, err := fetchToolPromptBuilder().
+func generateWebfetchToolPrompt() (string, error) {
+	sys, err := webfetchToolPromptBuilder().
 		Build(prompt.FormatMarkdown)
 	if err != nil {
 		return "", err
@@ -25,14 +25,14 @@ func generateFetchToolPrompt() (string, error) {
 	return sys, nil
 }
 
-func fetchTool(fs *vfs.VFS) tool.Tool {
-	prompt, err := generateFetchToolPrompt()
+func webfetchTool(fs *vfs.VFS) tool.Tool {
+	prompt, err := generateWebfetchToolPrompt()
 	if err != nil {
 		panic(fmt.Sprintf("failed to generate fetch tool prompt: %v", err))
 	}
 
 	return tool.NewSpec(
-		"web-fetch",
+		"webfetch",
 		prompt,
 		map[string]any{
 			"type": "object",
@@ -62,10 +62,10 @@ func fetchTool(fs *vfs.VFS) tool.Tool {
 				Timeout int    `json:"timeout"`
 			}
 			if err := json.Unmarshal([]byte(args), &params); err != nil {
-				return "", fmt.Errorf("web-fetch: invalid arguments: %w", err)
+				return "", fmt.Errorf("webfetch: invalid arguments: %w", err)
 			}
 			if params.URL == "" {
-				return "", fmt.Errorf("web-fetch: url is required")
+				return "", fmt.Errorf("webfetch: url is required")
 			}
 
 			timeout := 30 * time.Second
@@ -81,19 +81,19 @@ func fetchTool(fs *vfs.VFS) tool.Tool {
 
 			req, err := http.NewRequestWithContext(ctx, "GET", params.URL, nil)
 			if err != nil {
-				return "", fmt.Errorf("web-fetch: create request: %w", err)
+				return "", fmt.Errorf("webfetch: create request: %w", err)
 			}
 			req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Vesvai/1.0)")
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				return "", fmt.Errorf("web-fetch: %w", err)
+				return "", fmt.Errorf("webfetch: %w", err)
 			}
 			defer resp.Body.Close()
 
 			body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			if err != nil {
-				return "", fmt.Errorf("web-fetch: read body: %w", err)
+				return "", fmt.Errorf("webfetch: read body: %w", err)
 			}
 
 			contentType := resp.Header.Get("Content-Type")
@@ -121,7 +121,7 @@ func fetchTool(fs *vfs.VFS) tool.Tool {
 				if strings.Contains(contentType, "html") || isHTML(body) {
 					markdown, err := md.ConvertString(string(body))
 					if err != nil {
-						return "", fmt.Errorf("web-fetch: convert to markdown: %w", err)
+						return "", fmt.Errorf("webfetch: convert to markdown: %w", err)
 					}
 					out += stripMarkdownFormatting(markdown)
 				} else {
@@ -131,7 +131,7 @@ func fetchTool(fs *vfs.VFS) tool.Tool {
 				if strings.Contains(contentType, "html") || isHTML(body) {
 					markdown, err := md.ConvertString(string(body))
 					if err != nil {
-						return "", fmt.Errorf("web-fetch: convert to markdown: %w", err)
+						return "", fmt.Errorf("webfetch: convert to markdown: %w", err)
 					}
 					out += markdown
 				} else {

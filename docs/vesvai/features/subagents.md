@@ -13,9 +13,9 @@ prompt, and middleware, and runs **concurrently** with its siblings.
 | Agent | Role | Write access | Tools |
 |---|---|---|---|
 | `orchestrator` | Top-level coordinator | Full workspace | All file tools, `ask`, `bash`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message`, `list-todo`, `update-todo` |
-| `planner` | Architecture and planning | `.vesvai/plans/` only | File tools write-scoped to plans, `bash`, `web-fetch`, `web-search`, `list-todo`, `update-todo` |
-| `developer` | Implementation | Full workspace except `.vesvai/plans/` | All file tools, `bash`, `web-fetch`, `web-search`, `list-todo`, `update-todo` |
-| `explorer` | Read-only research | None | `glob`, `grep`, `list`, `read`, `bash`, `web-fetch`, `web-search` |
+| `planner` | Architecture and planning | `.vesvai/plans/` only | File tools write-scoped to plans, `bash`, `webfetch`, `websearch`, `list-todo`, `update-todo` |
+| `developer` | Implementation | Full workspace except `.vesvai/plans/` | All file tools, `bash`, `webfetch`, `websearch`, `list-todo`, `update-todo` |
+| `explorer` | Read-only research | None | `glob`, `grep`, `list`, `read`, `bash`, `webfetch`, `websearch` |
 
 All agents share a common system prompt that establishes the interaction style
 (tone, proactiveness, code conventions), injects the working environment, git

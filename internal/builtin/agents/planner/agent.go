@@ -32,7 +32,7 @@ func newPlannerAgent(fs *vfs.VFS) (*agent.Agent, error) {
 	main := agent.New("planner",
 		agent.WithSystemPrompt(sys),
 		agent.WithTools(file.Tools(plans)...),
-		agent.WithToolNames("bash", "web-fetch", "web-search", "list-todo", "update-todo"),
+		agent.WithToolNames("bash", "webfetch", "websearch", "list-todo", "update-todo"),
 		agent.WithMiddlewareNames("loop-detector", "redaction", "retry", "permission"),
 	)
 

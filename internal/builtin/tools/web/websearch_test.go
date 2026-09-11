@@ -91,7 +91,7 @@ func TestCleanDuckDuckGoURL(t *testing.T) {
 }
 
 func TestSearchToolMissingQuery(t *testing.T) {
-	tool := searchTool(nil)
+	tool := websearchTool(nil)
 	_, err := tool.Execute(t.Context(), `{}`)
 	if err == nil {
 		t.Fatal("expected error for missing query")

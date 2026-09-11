@@ -17,7 +17,7 @@ func BatchSkill() *prompt.Prompt {
 		Add(prompt.List(
 			prompt.ListItem("**explorer** — read-only codebase search specialist.",
 				prompt.List(
-					"Use for: finding files, searching code with glob/grep, reading files, web research (web-search, web-fetch)",
+					"Use for: finding files, searching code with glob/grep, reading files, web research (websearch, webfetch)",
 					"Returns: a findings report — file paths, relevant code, summaries",
 					"Best for: understanding the codebase before planning, answering 'where is X', 'how does Y work'",
 				),

@@ -12,7 +12,7 @@ func TestFetchToolBasic(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestFetchToolPlainText(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +46,7 @@ func TestFetchToolPlainText(t *testing.T) {
 }
 
 func TestFetchToolMissingURL(t *testing.T) {
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	_, err := tool.Execute(t.Context(), `{}`)
 	if err == nil {
 		t.Fatal("expected error for missing url")
@@ -54,7 +54,7 @@ func TestFetchToolMissingURL(t *testing.T) {
 }
 
 func TestFetchToolInvalidURL(t *testing.T) {
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	_, err := tool.Execute(t.Context(), `{"url": "not-a-url"}`)
 	if err == nil {
 		t.Fatal("expected error for invalid url")
@@ -68,7 +68,7 @@ func TestFetchToolStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestFetchToolContentType(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +101,7 @@ func TestFetchToolFormatHTML(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`", "format": "html"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestFetchToolFormatText(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`", "format": "text"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func TestFetchToolTimeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`", "timeout": 10}`)
 	if err != nil {
 		t.Fatal(err)

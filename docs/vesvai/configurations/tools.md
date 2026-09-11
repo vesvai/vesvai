@@ -109,7 +109,7 @@ code is included in the output.
 
 ## Web
 
-### `web-search`
+### `websearch`
 
 Search the web (DuckDuckGo HTML endpoint) and return titles, URLs, and snippets.
 
@@ -118,7 +118,7 @@ Search the web (DuckDuckGo HTML endpoint) and return titles, URLs, and snippets.
 | `query` | string | yes | Search query |
 | `maxResults` | integer | no | 1–20; defaults to 10 |
 
-### `web-fetch`
+### `webfetch`
 
 Fetch a URL. HTML is converted to Markdown by default.
 
@@ -194,10 +194,10 @@ Registered agent types for `subagent`: `orchestrator`, `explorer`, `planner`, an
 
 | Agent | Tools |
 |---|---|
-| `orchestrator` | All file tools, `ask`, `bash`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message`, `list-todo`, `update-todo` |
-| `planner` | File tools write-scoped to `.vesvai/plans`, `bash`, `web-fetch`, `web-search`, `list-todo`, `update-todo` |
-| `developer` | All file tools, `bash`, `web-fetch`, `web-search`, `list-todo`, `update-todo` |
-| `explorer` | `glob`, `grep`, `list`, `read`, `bash`, `web-fetch`, `web-search` |
+| `orchestrator` | All file tools, `ask`, `bash`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message`, `list-todo`, `update-todo`, `webfetch`, `websearch` |
+| `planner` | File tools write-scoped to `.vesvai/plans`, `bash`, `webfetch`, `websearch`, `list-todo`, `update-todo` |
+| `developer` | All file tools, `bash`, `webfetch`, `websearch`, `list-todo`, `update-todo` |
+| `explorer` | `glob`, `grep`, `list`, `read`, `bash`, `webfetch`, `websearch` |
 
 ## Permissions
 
@@ -211,7 +211,7 @@ built-in defaults:
 | `list-todo`, `update-todo` | `allow` |
 | `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message` | `allow` |
 | `ask` | `allow` (never gated) |
-| `web-search`, `web-fetch` | `semi-ask` |
+| `websearch`, `webfetch` | `semi-ask` |
 
 Override any tool with the `permission.rules` map in [Config](../config.md#permission).
 MCP tools default to the configured `permission.default`.

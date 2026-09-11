@@ -18,7 +18,7 @@ func newExplorerAgent() (*agent.Agent, error) {
 
 	main := agent.New("explorer",
 		agent.WithSystemPrompt(sys),
-		agent.WithToolNames("glob", "grep", "list", "read", "bash", "web-fetch", "web-search"),
+		agent.WithToolNames("glob", "grep", "list", "read", "bash", "webfetch", "websearch"),
 		agent.WithMiddlewareNames("loop-detector", "redaction", "retry", "permission"),
 	)
 

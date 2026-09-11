@@ -17,8 +17,8 @@ import (
 	"golang.org/x/net/html"
 )
 
-func generateSearchToolPrompt() (string, error) {
-	sys, err := searchToolPromptBuilder().
+func generateWebsearchToolPrompt() (string, error) {
+	sys, err := websearchToolPromptBuilder().
 		Build(prompt.FormatMarkdown)
 	if err != nil {
 		return "", err
@@ -26,14 +26,14 @@ func generateSearchToolPrompt() (string, error) {
 	return sys, nil
 }
 
-func searchTool(fs *vfs.VFS) tool.Tool {
-	prompt, err := generateSearchToolPrompt()
+func websearchTool(fs *vfs.VFS) tool.Tool {
+	prompt, err := generateWebsearchToolPrompt()
 	if err != nil {
 		panic(fmt.Sprintf("failed to generate search tool prompt: %v", err))
 	}
 
 	return tool.NewSpec(
-		"web-search",
+		"websearch",
 		prompt,
 		map[string]any{
 			"type": "object",
@@ -57,10 +57,10 @@ func searchTool(fs *vfs.VFS) tool.Tool {
 				MaxResults int    `json:"maxResults"`
 			}
 			if err := json.Unmarshal([]byte(args), &params); err != nil {
-				return "", fmt.Errorf("web-search: invalid arguments: %w", err)
+				return "", fmt.Errorf("websearch: invalid arguments: %w", err)
 			}
 			if params.Query == "" {
-				return "", fmt.Errorf("web-search: query is required")
+				return "", fmt.Errorf("websearch: query is required")
 			}
 			if params.MaxResults <= 0 {
 				params.MaxResults = 10
@@ -75,20 +75,20 @@ func searchTool(fs *vfs.VFS) tool.Tool {
 			form := url.Values{"q": {params.Query}}
 			req, err := http.NewRequestWithContext(ctx, "POST", "https://html.duckduckgo.com/html/", strings.NewReader(form.Encode()))
 			if err != nil {
-				return "", fmt.Errorf("web-search: create request: %w", err)
+				return "", fmt.Errorf("websearch: create request: %w", err)
 			}
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Vesvai/1.0)")
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				return "", fmt.Errorf("web-search: %w", err)
+				return "", fmt.Errorf("websearch: %w", err)
 			}
 			defer resp.Body.Close()
 
 			body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
 			if err != nil {
-				return "", fmt.Errorf("web-search: read body: %w", err)
+				return "", fmt.Errorf("websearch: read body: %w", err)
 			}
 
 			results := parseDuckDuckGoResults(string(body), params.MaxResults)

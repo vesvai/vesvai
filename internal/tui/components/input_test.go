@@ -404,7 +404,7 @@ func TestChipIsAtomicOnBackspace(t *testing.T) {
 
 func TestChipAtomicMovement(t *testing.T) {
 	in := NewInput()
-	in.InsertChip("web-search")
+	in.InsertChip("websearch")
 	in.InsertRune('a')
 	in.MoveLeft()
 	if in.Col() != 1 {
