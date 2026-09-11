@@ -3,18 +3,34 @@ package ask
 import (
 	"context"
 	"fmt"
-	json "github.com/goccy/go-json"
 	"sync"
 
+	json "github.com/goccy/go-json"
+
 	"github.com/vesvai/vesvai/internal/agent"
+	"github.com/vesvai/vesvai/internal/agent/prompt"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/agent/tools"
 )
 
+func generateAskToolPrompt() (string, error) {
+	sys, err := askToolPromptBuilder().
+		Build(prompt.FormatMarkdown)
+	if err != nil {
+		return "", err
+	}
+	return sys, nil
+}
+
 func AskTool() {
+	prompt, err := generateAskToolPrompt()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate ask tool prompt: %v", err))
+	}
+
 	tools.Register(tool.NewSpec(
 		"ask",
-		"Ask the user one or more questions and collect their answers. Use this when you need clarification, confirmation, or input from the user before proceeding. Supports text input and selection from predefined options. All questions are presented to the user at once in a modal, and the tool blocks until the user submits answers.",
+		prompt,
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
