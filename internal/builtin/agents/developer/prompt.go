@@ -42,7 +42,7 @@ func generateDeveloperPrompt() (string, error) {
 					"Fix any failures you introduced; never report success on failing checks",
 				),
 			),
-			prompt.ListItem("**Update Todos**: Keep the persistent todo list in sync with your work using `list-todo` and `update-todo`.",
+			prompt.ListItem("**Update Todos**: Keep the persistent todo list in sync with your work using `todoread` and `todowrite`.",
 				prompt.List(
 					"Mark the todo(s) you are working on as `in_progress` when you start",
 					"Mark them `completed` only after your work is implemented and verified",

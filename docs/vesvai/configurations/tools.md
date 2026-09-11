@@ -153,14 +153,14 @@ Todos persist in `.vesvai/todos.json` in the project directory. Statuses are
 `pending`, `in_progress`, `completed`, and `cancelled`; priorities are `high`,
 `medium`, and `low`.
 
-### `list-todo`
+### `todoread`
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `status` | string | no | Filter by status |
 | `priority` | string | no | Filter by priority |
 
-### `update-todo`
+### `todowrite`
 
 Create, update, delete, or change the status of a todo. Omit `id` to create a todo
 with an auto-generated id (`todo-1`, `todo-2`, ...). Providing an existing `id`
@@ -194,9 +194,9 @@ Registered agent types for `subagent`: `orchestrator`, `explorer`, `planner`, an
 
 | Agent | Tools |
 |---|---|
-| `orchestrator` | All file tools, `ask`, `bash`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message`, `list-todo`, `update-todo`, `webfetch`, `websearch` |
-| `planner` | File tools write-scoped to `.vesvai/plans`, `bash`, `webfetch`, `websearch`, `list-todo`, `update-todo` |
-| `developer` | All file tools, `bash`, `webfetch`, `websearch`, `list-todo`, `update-todo` |
+| `orchestrator` | All file tools, `ask`, `bash`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message`, `todoread`, `todowrite`, `webfetch`, `websearch` |
+| `planner` | File tools write-scoped to `.vesvai/plans`, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
+| `developer` | All file tools, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `explorer` | `glob`, `grep`, `list`, `read`, `bash`, `webfetch`, `websearch` |
 
 ## Permissions
@@ -208,7 +208,7 @@ built-in defaults:
 |---|---|
 | `read`, `write`, `edit`, `delete`, `list`, `glob`, `grep` | `semi-ask` |
 | `bash` | `semi-judge` (whitelisted commands run directly) |
-| `list-todo`, `update-todo` | `allow` |
+| `todoread`, `todowrite` | `allow` |
 | `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message` | `allow` |
 | `ask` | `allow` (never gated) |
 | `websearch`, `webfetch` | `semi-ask` |

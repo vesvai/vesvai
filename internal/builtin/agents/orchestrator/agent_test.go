@@ -32,7 +32,7 @@ func TestOrchestratorAgentTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"subagent", "wait-for-subagents", "subagents-status", "subagent-message", "list-todo", "update-todo"} {
+	for _, name := range []string{"subagent", "wait-for-subagents", "subagents-status", "subagent-message", "todoread", "todowrite"} {
 		if !slices.Contains(a.ToolNames, name) {
 			t.Fatalf("orchestrator missing tool name %q", name)
 		}

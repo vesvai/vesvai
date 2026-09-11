@@ -40,7 +40,7 @@ func TestDeveloperAgentTools(t *testing.T) {
 			t.Fatalf("developer missing file tool %q", name)
 		}
 	}
-	for _, name := range []string{"bash", "webfetch", "websearch", "list-todo", "update-todo"} {
+	for _, name := range []string{"bash", "webfetch", "websearch", "todoread", "todowrite"} {
 		if !slices.Contains(a.ToolNames, name) {
 			t.Fatalf("developer missing tool name %q", name)
 		}
@@ -55,7 +55,7 @@ func TestDeveloperPromptRenders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"software engineer", ".vesvai/plans", "update-todo", "in_progress", "Report"} {
+	for _, want := range []string{"software engineer", ".vesvai/plans", "todowrite", "in_progress", "Report"} {
 		if !strings.Contains(sys, want) {
 			t.Fatalf("prompt missing %q", want)
 		}

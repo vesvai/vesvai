@@ -28,7 +28,7 @@ to `ask`.
 |---|---|
 | `read`, `write`, `edit`, `delete`, `list`, `glob`, `grep` | `semi-ask` |
 | `bash` | `semi-judge` |
-| `list-todo`, `update-todo`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message` | `allow` |
+| `todoread`, `todowrite`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message` | `allow` |
 | `ask` | `allow` (never gated) |
 | `websearch`, `webfetch` | `semi-ask` |
 

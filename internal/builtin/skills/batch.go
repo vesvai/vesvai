@@ -65,7 +65,7 @@ func BatchSkill() *prompt.Prompt {
 		Paragraph("Before any non-trivial implementation work, you MUST use the planner. Contract:").
 		OrderedList("**Explore first**: delegate exploration to the explorer agent so the planner starts with grounded context.",
 			"**Plan**: delegate to the planner agent with the requirements and the explorer's findings. The planner writes the implementation plan and creates the matching persistent todo hierarchy.",
-			"**Review**: read the produced plan from `.vesvai/plans/YYYY-MM-DD-<feature-name>.md` (use the `read` tool) and review the todo hierarchy with `list-todo`. Confirm the plan covers the request before executing anything.",
+			"**Review**: read the produced plan from `.vesvai/plans/YYYY-MM-DD-<feature-name>.md` (use the `read` tool) and review the todo hierarchy with `todoread`. Confirm the plan covers the request before executing anything.",
 			"**Execute**: dispatch subagents strictly following the plan's tasks and the todo dependency graph.").
 		Paragraph("The plan file is the source of truth for HOW the work is done; the todo list is the source of truth for WHAT remains. Keep both in sync as execution progresses.").
 		Paragraph("For trivial or purely informational requests (a quick answer, a single small lookup), skip the planner — delegate directly to the explorer.").
@@ -76,12 +76,12 @@ func BatchSkill() *prompt.Prompt {
 			"`dependsOn` lists the todo IDs that must complete before this one can start.",
 			"Priorities: `high` for blocking/foundational work, `medium` for normal work, `low` for optional work.").
 		Heading(2, "Todo Lifecycle").
-		OrderedList("Before dispatching a subagent for a todo, mark it `in_progress` with `update-todo`.",
+		OrderedList("Before dispatching a subagent for a todo, mark it `in_progress` with `todowrite`.",
 			"Link the subagent to it with `task_id` so the association is recorded.",
-			"Only after the subagent's work has been verified, mark the todo `completed` with `update-todo`.",
+			"Only after the subagent's work has been verified, mark the todo `completed` with `todowrite`.",
 			"If the work failed or was abandoned, leave it `in_progress` or set it back to `pending` — never mark unverified or unfinished work as `completed`.",
-			"Use `list-todo` regularly to determine what can start next: any `pending` todo whose dependencies are all `completed`.").
-		Paragraph("Do not invent todos that were not created by the planner. If the plan changes, adjust todos via `update-todo` to match reality.").
+			"Use `todoread` regularly to determine what can start next: any `pending` todo whose dependencies are all `completed`.").
+		Paragraph("Do not invent todos that were not created by the planner. If the plan changes, adjust todos via `todowrite` to match reality.").
 		Heading(1, "Master Workflow").
 		Paragraph("Follow this loop for every user request:").
 		Add(prompt.OrderedList(

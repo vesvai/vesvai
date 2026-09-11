@@ -2,7 +2,7 @@ package todo
 
 import "github.com/vesvai/vesvai/internal/agent/prompt"
 
-func listTodoToolPromptBuilder() *prompt.Prompt {
+func todoreadToolPromptBuilder() *prompt.Prompt {
 	return prompt.New().
 		Paragraph("Use this tool to read the current to-do list for the session. This tool should be used proactively and frequently to ensure that you are aware of.").
 		Paragraph("the status of the current task list. You should make use of this tool as often as possible, especially in the following situations:").

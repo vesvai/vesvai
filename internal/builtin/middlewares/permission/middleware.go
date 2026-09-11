@@ -44,8 +44,8 @@ var builtinDefaults = map[string]Mode{
 	"bash": ModeSemiJudge,
 
 	"todo":               ModeAllow,
-	"list-todo":          ModeAllow,
-	"update-todo":        ModeAllow,
+	"todoread":           ModeAllow,
+	"todowrite":          ModeAllow,
 	"webfetch":           ModeAllow,
 	"websearch":          ModeAllow,
 	"subagent":           ModeAllow,

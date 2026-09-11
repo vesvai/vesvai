@@ -52,8 +52,8 @@ var store = &todoStore{
 
 func TodoTools(fs *vfs.VFS, bus event.Bus) {
 	store.subscribe(bus)
-	tools.Register(listTodoTool(fs))
-	tools.Register(updateTodoTool(fs))
+	tools.Register(todoreadTool(fs))
+	tools.Register(todowriteTool(fs))
 }
 
 func (s *todoStore) subscribe(bus event.Bus) {

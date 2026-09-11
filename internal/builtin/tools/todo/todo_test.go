@@ -40,9 +40,9 @@ func resetSession(t *testing.T) {
 	store.mu.Unlock()
 }
 
-func TestListTodoToolEmpty(t *testing.T) {
+func TestTodoreadToolEmpty(t *testing.T) {
 	setupTodoTest(t)
-	tool := listTodoTool(nil)
+	tool := todoreadTool(nil)
 
 	out, err := tool.Execute(sessionContext(t), `{}`)
 	if err != nil {
@@ -53,9 +53,9 @@ func TestListTodoToolEmpty(t *testing.T) {
 	}
 }
 
-func TestUpdateTodoToolSet(t *testing.T) {
+func TestTodowriteToolSet(t *testing.T) {
 	setupTodoTest(t)
-	tool := updateTodoTool(nil)
+	tool := todowriteTool(nil)
 
 	out, err := tool.Execute(sessionContext(t), `{"todos": [
 		{"id": "todo-1", "title": "fix bug", "description": "fix the critical bug", "status": "pending", "priority": "high"}
@@ -82,9 +82,9 @@ func TestUpdateTodoToolSet(t *testing.T) {
 	}
 }
 
-func TestUpdateTodoToolReplace(t *testing.T) {
+func TestTodowriteToolReplace(t *testing.T) {
 	setupTodoTest(t)
-	tool := updateTodoTool(nil)
+	tool := todowriteTool(nil)
 	ctx := sessionContext(t)
 
 	if _, err := tool.Execute(ctx, `{"todos": [
@@ -116,9 +116,9 @@ func TestUpdateTodoToolReplace(t *testing.T) {
 	}
 }
 
-func TestUpdateTodoToolClear(t *testing.T) {
+func TestTodowriteToolClear(t *testing.T) {
 	setupTodoTest(t)
-	tool := updateTodoTool(nil)
+	tool := todowriteTool(nil)
 	ctx := sessionContext(t)
 
 	if _, err := tool.Execute(ctx, `{"todos": [
@@ -140,18 +140,18 @@ func TestUpdateTodoToolClear(t *testing.T) {
 	}
 }
 
-func TestUpdateTodoToolInvalidJSON(t *testing.T) {
+func TestTodowriteToolInvalidJSON(t *testing.T) {
 	setupTodoTest(t)
-	tool := updateTodoTool(nil)
+	tool := todowriteTool(nil)
 
 	if _, err := tool.Execute(sessionContext(t), `not json`); err == nil {
 		t.Fatal("expected error for invalid json")
 	}
 }
 
-func TestUpdateTodoToolWithDependsOn(t *testing.T) {
+func TestTodowriteToolWithDependsOn(t *testing.T) {
 	setupTodoTest(t)
-	tool := updateTodoTool(nil)
+	tool := todowriteTool(nil)
 	ctx := sessionContext(t)
 
 	_, err := tool.Execute(ctx, `{"todos": [
@@ -162,7 +162,7 @@ func TestUpdateTodoToolWithDependsOn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	listTool := listTodoTool(nil)
+	listTool := todoreadTool(nil)
 	listOut, err := listTool.Execute(ctx, `{}`)
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func TestUpdateTodoToolWithDependsOn(t *testing.T) {
 
 func TestTodoPersistence(t *testing.T) {
 	setupTodoTest(t)
-	tool := updateTodoTool(nil)
+	tool := todowriteTool(nil)
 	ctx := sessionContext(t)
 
 	if _, err := tool.Execute(ctx, `{"todos": [
@@ -185,7 +185,7 @@ func TestTodoPersistence(t *testing.T) {
 
 	resetSession(t)
 
-	listTool := listTodoTool(nil)
+	listTool := todoreadTool(nil)
 	out, err := listTool.Execute(ctx, `{}`)
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestTodoPersistence(t *testing.T) {
 
 func TestTodoSessionIsolation(t *testing.T) {
 	setupTodoTest(t)
-	tool := updateTodoTool(nil)
+	tool := todowriteTool(nil)
 
 	ctxA := sessionContext(t)
 	ctxB := agent.WithAgent(context.Background(), &agent.Agent{ID: "other-agent"})

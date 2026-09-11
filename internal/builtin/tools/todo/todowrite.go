@@ -11,8 +11,8 @@ import (
 	"github.com/vesvai/vesvai/internal/vfs"
 )
 
-func generateUpdateTodoToolPrompt() (string, error) {
-	sys, err := updateTodoToolPromptBuilder().
+func generateTodowriteToolPrompt() (string, error) {
+	sys, err := todowriteToolPromptBuilder().
 		Build(prompt.FormatMarkdown)
 	if err != nil {
 		return "", err
@@ -20,14 +20,14 @@ func generateUpdateTodoToolPrompt() (string, error) {
 	return sys, nil
 }
 
-func updateTodoTool(fs *vfs.VFS) tool.Tool {
-	prompt, err := generateUpdateTodoToolPrompt()
+func todowriteTool(fs *vfs.VFS) tool.Tool {
+	prompt, err := generateTodowriteToolPrompt()
 	if err != nil {
 		panic(fmt.Sprintf("failed to generate update todo tool prompt: %v", err))
 	}
 
 	return tool.NewSpec(
-		"update-todo",
+		"todowrite",
 		prompt,
 		map[string]any{
 			"type": "object",
@@ -77,15 +77,15 @@ func updateTodoTool(fs *vfs.VFS) tool.Tool {
 				Todos []*Todo `json:"todos"`
 			}
 			if err := json.Unmarshal([]byte(args), &params); err != nil {
-				return "", fmt.Errorf("update-todo: invalid arguments: %w", err)
+				return "", fmt.Errorf("todowrite: invalid arguments: %w", err)
 			}
 
 			if err := store.setAll(ctx, params.Todos); err != nil {
-				return "", fmt.Errorf("update-todo: %w", err)
+				return "", fmt.Errorf("todowrite: %w", err)
 			}
 			all, err := store.all(ctx)
 			if err != nil {
-				return "", fmt.Errorf("update-todo: %w", err)
+				return "", fmt.Errorf("todowrite: %w", err)
 			}
 			return formatTodoList(all), nil
 		},

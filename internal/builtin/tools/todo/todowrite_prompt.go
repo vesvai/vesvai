@@ -2,7 +2,7 @@ package todo
 
 import "github.com/vesvai/vesvai/internal/agent/prompt"
 
-func updateTodoToolPromptBuilder() *prompt.Prompt {
+func todowriteToolPromptBuilder() *prompt.Prompt {
 	return prompt.New().
 		Paragraph("Use this tool to create and manage a structured task list for your current coding session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user.").
 		Paragraph("It also helps the user understand the progress of the task and overall progress of their requests.").
