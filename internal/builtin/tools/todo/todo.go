@@ -102,44 +102,21 @@ func (s *todoStore) all() ([]*Todo, error) {
 	return out, nil
 }
 
-func (s *todoStore) add(t *Todo) error {
+func (s *todoStore) setAll(todos []*Todo) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.init(); err != nil {
 		return err
-	}
-	if _, ok := s.todos[t.ID]; ok {
-		return fmt.Errorf("todo: duplicate id %q", t.ID)
 	}
 	now := time.Now()
-	t.CreatedAt = now
-	t.UpdatedAt = now
-	s.todos[t.ID] = t
-	return s.save()
-}
-
-func (s *todoStore) exists(id string) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.init(); err != nil {
-		return false, err
+	s.todos = make(map[string]*Todo, len(todos))
+	for _, t := range todos {
+		if t.CreatedAt.IsZero() {
+			t.CreatedAt = now
+		}
+		t.UpdatedAt = now
+		s.todos[t.ID] = t
 	}
-	_, ok := s.todos[id]
-	return ok, nil
-}
-
-func (s *todoStore) update(id string, fn func(*Todo)) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.init(); err != nil {
-		return err
-	}
-	t, ok := s.todos[id]
-	if !ok {
-		return fmt.Errorf("todo: not found: %q", id)
-	}
-	fn(t)
-	t.UpdatedAt = time.Now()
 	return s.save()
 }
 
@@ -154,17 +131,6 @@ func (s *todoStore) delete(id string) error {
 	}
 	delete(s.todos, id)
 	return s.save()
-}
-
-func nextTodoID(todos []*Todo) string {
-	max := 0
-	for _, t := range todos {
-		var n int
-		if _, err := fmt.Sscanf(t.ID, "todo-%d", &n); err == nil && n > max {
-			max = n
-		}
-	}
-	return fmt.Sprintf("todo-%d", max+1)
 }
 
 func formatTodoList(todos []*Todo) string {
@@ -208,20 +174,4 @@ func priorityLabel(p string) string {
 	default:
 		return "medium"
 	}
-}
-
-func validStatus(s string) bool {
-	switch s {
-	case "pending", "in_progress", "completed", "cancelled":
-		return true
-	}
-	return false
-}
-
-func validPriority(p string) bool {
-	switch p {
-	case "high", "medium", "low":
-		return true
-	}
-	return false
 }
