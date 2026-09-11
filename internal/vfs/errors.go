@@ -13,6 +13,7 @@ var (
 	ErrIgnored         = errors.New("vfs: file not found or access denied")
 	ErrNotFound        = errors.New("vfs: file not found")
 	ErrNoMatch         = errors.New("vfs: pattern does not match file content")
+	ErrMultipleMatch   = errors.New("vfs: multiple files match the pattern")
 	ErrInvalidGrepMode = errors.New("vfs: invalid grep output mode")
 )
 

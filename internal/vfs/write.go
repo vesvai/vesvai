@@ -63,6 +63,17 @@ func (v *VFS) EditCtx(ctx context.Context, vpath, oldString, newString string, r
 		return "", ErrFileChanged
 	}
 
+	strData := string(data)
+	matchCount := strings.Count(strData, oldString)
+
+	if matchCount == 0 {
+		return "", ErrNoMatch
+	}
+
+	if !replaceAll && matchCount > 1 {
+		return "", ErrMultipleMatch
+	}
+
 	occurrences := 1
 	if replaceAll {
 		occurrences = -1
@@ -79,7 +90,7 @@ func (v *VFS) EditCtx(ctx context.Context, vpath, oldString, newString string, r
 	v.setSnapshot(rel, hash)
 	v.debug("vfs: edited %s", rel)
 
-	out := fmt.Sprintf("Path: %s | Size: %d bytes | Hash: %s\nFile edited successfully.", rel, len(content), hash)
+	out := ""
 	tc := v.hooks.afterWrite.Apply(TransformContext{Path: rel, Content: out})
 	return tc.Content, nil
 }

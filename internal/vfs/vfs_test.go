@@ -393,11 +393,11 @@ func TestEditReplaceAll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := fs.Edit("a.txt", "x", "y", false); err != nil {
+	if _, err := fs.Edit("a.txt", "x x", "y y", false); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(root, "a.txt"))
-	if string(data) != "y x x" {
+	if string(data) != "y y x" {
 		t.Fatalf("first-only replace = %q", data)
 	}
 
