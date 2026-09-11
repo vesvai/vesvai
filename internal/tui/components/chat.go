@@ -665,7 +665,7 @@ func (c *Chat) toolLines(it *ChatItem, width int) []Line {
 	isWrite := strings.HasPrefix(it.ToolName, "write:") || it.ToolName == "write"
 	isList := strings.Contains(it.ToolName, "todoread") || strings.Contains(it.ToolName, "todowrite")
 	isBash := strings.HasPrefix(it.ToolName, "bash:") || it.ToolName == "bash"
-	isAsk := it.ToolName == "ask"
+	isAsk := it.ToolName == "askuserquestion"
 	isRunning := it.ToolErr == "" && it.ToolOutput == ""
 
 	if isRunning {

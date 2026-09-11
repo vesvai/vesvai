@@ -79,7 +79,7 @@ func TestModeResolution(t *testing.T) {
 	if got := m.modeFor("todo"); got != ModeAllow {
 		t.Errorf("todo = %v, want allow", got)
 	}
-	if got := m.modeFor("ask"); got != ModeAllow {
+	if got := m.modeFor("askuserquestion"); got != ModeAllow {
 		t.Errorf("ask = %v, want allow", got)
 	}
 	if got := m.modeFor("unknown-tool"); got != defaultMode {

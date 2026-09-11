@@ -12,7 +12,7 @@ prompt, and middleware, and runs **concurrently** with its siblings.
 
 | Agent | Role | Write access | Tools |
 |---|---|---|---|
-| `orchestrator` | Top-level coordinator | Full workspace | All file tools, `ask`, `bash`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message`, `todoread`, `todowrite` |
+| `orchestrator` | Top-level coordinator | Full workspace | All file tools, `askuserquestion`, `bash`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message`, `todoread`, `todowrite` |
 | `planner` | Architecture and planning | `.vesvai/plans/` only | File tools write-scoped to plans, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `developer` | Implementation | Full workspace except `.vesvai/plans/` | All file tools, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `explorer` | Read-only research | None | `glob`, `grep`, `list`, `read`, `bash`, `webfetch`, `websearch` |

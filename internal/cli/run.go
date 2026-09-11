@@ -1003,7 +1003,7 @@ func (r *runRenderer) onAsk(e agent.AgentAsk) {
 	if e.AgentID != r.mainID {
 		return
 	}
-	r.write("\n%s %s is asking:\n", r.green("ask"), e.AgentName)
+	r.write("\n%s %s is asking:\n", r.green("askuserquestion"), e.AgentName)
 	answers := make(map[string]string)
 
 	for _, q := range e.Questions {

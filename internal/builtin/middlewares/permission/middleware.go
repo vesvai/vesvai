@@ -100,7 +100,7 @@ func (m *Middleware) judge() *agent.Agent {
 }
 
 func (m *Middleware) modeFor(name string) Mode {
-	if name == "ask" {
+	if name == "askuserquestion" {
 		return ModeAllow
 	}
 	if m.cfg != nil {

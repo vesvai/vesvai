@@ -500,9 +500,9 @@ func (a *App) addToolItem(t *agentTranscript, call llm.ToolCall, agentID string)
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Pattern != "" {
 			it.ToolName = "grep:" + p.Pattern
 		}
-	case "ask":
+	case "askuserquestion":
 		it.ToolArgs = args
-		it.ToolName = "ask"
+		it.ToolName = "askuserquestion"
 	case "todoread":
 		it.ToolName = "todoread"
 	case "todowrite":

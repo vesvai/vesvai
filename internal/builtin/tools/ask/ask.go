@@ -29,7 +29,7 @@ func AskTool() {
 	}
 
 	tools.Register(tool.NewSpec(
-		"ask",
+		"askuserquestion",
 		prompt,
 		map[string]any{
 			"type": "object",
@@ -80,10 +80,10 @@ type askParams struct {
 func executeAsk(ctx context.Context, args string) (string, error) {
 	var params askParams
 	if err := json.Unmarshal([]byte(args), &params); err != nil {
-		return "", fmt.Errorf("ask: invalid arguments: %w", err)
+		return "", fmt.Errorf("askuserquestion: invalid arguments: %w", err)
 	}
 	if len(params.Questions) == 0 {
-		return "", fmt.Errorf("ask: questions array must not be empty")
+		return "", fmt.Errorf("askuserquestion: questions array must not be empty")
 	}
 	for i := range params.Questions {
 		q := &params.Questions[i]
@@ -91,19 +91,19 @@ func executeAsk(ctx context.Context, args string) (string, error) {
 			q.ID = fmt.Sprintf("q%d", i+1)
 		}
 		if q.Question == "" {
-			return "", fmt.Errorf("ask: question text is required for all entries")
+			return "", fmt.Errorf("askuserquestion: question text is required for all entries")
 		}
 		if q.Type == "select" && len(q.Options) == 0 {
-			return "", fmt.Errorf("ask: select questions must provide options")
+			return "", fmt.Errorf("askuserquestion: select questions must provide options")
 		}
 	}
 
 	parent := agent.FromContext(ctx)
 	if parent == nil {
-		return "", fmt.Errorf("ask: no parent agent in context")
+		return "", fmt.Errorf("askuserquestion: no parent agent in context")
 	}
 	if parent.Bus == nil {
-		return "", fmt.Errorf("ask: agent has no event bus")
+		return "", fmt.Errorf("askuserquestion: agent has no event bus")
 	}
 
 	var (
@@ -122,7 +122,7 @@ func executeAsk(ctx context.Context, args string) (string, error) {
 	}
 
 	if err := parent.Bus.SubscribeOnce(agent.TopicAgentAskAnswer, replyFn); err != nil {
-		return "", fmt.Errorf("ask: subscribe for answer: %w", err)
+		return "", fmt.Errorf("askuserquestion: subscribe for answer: %w", err)
 	}
 	defer parent.Bus.Unsubscribe(agent.TopicAgentAskAnswer, replyFn)
 
@@ -139,7 +139,7 @@ func executeAsk(ctx context.Context, args string) (string, error) {
 		}
 		b, err := json.Marshal(map[string]any{"answers": answers})
 		if err != nil {
-			return "", fmt.Errorf("ask: marshal answers: %w", err)
+			return "", fmt.Errorf("askuserquestion: marshal answers: %w", err)
 		}
 		return string(b), nil
 	case <-ctx.Done():

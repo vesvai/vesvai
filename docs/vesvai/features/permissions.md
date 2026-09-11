@@ -29,7 +29,7 @@ to `ask`.
 | `read`, `write`, `edit`, `delete`, `list`, `glob`, `grep` | `semi-ask` |
 | `bash` | `semi-judge` |
 | `todoread`, `todowrite`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message` | `allow` |
-| `ask` | `allow` (never gated) |
+| `askuserquestion` | `allow` (never gated) |
 | `websearch`, `webfetch` | `semi-ask` |
 
 MCP tools default to `permission.default`. Override any tool with the
@@ -87,7 +87,7 @@ Allow the "bash" tool call?
 | **Allow All** | Runs this call and remembers it; same arguments never prompt again |
 | **Reject** | Denies the call; an optional reason is collected and remembered |
 
-Dismissing the prompt denies the call. The `ask` tool is exempt from all gating.
+Dismissing the prompt denies the call. The `askuserquestion` tool is exempt from all gating.
 
 ## The judge flow
 

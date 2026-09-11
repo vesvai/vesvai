@@ -131,7 +131,7 @@ Responses are capped at 10 MiB; binary content is noted but not returned.
 
 ## Interaction
 
-### `ask`
+### `askuserquestion`
 
 Ask the user one or more questions and block until answers are submitted.
 
@@ -194,7 +194,7 @@ Registered agent types for `subagent`: `orchestrator`, `explorer`, `planner`, an
 
 | Agent | Tools |
 |---|---|
-| `orchestrator` | All file tools, `ask`, `bash`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message`, `todoread`, `todowrite`, `webfetch`, `websearch` |
+| `orchestrator` | All file tools, `askuserquestion`, `bash`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message`, `todoread`, `todowrite`, `webfetch`, `websearch` |
 | `planner` | File tools write-scoped to `.vesvai/plans`, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `developer` | All file tools, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `explorer` | `glob`, `grep`, `list`, `read`, `bash`, `webfetch`, `websearch` |
@@ -210,7 +210,7 @@ built-in defaults:
 | `bash` | `semi-judge` (whitelisted commands run directly) |
 | `todoread`, `todowrite` | `allow` |
 | `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message` | `allow` |
-| `ask` | `allow` (never gated) |
+| `askuserquestion` | `allow` (never gated) |
 | `websearch`, `webfetch` | `semi-ask` |
 
 Override any tool with the `permission.rules` map in [Config](../config.md#permission).
