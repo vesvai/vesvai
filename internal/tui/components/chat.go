@@ -31,11 +31,12 @@ type ChatItem struct {
 	Text      string
 	Reasoning string
 
-	ToolName   string
-	ToolArgs   string
-	ToolOutput string
-	ToolErr    string
-	Diff       []DiffHunk
+	ToolName     string
+	ToolArgs     string
+	ToolOutput   string
+	ToolErr      string
+	Diff         []DiffHunk
+	WriteContent string
 
 	AgentID          string
 	SubagentName     string
@@ -1365,7 +1366,7 @@ func (c *Chat) writeCardLines(it *ChatItem, width int) []Line {
 	sep = append(sep, Cell{R: '┤', S: border})
 	lines = append(lines, sep)
 
-	content := it.ToolOutput
+	content := it.WriteContent
 	if content == "" {
 		content = "(empty)"
 	}

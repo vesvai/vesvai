@@ -469,9 +469,11 @@ func (a *App) addToolItem(t *agentTranscript, call llm.ToolCall, agentID string)
 	case "write":
 		var p struct {
 			FilePath string `json:"filePath"`
+			Content  string `json:"content"`
 		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.FilePath != "" {
 			it.ToolName = "write:" + p.FilePath
+			it.WriteContent = p.Content
 		}
 	case "bash":
 		var p struct {
@@ -802,9 +804,11 @@ func enrichToolItem(it *components.ChatItem) {
 	case "write":
 		var p struct {
 			FilePath string `json:"filePath"`
+			Content  string `json:"content"`
 		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.FilePath != "" {
 			it.ToolName = "write:" + p.FilePath
+			it.WriteContent = p.Content
 		}
 	case "bash":
 		var p struct {
