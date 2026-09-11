@@ -503,6 +503,18 @@ func (a *App) addToolItem(t *agentTranscript, call llm.ToolCall, agentID string)
 	case "ask":
 		it.ToolArgs = args
 		it.ToolName = "ask"
+	case "list-todo":
+		it.ToolName = "list-todo"
+	case "update-todo":
+		it.ToolName = "update-todo"
+		var p struct {
+			Todos []struct {
+				ID string `json:"id"`
+			} `json:"todos"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && len(p.Todos) > 0 {
+			it.ToolName = fmt.Sprintf("update-todo:%d items", len(p.Todos))
+		}
 	case "webfetch":
 		var p struct {
 			URL string `json:"url"`

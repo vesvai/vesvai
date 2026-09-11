@@ -63,8 +63,8 @@ func TestUpdateTodoToolSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !contains(t, out, "Set 1 todos") {
-		t.Errorf("expected 'Set 1 todos', got:\n%s", out)
+	if !contains(t, out, "fix bug") {
+		t.Errorf("expected todo title in output, got:\n%s", out)
 	}
 
 	all, err := store.all(sessionContext(t))
@@ -100,8 +100,11 @@ func TestUpdateTodoToolReplace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !contains(t, out, "Set 2 todos") {
-		t.Errorf("expected 'Set 2 todos', got:\n%s", out)
+	if !contains(t, out, "first updated") {
+		t.Errorf("expected 'first updated' in output, got:\n%s", out)
+	}
+	if !contains(t, out, "second") {
+		t.Errorf("expected 'second' in output, got:\n%s", out)
 	}
 
 	all, err := store.all(ctx)

@@ -803,8 +803,6 @@ func (c *Chat) todoCardLines(it *ChatItem, width int) []Line {
 		deps   string
 	}
 	var todos []todoItem
-	var current *todoItem
-	_ = current
 
 	textLines := strings.Split(it.ToolOutput, "\n")
 	for _, l := range textLines {
@@ -829,18 +827,6 @@ func (c *Chat) todoCardLines(it *ChatItem, width int) []Line {
 			lines = append(lines, sep)
 			lines = append(lines, cardFooter(border, dim, th.Base(), width, fmt.Sprintf("0 / 0 completed")))
 			return lines
-		}
-		if strings.HasPrefix(trimmed, "Deleted") || strings.HasPrefix(trimmed, "Created") || strings.HasPrefix(trimmed, "Updated") {
-			row := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
-			for _, r := range trimmed {
-				row = append(row, Cell{R: r, S: dim})
-			}
-			for row.Width() < width-1 {
-				row = append(row, Cell{R: ' ', S: th.Base()})
-			}
-			row = append(row, Cell{R: '│', S: border})
-			lines = append(lines, row)
-			continue
 		}
 
 		status := ""

@@ -83,7 +83,11 @@ func updateTodoTool(fs *vfs.VFS) tool.Tool {
 			if err := store.setAll(ctx, params.Todos); err != nil {
 				return "", fmt.Errorf("update-todo: %w", err)
 			}
-			return fmt.Sprintf("Set %d todos.\n", len(params.Todos)), nil
+			all, err := store.all(ctx)
+			if err != nil {
+				return "", fmt.Errorf("update-todo: %w", err)
+			}
+			return formatTodoList(all), nil
 		},
 	)
 }
