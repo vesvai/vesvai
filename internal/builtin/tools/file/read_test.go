@@ -37,13 +37,23 @@ func TestReadTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.ToSlash(out) != "Path: hello.txt | Hash: 3b0bcfb848c53c9e5b3f462c738e5eefb208c0a1a1b0f60e0e6b0e5e3b0bcfb | Size: 26 bytes | Lines: 3\n---\n     1: line one\n     2: line two\n     3: line three\n" {
+	if !contains(t, out, "<file>") {
+		t.Errorf("expected output to contain '<file>', got:\n%s", out)
 	}
-	if !contains(t, out, "hello.txt") {
-		t.Errorf("expected output to contain 'hello.txt', got:\n%s", out)
+	if !contains(t, out, "</file>") {
+		t.Errorf("expected output to contain '</file>', got:\n%s", out)
+	}
+	if !contains(t, out, "line one") {
+		t.Errorf("expected output to contain 'line one', got:\n%s", out)
 	}
 	if !contains(t, out, "line two") {
 		t.Errorf("expected output to contain 'line two', got:\n%s", out)
+	}
+	if !contains(t, out, "line three") {
+		t.Errorf("expected output to contain 'line three', got:\n%s", out)
+	}
+	if contains(t, out, "File has more lines") {
+		t.Errorf("expected no truncation message for complete file, got:\n%s", out)
 	}
 }
 
@@ -65,6 +75,12 @@ func TestReadToolRange(t *testing.T) {
 	}
 	if contains(t, out, "line one") {
 		t.Errorf("expected output NOT to contain 'line one', got:\n%s", out)
+	}
+	if !contains(t, out, "File has more lines") {
+		t.Errorf("expected truncation message, got:\n%s", out)
+	}
+	if !contains(t, out, "offset") {
+		t.Errorf("expected truncation message to mention 'offset', got:\n%s", out)
 	}
 }
 
