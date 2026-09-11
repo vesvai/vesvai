@@ -23,7 +23,7 @@ func newOrchestratorAgent(fs *vfs.VFS) (*agent.Agent, error) {
 	main := agent.New("orchestrator",
 		agent.WithSystemPrompt(sys),
 		agent.WithTools(file.Tools(fs)...),
-		agent.WithToolNames("ask", "bash", "subagent", "wait-for-subagents", "subagents-status", "subagent-message", "list-todo", "update-todo"),
+		agent.WithToolNames("ask", "bash", "subagent", "wait-for-subagents", "subagents-status", "subagent-message", "list-todo", "update-todo", "web-fetch", "web-search"),
 		agent.WithMiddlewareNames("loop-detector", "redaction", "retry", "permission"),
 	)
 

@@ -3,39 +3,63 @@ package web
 import (
 	"context"
 	"fmt"
-	json "github.com/goccy/go-json"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	json "github.com/goccy/go-json"
+
 	md "github.com/JohannesKaufmann/html-to-markdown/v2"
+	"github.com/vesvai/vesvai/internal/agent/prompt"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/vfs"
 )
 
+func generateFetchToolPrompt() (string, error) {
+	sys, err := fetchToolPromptBuilder().
+		Build(prompt.FormatMarkdown)
+	if err != nil {
+		return "", err
+	}
+	return sys, nil
+}
+
 func fetchTool(fs *vfs.VFS) tool.Tool {
+	prompt, err := generateFetchToolPrompt()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate fetch tool prompt: %v", err))
+	}
+
 	return tool.NewSpec(
 		"web-fetch",
-		"Fetch a URL and return its content. By default, HTML pages are converted to clean Markdown for easier reading. Set 'raw' to true to return the raw HTML response without conversion. For plain text URLs, the raw text is returned either way. The response includes the URL, status code, and content type. Use this tool to read documentation, API responses, or any web page content. The request has a 30-second timeout. BINARY content (images, PDFs, etc.) will be noted but not returned.",
+		prompt,
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"url": map[string]any{
 					"type":        "string",
-					"description": "The URL to fetch. Must include the protocol (http:// or https://). Example: 'https://pkg.go.dev/fmt', 'https://example.com/api/docs'.",
+					"description": "The URL to fetch content from",
 				},
-				"raw": map[string]any{
-					"type":        "boolean",
-					"description": "If true, return the raw HTML response without converting to Markdown. Default is false. Useful when you need to inspect the exact HTML structure or when the Markdown conversion loses important information.",
+				"format": map[string]any{
+					"type":        "string",
+					"enum":        []string{"text", "markdown", "html"},
+					"description": "The format to return the content in (text, markdown, or html, default markdown)",
+				},
+				"timeout": map[string]any{
+					"type":        "integer",
+					"description": "Optional timeout in seconds (max 120, default 30)",
+					"minimum":     1,
+					"maximum":     120,
 				},
 			},
 			"required": []string{"url"},
 		},
 		func(ctx context.Context, args string) (string, error) {
 			var params struct {
-				URL string `json:"url"`
-				Raw bool   `json:"raw"`
+				URL     string `json:"url"`
+				Format  string `json:"format"`
+				Timeout int    `json:"timeout"`
 			}
 			if err := json.Unmarshal([]byte(args), &params); err != nil {
 				return "", fmt.Errorf("web-fetch: invalid arguments: %w", err)
@@ -44,7 +68,15 @@ func fetchTool(fs *vfs.VFS) tool.Tool {
 				return "", fmt.Errorf("web-fetch: url is required")
 			}
 
-			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			timeout := 30 * time.Second
+			if params.Timeout > 0 {
+				if params.Timeout > 120 {
+					params.Timeout = 120
+				}
+				timeout = time.Duration(params.Timeout) * time.Second
+			}
+
+			ctx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 
 			req, err := http.NewRequestWithContext(ctx, "GET", params.URL, nil)
@@ -77,23 +109,49 @@ func fetchTool(fs *vfs.VFS) tool.Tool {
 				return out, nil
 			}
 
-			if strings.Contains(contentType, "html") || isHTML(body) {
-				if params.Raw {
-					out += string(body)
+			format := params.Format
+			if format == "" {
+				format = "markdown"
+			}
+
+			switch format {
+			case "html":
+				out += string(body)
+			case "text":
+				if strings.Contains(contentType, "html") || isHTML(body) {
+					markdown, err := md.ConvertString(string(body))
+					if err != nil {
+						return "", fmt.Errorf("web-fetch: convert to markdown: %w", err)
+					}
+					out += stripMarkdownFormatting(markdown)
 				} else {
+					out += string(body)
+				}
+			default:
+				if strings.Contains(contentType, "html") || isHTML(body) {
 					markdown, err := md.ConvertString(string(body))
 					if err != nil {
 						return "", fmt.Errorf("web-fetch: convert to markdown: %w", err)
 					}
 					out += markdown
+				} else {
+					out += string(body)
 				}
-			} else {
-				out += string(body)
 			}
 
 			return out, nil
 		},
 	)
+}
+
+func stripMarkdownFormatting(s string) string {
+	s = strings.ReplaceAll(s, "**", "")
+	s = strings.ReplaceAll(s, "__", "")
+	s = strings.ReplaceAll(s, "*", "")
+	s = strings.ReplaceAll(s, "_", "")
+	s = strings.ReplaceAll(s, "`", "")
+	s = strings.ReplaceAll(s, "```", "")
+	return s
 }
 
 func isHTML(data []byte) bool {

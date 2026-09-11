@@ -3,22 +3,38 @@ package web
 import (
 	"context"
 	"fmt"
-	json "github.com/goccy/go-json"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	json "github.com/goccy/go-json"
+
+	"github.com/vesvai/vesvai/internal/agent/prompt"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/vfs"
 	"golang.org/x/net/html"
 )
 
+func generateSearchToolPrompt() (string, error) {
+	sys, err := searchToolPromptBuilder().
+		Build(prompt.FormatMarkdown)
+	if err != nil {
+		return "", err
+	}
+	return sys, nil
+}
+
 func searchTool(fs *vfs.VFS) tool.Tool {
+	prompt, err := generateSearchToolPrompt()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate search tool prompt: %v", err))
+	}
+
 	return tool.NewSpec(
 		"web-search",
-		"Search the web using DuckDuckGo. Returns a list of search results with titles, URLs, and snippets. Use this tool to find information, documentation, tutorials, or any web content. The results are ordered by relevance. Each result includes a clickable URL and a brief description. The request has a 30-second timeout. For more detailed content from a specific result, use the 'web-fetch' tool to retrieve the full page.",
+		prompt,
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -82,16 +98,17 @@ func searchTool(fs *vfs.VFS) tool.Tool {
 			}
 
 			var b strings.Builder
-			fmt.Fprintf(&b, "Search results for: %s\n", params.Query)
-			fmt.Fprintf(&b, "Results: %d\n\n", len(results))
-			for i, r := range results {
-				fmt.Fprintf(&b, "%d. %s\n", i+1, r.Title)
-				fmt.Fprintf(&b, "   URL: %s\n", r.URL)
+			fmt.Fprintf(&b, "<search_results query=\"%s\" count=\"%d\">\n", params.Query, len(results))
+			for _, r := range results {
+				fmt.Fprintf(&b, "  <result>\n")
+				fmt.Fprintf(&b, "    <title>%s</title>\n", r.Title)
+				fmt.Fprintf(&b, "    <url>%s</url>\n", r.URL)
 				if r.Snippet != "" {
-					fmt.Fprintf(&b, "   %s\n", r.Snippet)
+					fmt.Fprintf(&b, "    <snippet>%s</snippet>\n", r.Snippet)
 				}
-				fmt.Fprintln(&b)
+				fmt.Fprintf(&b, "  </result>\n")
 			}
+			fmt.Fprintf(&b, "</search_results>\n")
 			return b.String(), nil
 		},
 	)
