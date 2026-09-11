@@ -1,8 +1,6 @@
 package shell
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -23,7 +21,7 @@ func TestBashToolEcho(t *testing.T) {
 	fs := setupTestFS(t)
 	tool := bashTool(fs)
 
-	out, err := tool.Execute(t.Context(), `{"command": "echo hello world"}`)
+	out, err := tool.Execute(t.Context(), `{"command": "echo hello world", "description": "echo hello"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +37,7 @@ func TestBashToolExitCode(t *testing.T) {
 	fs := setupTestFS(t)
 	tool := bashTool(fs)
 
-	out, err := tool.Execute(t.Context(), `{"command": "exit 42"}`)
+	out, err := tool.Execute(t.Context(), `{"command": "exit 42", "description": "exit with code 42"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,31 +50,12 @@ func TestBashToolStderr(t *testing.T) {
 	fs := setupTestFS(t)
 	tool := bashTool(fs)
 
-	out, err := tool.Execute(t.Context(), `{"command": "echo error message >&2"}`)
+	out, err := tool.Execute(t.Context(), `{"command": "echo error message >&2", "description": "echo to stderr"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !contains(t, out, "error message") {
 		t.Errorf("expected 'error message' in stderr, got:\n%s", out)
-	}
-}
-
-func TestBashToolWorkdir(t *testing.T) {
-	fs := setupTestFS(t)
-	root := fs.Root()
-
-	subdir := filepath.Join(root, "subdir")
-	if err := os.MkdirAll(subdir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	tool := bashTool(fs)
-	out, err := tool.Execute(t.Context(), `{"command": "pwd", "workdir": "subdir"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !contains(t, out, subdir) {
-		t.Errorf("expected pwd to be %s, got:\n%s", subdir, out)
 	}
 }
 
@@ -90,21 +69,11 @@ func TestBashToolMissingCommand(t *testing.T) {
 	}
 }
 
-func TestBashToolInvalidWorkdir(t *testing.T) {
-	fs := setupTestFS(t)
-	tool := bashTool(fs)
-
-	_, err := tool.Execute(t.Context(), `{"command": "echo hi", "workdir": "nonexistent"}`)
-	if err == nil {
-		t.Fatal("expected error for nonexistent workdir")
-	}
-}
-
 func TestBashToolPipe(t *testing.T) {
 	fs := setupTestFS(t)
 	tool := bashTool(fs)
 
-	out, err := tool.Execute(t.Context(), `{"command": "echo 'one two three' | wc -w"}`)
+	out, err := tool.Execute(t.Context(), `{"command": "echo 'one two three' | wc -w", "description": "count words"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +86,7 @@ func TestBashToolStdoutAndStderr(t *testing.T) {
 	fs := setupTestFS(t)
 	tool := bashTool(fs)
 
-	out, err := tool.Execute(t.Context(), `{"command": "echo stdout; echo stderr >&2"}`)
+	out, err := tool.Execute(t.Context(), `{"command": "echo stdout; echo stderr >&2", "description": "echo stdout and stderr"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +103,7 @@ func TestBashToolTimeout(t *testing.T) {
 	tool := bashTool(fs)
 
 	start := time.Now()
-	out, err := tool.Execute(t.Context(), `{"command": "sleep 5", "timeout": 1}`)
+	out, err := tool.Execute(t.Context(), `{"command": "sleep 5", "description": "test timeout", "timeout": 1}`)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,28 +4,40 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	json "github.com/goccy/go-json"
 	"os/exec"
 	"time"
 
+	json "github.com/goccy/go-json"
+
+	"github.com/vesvai/vesvai/internal/agent/prompt"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/vfs"
 )
 
+func generateBashToolPrompt() (string, error) {
+	sys, err := bashToolPromptBuilder().
+		Build(prompt.FormatMarkdown)
+	if err != nil {
+		return "", err
+	}
+	return sys, nil
+}
+
 func bashTool(fs *vfs.VFS) tool.Tool {
+	prompt, err := generateBashToolPrompt()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate bash tool prompt: %v", err))
+	}
+
 	return tool.NewSpec(
 		"bash",
-		"Execute a shell command on the local machine. The command runs with a 40-second timeout by default; pass 'timeout' (in seconds) to override. Use this tool to run build scripts, tests, linters, git operations, or any other command-line task. The working directory defaults to the workspace root; use 'workdir' to run in a subdirectory (relative to workspace root). Both stdout and stderr are captured and returned. Exit code is included in the output. Prefer this tool over the file tools when you need to run CLI programs rather than manipulate files directly.",
+		prompt,
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"command": map[string]any{
 					"type":        "string",
-					"description": "Shell command to execute. Use standard shell syntax. Examples: 'go test ./...', 'npm run build', 'git status', 'ls -la', 'cargo check'.",
-				},
-				"workdir": map[string]any{
-					"type":        "string",
-					"description": "Working directory relative to workspace root. Omit or set to empty string to use the workspace root. Example: 'src/myapp', 'internal/core'.",
+					"description": "The command to execute.",
 				},
 				"timeout": map[string]any{
 					"type":        "integer",
@@ -33,15 +45,14 @@ func bashTool(fs *vfs.VFS) tool.Tool {
 				},
 				"description": map[string]any{
 					"type":        "string",
-					"description": "Optional short explanation of what the command does and why. It's usefull for explaining to user what commands do.",
+					"description": "Clear, concise description of what this command does in 5-10 words. Examples:\nInput: ls\nOutput: Lists files in current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: mkdir foo\nOutput: Creates directory 'foo'",
 				},
 			},
-			"required": []string{"command"},
+			"required": []string{"command", "description"},
 		},
 		func(ctx context.Context, args string) (string, error) {
 			var params struct {
 				Command     string `json:"command"`
-				Workdir     string `json:"workdir"`
 				Timeout     int    `json:"timeout"`
 				Description string `json:"description"`
 			}
@@ -51,19 +62,15 @@ func bashTool(fs *vfs.VFS) tool.Tool {
 			if params.Command == "" {
 				return "", fmt.Errorf("bash: command is required")
 			}
+			if params.Description == "" {
+				return "", fmt.Errorf("bash: description is required")
+			}
 			timeout := 40 * time.Second
 			if params.Timeout > 0 {
 				timeout = time.Duration(params.Timeout) * time.Second
 			}
 
 			workdir := fs.Root()
-			if params.Workdir != "" {
-				resolved, err := fs.ResolveCtx(ctx, params.Workdir)
-				if err != nil {
-					return "", fmt.Errorf("bash: resolve workdir: %w", err)
-				}
-				workdir = resolved
-			}
 
 			ctx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
