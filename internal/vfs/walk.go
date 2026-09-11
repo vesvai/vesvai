@@ -72,6 +72,76 @@ func (v *VFS) ListCtx(ctx context.Context, vdir string) (ListResult, error) {
 	return res, nil
 }
 
+func (v *VFS) ListRecursive(vdir string) (ListResult, error) {
+	return v.ListRecursiveCtx(context.Background(), vdir)
+}
+
+func (v *VFS) ListRecursiveCtx(ctx context.Context, vdir string) (ListResult, error) {
+	return v.ListRecursiveIgnoreCtx(ctx, vdir, nil)
+}
+
+func (v *VFS) ListRecursiveIgnoreCtx(ctx context.Context, vdir string, ignore []string) (ListResult, error) {
+	phys, rel, isDir, err := v.resolveCheckedCtx(ctx, vdir)
+	if err != nil {
+		return ListResult{}, err
+	}
+	if !isDir {
+		return ListResult{}, ErrNotFound
+	}
+
+	var ignoreMatcher *includeMatcher
+	if len(ignore) > 0 {
+		ignoreMatcher = newIncludeMatcher(ignore)
+	}
+
+	res := ListResult{Path: rel}
+	if err := v.listWalk(ctx, phys, rel, &res, ignoreMatcher); err != nil {
+		return ListResult{}, err
+	}
+	sort.Slice(res.Entries, func(i, j int) bool { return res.Entries[i].Path < res.Entries[j].Path })
+	return res, nil
+}
+
+func (v *VFS) listWalk(ctx context.Context, physDir, vrel string, res *ListResult, ignoreMatcher *includeMatcher) error {
+	entries, err := os.ReadDir(physDir)
+	if err != nil {
+		return nil
+	}
+
+	for _, e := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		childRel := joinVirtual(vrel, e.Name())
+		if v.ignored(childRel, e.IsDir()) {
+			continue
+		}
+		if ignoreMatcher != nil && ignoreMatcher.match(childRel) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		res.Entries = append(res.Entries, Entry{
+			Name:  e.Name(),
+			Path:  childRel,
+			Size:  info.Size(),
+			IsDir: e.IsDir(),
+		})
+		if e.IsDir() {
+			res.DirCount++
+			if err := v.listWalk(ctx, filepath.Join(physDir, e.Name()), childRel, res, ignoreMatcher); err != nil {
+				return err
+			}
+		} else {
+			res.FileCount++
+			res.TotalSize += info.Size()
+		}
+	}
+	return nil
+}
+
 func (v *VFS) Glob(pattern, path string) ([]string, error) {
 	return v.GlobCtx(context.Background(), pattern, path)
 }

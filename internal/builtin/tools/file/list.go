@@ -3,29 +3,55 @@ package file
 import (
 	"context"
 	"fmt"
+	"path"
+	"path/filepath"
+	"sort"
+	"strings"
+
 	json "github.com/goccy/go-json"
 
+	"github.com/vesvai/vesvai/internal/agent/prompt"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/vfs"
 )
 
+func generateListToolPrompt() (string, error) {
+	sys, err := listToolPromptBuilder().
+		Build(prompt.FormatMarkdown)
+	if err != nil {
+		return "", err
+	}
+	return sys, nil
+}
+
 func listTool(fs *vfs.VFS) tool.Tool {
+	prompt, err := generateListToolPrompt()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate list tool prompt: %v", err))
+	}
+
 	return tool.NewSpec(
 		"list",
-		"List files and directories in a workspace directory. Returns a sorted table of entries with name, path, size, and type (file/directory). Also returns summary counts (files, directories, total size). If 'path' is omitted, lists the workspace root. Respects .gitignore/.vesvaignore rules (ignored files/directories are not shown). Use this tool to explore the workspace structure and find files.",
+		prompt,
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"path": map[string]any{
 					"type":        "string",
-					"description": "Virtual path to the directory within the workspace. Omit or set to empty string to list the workspace root. Examples: 'src', 'internal/config', 'docs'.",
+					"description": "The absolute path to the directory to list. Omit or set to empty string to list the workspace root. Examples: 'src', 'internal/config', 'docs'.",
+				},
+				"ignore": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "List of glob patterns to ignore.",
 				},
 			},
 			"required": []string{},
 		},
 		func(ctx context.Context, args string) (string, error) {
 			var params struct {
-				Path string `json:"path"`
+				Path   string   `json:"path"`
+				Ignore []string `json:"ignore"`
 			}
 			if err := json.Unmarshal([]byte(args), &params); err != nil {
 				return "", fmt.Errorf("list: invalid arguments: %w", err)
@@ -36,7 +62,7 @@ func listTool(fs *vfs.VFS) tool.Tool {
 				dir = "."
 			}
 
-			result, err := fs.ListCtx(ctx, dir)
+			result, err := fs.ListRecursiveIgnoreCtx(ctx, dir, params.Ignore)
 			if err != nil {
 				return "", fmt.Errorf("list: %w", err)
 			}
@@ -51,20 +77,90 @@ func formatListResult(r vfs.ListResult) string {
 	if dir == "" {
 		dir = "."
 	}
+
 	out := fmt.Sprintf("Directory: %s\n", dir)
 	out += fmt.Sprintf("Files: %d | Directories: %d | Total size: %d bytes\n", r.FileCount, r.DirCount, r.TotalSize)
+
 	if len(r.Entries) == 0 {
 		out += "(empty)\n"
 		return out
 	}
 	out += "---\n"
+
+	dirs := make(map[string]bool)
+	filesByDir := make(map[string][]string)
+
 	for _, e := range r.Entries {
-		typeStr := "     "
+		p := filepath.ToSlash(e.Path)
+		p = path.Clean(p)
+
 		if e.IsDir {
-			typeStr = "dir  "
+			parts := strings.Split(p, "/")
+			for i := 0; i <= len(parts); i++ {
+				d := "."
+				if i > 0 {
+					d = strings.Join(parts[:i], "/")
+				}
+				dirs[d] = true
+			}
+		} else {
+			dirName := path.Dir(p)
+			if dirName == "" {
+				dirName = "."
+			}
+
+			parts := strings.Split(dirName, "/")
+			if dirName == "." {
+				parts = nil
+			}
+
+			for i := 0; i <= len(parts); i++ {
+				d := "."
+				if i > 0 {
+					d = strings.Join(parts[:i], "/")
+				}
+				dirs[d] = true
+			}
+
+			filesByDir[dirName] = append(filesByDir[dirName], path.Base(p))
 		}
-		out += fmt.Sprintf("%s %s %s\n", typeStr, formatSize(e.Size), e.Path)
 	}
+
+	var renderDir func(dirPath string, depth int) string
+	renderDir = func(dirPath string, depth int) string {
+		indent := strings.Repeat("  ", depth)
+		var output string
+
+		if depth > 0 {
+			output += fmt.Sprintf("%s%s/\n", indent, path.Base(dirPath))
+		}
+
+		childIndent := strings.Repeat("  ", depth+1)
+
+		var children []string
+		for d := range dirs {
+			if path.Dir(d) == dirPath && d != dirPath {
+				children = append(children, d)
+			}
+		}
+		sort.Strings(children)
+
+		for _, child := range children {
+			output += renderDir(child, depth+1)
+		}
+
+		files := filesByDir[dirPath]
+		sort.Strings(files)
+		for _, f := range files {
+			output += fmt.Sprintf("%s%s\n", childIndent, f)
+		}
+
+		return output
+	}
+
+	out += fmt.Sprintf("%s/\n", dir)
+	out += renderDir(".", 0)
+
 	return out
 }
 
