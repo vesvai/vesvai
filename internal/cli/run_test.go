@@ -17,6 +17,7 @@ import (
 	"github.com/vesvai/vesvai/internal/builtin/tools/shell"
 	"github.com/vesvai/vesvai/internal/builtin/tools/subagent"
 	"github.com/vesvai/vesvai/internal/builtin/tools/todo"
+	"github.com/vesvai/vesvai/internal/builtin/tools/web"
 	"github.com/vesvai/vesvai/internal/core/cache"
 	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/core/event"
@@ -266,6 +267,7 @@ func newRunTestCLI(t *testing.T) (*CLI, *config.Config, *llm.Manager) {
 	shell.ShellTools(fs)
 	subagent.SubAgentTools(sess)
 	ask.AskTool()
+	web.WebTools(fs)
 	middlewares.Create(fs, middlewares.Deps{})
 	orchestrator.Register(fs)
 	if _, err := agents.New("orchestrator"); err != nil {
