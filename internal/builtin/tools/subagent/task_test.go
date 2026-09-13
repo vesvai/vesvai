@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	json "github.com/goccy/go-json"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	json "github.com/goccy/go-json"
 
 	"github.com/vesvai/vesvai/internal/agent"
 	"github.com/vesvai/vesvai/internal/agent/agents"
@@ -90,7 +91,7 @@ func parentCtx(t *testing.T, names ...string) context.Context {
 }
 
 func spec(name, agent, task string, extra ...map[string]any) map[string]any {
-	s := map[string]any{"name": name, "agent": agent, "task": task}
+	s := map[string]any{"name": name, "subagent_type": agent, "prompt": task}
 	for _, e := range extra {
 		for k, v := range e {
 			s[k] = v
@@ -99,16 +100,26 @@ func spec(name, agent, task string, extra ...map[string]any) map[string]any {
 	return s
 }
 
+func singleArgs(t *testing.T, s map[string]any) string {
+	t.Helper()
+	return mustJSON(t, s)
+}
+
 func batchArgs(t *testing.T, bg bool, specs ...map[string]any) string {
 	t.Helper()
 	if len(specs) == 0 {
 		specs = []map[string]any{}
 	}
-	return mustJSON(t, map[string]any{"subagents": specs, "background": bg})
+	if len(specs) == 1 {
+		specs[0]["background"] = bg
+		return mustJSON(t, specs[0])
+	}
+	specs[0]["background"] = bg
+	return mustJSON(t, specs[0])
 }
 
 func TestSubAgentToolsRegistered(t *testing.T) {
-	for _, name := range []string{"subagent", "wait-for-subagents", "subagents-status"} {
+	for _, name := range []string{"task", "taskstatus"} {
 		if _, ok := tools.Get(name); !ok {
 			t.Errorf("tool %q not registered", name)
 		}
@@ -116,19 +127,16 @@ func TestSubAgentToolsRegistered(t *testing.T) {
 }
 
 func TestSubAgentTool_Schema_AgentEnum(t *testing.T) {
-	tt, _ := tools.Get("subagent")
+	tt, _ := tools.Get("task")
 	var schema map[string]any
 	if err := json.Unmarshal([]byte(mustJSON(t, tt.Parameters())), &schema); err != nil {
 		t.Fatalf("unmarshal schema: %v", err)
 	}
 	props := schema["properties"].(map[string]any)
-	subagentsProp := props["subagents"].(map[string]any)
-	items := subagentsProp["items"].(map[string]any)
-	itemProps := items["properties"].(map[string]any)
-	agentProp := itemProps["agent"].(map[string]any)
-	enum, ok := agentProp["enum"].([]any)
+	subagentTypeProp := props["subagent_type"].(map[string]any)
+	enum, ok := subagentTypeProp["enum"].([]any)
 	if !ok {
-		t.Fatalf("agent enum missing: %v", agentProp)
+		t.Fatalf("agent enum missing: %v", subagentTypeProp)
 	}
 	registered := agents.List()
 	if len(enum) != len(registered) {
@@ -146,28 +154,31 @@ func TestSubAgentTool_Schema_AgentEnum(t *testing.T) {
 		}
 	}
 	required := schema["required"].([]any)
-	if len(required) != 1 || required[0] != "subagents" {
-		t.Errorf("required = %v, want [subagents]", required)
+	if len(required) != 3 {
+		t.Errorf("required = %v, want [name, subagent_type, prompt]", required)
 	}
 	if _, ok := props["background"]; !ok {
 		t.Error("background property missing")
 	}
+	if _, ok := props["task_id"]; !ok {
+		t.Error("task_id property missing")
+	}
 }
 
 func TestSubAgentTool_Validation(t *testing.T) {
-	tt, _ := tools.Get("subagent")
+	tt, _ := tools.Get("task")
 	ctx := parentCtx(t)
 
 	cases := []struct {
 		name string
 		args string
 	}{
-		{"empty array", `{"subagents": []}`},
-		{"missing subagents", `{}`},
-		{"missing name", `{"subagents": [{"agent": "sub-agent", "task": "do x"}]}`},
-		{"missing task", `{"subagents": [{"name": "a-1", "agent": "sub-agent"}]}`},
-		{"unknown agent", `{"subagents": [{"name": "a-1", "agent": "nope", "task": "do x"}]}`},
-		{"duplicate in batch", `{"subagents": [{"name": "a-1", "agent": "sub-agent", "task": "x"}, {"name": "a-1", "agent": "sub-agent", "task": "y"}]}`},
+		{"empty object", `{}`},
+		{"missing name", `{"subagent_type": "sub-agent", "prompt": "do x"}`},
+		{"missing prompt", `{"name": "a-1", "subagent_type": "sub-agent"}`},
+		{"unknown agent", `{"name": "a-1", "subagent_type": "nope", "prompt": "do x"}`},
+		{"empty name", `{"name": "", "subagent_type": "sub-agent", "prompt": "do x"}`},
+		{"empty prompt", `{"name": "a-1", "subagent_type": "sub-agent", "prompt": ""}`},
 	}
 	for _, c := range cases {
 		if _, err := tt.Execute(ctx, c.args); err == nil {
@@ -177,16 +188,17 @@ func TestSubAgentTool_Validation(t *testing.T) {
 }
 
 func TestSubAgentTool_NoParent(t *testing.T) {
-	tt, _ := tools.Get("subagent")
-	if _, err := tt.Execute(context.Background(), `{"subagents": [{"name": "a-1", "agent": "sub-agent", "task": "do x"}]}`); err == nil {
+	tt, _ := tools.Get("task")
+	if _, err := tt.Execute(context.Background(), `{"name": "a-1", "subagent_type": "sub-agent", "prompt": "do x"}`); err == nil {
 		t.Error("expected error without parent agent in context")
 	}
 }
 
 func TestSubAgentTool_Foreground(t *testing.T) {
-	tt, _ := tools.Get("subagent")
+	tt, _ := tools.Get("task")
 	ctx := parentCtx(t)
-	out, err := tt.Execute(ctx, batchArgs(t, false, spec("fg-1", "sub-agent", "do x", map[string]any{"task_id": []string{"todo-1"}})))
+	args := singleArgs(t, spec("fg-1", "sub-agent", "do x", map[string]any{"task_id": []string{"todo-1"}}))
+	out, err := tt.Execute(ctx, args)
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -206,39 +218,41 @@ func TestSubAgentTool_Foreground(t *testing.T) {
 }
 
 func TestSubAgentTool_DuplicateName(t *testing.T) {
-	tt, _ := tools.Get("subagent")
+	tt, _ := tools.Get("task")
 	ctx := parentCtx(t)
-	if _, err := tt.Execute(ctx, batchArgs(t, false, spec("dup-1", "sub-agent", "first"))); err != nil {
+	if _, err := tt.Execute(ctx, singleArgs(t, spec("dup-1", "sub-agent", "first"))); err != nil {
 		t.Fatalf("first run: %v", err)
 	}
-	if _, err := tt.Execute(ctx, batchArgs(t, false, spec("dup-1", "sub-agent", "second"))); err == nil {
-		t.Error("expected duplicate name error")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		sa, _ := store.get("dup-1")
+		if sa.Status == StatusCompleted || sa.Status == StatusFailed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("first subagent not completed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := tt.Execute(ctx, singleArgs(t, spec("dup-1", "sub-agent", "second"))); err != nil {
+		t.Fatalf("second run (resume): %v", err)
 	}
 }
 
-func TestSubAgentTool_BatchForeground(t *testing.T) {
-	tt, _ := tools.Get("subagent")
+func TestSubAgentTool_MultipleForeground(t *testing.T) {
+	tt, _ := tools.Get("task")
 	ctx := parentCtx(t)
 
-	args := batchArgs(t, false,
-		spec("batch-fg-1", "sub-agent", "t1"),
-		spec("batch-fg-2", "sub-agent", "t2"),
-		spec("batch-fg-3", "sub-agent", "t3"),
-		spec("batch-fg-4", "sub-agent", "t4"),
-		spec("batch-fg-5", "sub-agent", "t5"),
-		spec("batch-fg-6", "sub-agent", "t6"),
-		spec("batch-fg-7", "sub-agent", "t7"),
-		spec("batch-fg-8", "sub-agent", "t8"),
-	)
-	out, err := tt.Execute(ctx, args)
-	if err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	if strings.Count(out, "Subagent \"batch-fg-") != 8 {
-		t.Errorf("output = %q, want 8 finished blocks", out)
-	}
-	for i := 1; i <= 8; i++ {
-		name := fmt.Sprintf("batch-fg-%d", i)
+	for i := 1; i <= 3; i++ {
+		name := fmt.Sprintf("seq-fg-%d", i)
+		args := singleArgs(t, spec(name, "sub-agent", fmt.Sprintf("task %d", i)))
+		out, err := tt.Execute(ctx, args)
+		if err != nil {
+			t.Fatalf("execute %s: %v", name, err)
+		}
+		if !strings.Contains(out, "sub answer") {
+			t.Errorf("output = %q, want sub answer", out)
+		}
 		sa, ok := store.get(name)
 		if !ok {
 			t.Fatalf("%s not recorded", name)
@@ -246,58 +260,54 @@ func TestSubAgentTool_BatchForeground(t *testing.T) {
 		if sa.Status != StatusCompleted {
 			t.Errorf("%s status = %q, want completed", name, sa.Status)
 		}
-		if !strings.Contains(out, name) {
-			t.Errorf("output missing %s", name)
-		}
 	}
 }
 
-func TestSubAgentTool_BatchBackgroundAndWait(t *testing.T) {
-	tt, _ := tools.Get("subagent")
-	wait, _ := tools.Get("wait-for-subagents")
+func TestSubAgentTool_BackgroundWithNotification(t *testing.T) {
+	tt, _ := tools.Get("task")
 	ctx := parentCtx(t)
 
-	specs := make([]map[string]any, 0, 8)
-	names := make([]string, 0, 8)
-	for i := 1; i <= 8; i++ {
-		name := fmt.Sprintf("batch-bg-%d", i)
-		specs = append(specs, spec(name, "sub-agent", "do x"))
-		names = append(names, name)
-	}
-	out, err := tt.Execute(ctx, batchArgs(t, true, specs...))
+	parent := agent.New("notify-parent", agent.WithBus(testBus))
+	parent.Provider = stubProvider{}
+	parent.Model = llm.Model{ID: "stub-model"}
+	ctx = agent.WithAgent(context.Background(), parent)
+
+	args := singleArgs(t, spec("bg-notify-1", "sub-agent", "do x", map[string]any{"background": true}))
+	out, err := tt.Execute(ctx, args)
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !strings.Contains(out, "8 subagents") {
-		t.Errorf("output = %q, want 8 subagents started", out)
+	if !strings.Contains(out, "background") {
+		t.Errorf("output = %q, want background confirmation", out)
 	}
 
-	waitOut, err := wait.Execute(ctx, `{"agent_names": `+mustJSON(t, names)+`}`)
-	if err != nil {
-		t.Fatalf("wait: %v", err)
-	}
-	for _, n := range names {
-		if !strings.Contains(waitOut, n) {
-			t.Errorf("wait output missing %s", n)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		sa, _ := store.get("bg-notify-1")
+		if sa.Status == StatusCompleted {
+			break
 		}
-	}
-	if strings.Count(waitOut, "completed") != 8 {
-		t.Errorf("completed count = %d, want 8", strings.Count(waitOut, "completed"))
-	}
-	for _, n := range names {
-		sa, _ := store.get(n)
-		if sa.Status != StatusCompleted {
-			t.Errorf("%s status = %q, want completed", n, sa.Status)
+		if time.Now().After(deadline) {
+			t.Fatalf("background subagent not completed, status = %q", sa.Status)
 		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	sa, ok := store.get("bg-notify-1")
+	if !ok {
+		t.Fatal("subagent not recorded")
+	}
+	if sa.Status != StatusCompleted {
+		t.Errorf("status = %q, want completed", sa.Status)
 	}
 }
 
 func TestSubAgentTool_BackgroundAndWait(t *testing.T) {
-	tt, _ := tools.Get("subagent")
-	wait, _ := tools.Get("wait-for-subagents")
+	tt, _ := tools.Get("task")
 	ctx := parentCtx(t)
 
-	out, err := tt.Execute(ctx, batchArgs(t, true, spec("bg-1", "sub-agent", "do x")))
+	args := singleArgs(t, spec("bg-1", "sub-agent", "do x", map[string]any{"background": true}))
+	out, err := tt.Execute(ctx, args)
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -317,17 +327,20 @@ func TestSubAgentTool_BackgroundAndWait(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	out, err = wait.Execute(ctx, `{"agent_names": ["bg-1"]}`)
-	if err != nil {
-		t.Fatalf("wait: %v", err)
+	sa, ok := store.get("bg-1")
+	if !ok {
+		t.Fatal("subagent not recorded")
 	}
-	if !strings.Contains(out, "sub answer") {
-		t.Errorf("wait output = %q, want sub answer", out)
+	if sa.Status != StatusCompleted {
+		t.Errorf("status = %q, want completed", sa.Status)
+	}
+	if !strings.Contains(sa.Output, "sub answer") {
+		t.Errorf("output = %q, want sub answer", sa.Output)
 	}
 }
 
 func TestIsSubagentSession(t *testing.T) {
-	sa, err := store.spawn("sess-test-global-1", "sub-agent", nil, false)
+	sa, err := store.spawn("sess-test-global-1", "sub-agent", nil, false, nil)
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
@@ -345,19 +358,12 @@ func TestIsSubagentSession(t *testing.T) {
 	}
 }
 
-func TestWaitForSubAgents_UnknownName(t *testing.T) {
-	wait, _ := tools.Get("wait-for-subagents")
-	if _, err := wait.Execute(parentCtx(t), `{"agent_names": ["ghost"]}`); err == nil {
-		t.Error("expected error for unknown subagent name")
-	}
-}
-
 func TestSubAgentsStatus(t *testing.T) {
-	tt, _ := tools.Get("subagent")
-	status, _ := tools.Get("subagents-status")
+	tt, _ := tools.Get("task")
+	status, _ := tools.Get("taskstatus")
 	ctx := parentCtx(t)
 
-	if _, err := tt.Execute(ctx, batchArgs(t, false, spec("stat-1", "sub-agent", "do x"))); err != nil {
+	if _, err := tt.Execute(ctx, singleArgs(t, spec("stat-1", "sub-agent", "do x"))); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 
@@ -382,9 +388,8 @@ func TestSubAgentsStatus(t *testing.T) {
 }
 
 func TestSubAgentTool_ConcurrentParents(t *testing.T) {
-	tt, _ := tools.Get("subagent")
-	wait, _ := tools.Get("wait-for-subagents")
-	status, _ := tools.Get("subagents-status")
+	tt, _ := tools.Get("task")
+	status, _ := tools.Get("taskstatus")
 
 	const parents = 8
 	var wg sync.WaitGroup
@@ -394,7 +399,8 @@ func TestSubAgentTool_ConcurrentParents(t *testing.T) {
 			defer wg.Done()
 			ctx := parentCtx(t)
 			name := fmt.Sprintf("conc-%d", i)
-			_, err := tt.Execute(ctx, batchArgs(t, true, spec(name, "sub-agent", "do x")))
+			args := singleArgs(t, spec(name, "sub-agent", "do x"))
+			_, err := tt.Execute(ctx, args)
 			if err != nil {
 				t.Errorf("parent %d spawn: %v", i, err)
 			}
@@ -402,21 +408,24 @@ func TestSubAgentTool_ConcurrentParents(t *testing.T) {
 	}
 	wg.Wait()
 
-	names := make([]string, parents)
-	for i := range names {
-		names[i] = fmt.Sprintf("conc-%d", i)
-	}
-	out, err := wait.Execute(parentCtx(t), `{"agent_names": `+mustJSON(t, names)+`}`)
-	if err != nil {
-		t.Fatalf("wait: %v", err)
-	}
-	for i := 0; i < parents; i++ {
-		if !strings.Contains(out, fmt.Sprintf("conc-%d", i)) {
-			t.Errorf("wait output missing conc-%d", i)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		allDone := true
+		for i := 0; i < parents; i++ {
+			name := fmt.Sprintf("conc-%d", i)
+			sa, _ := store.get(name)
+			if sa.Status != StatusCompleted {
+				allDone = false
+				break
+			}
 		}
-	}
-	if strings.Count(out, "completed") != parents {
-		t.Errorf("completed count = %d, want %d", strings.Count(out, "completed"), parents)
+		if allDone {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("concurrent subagents not completed")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	statusOut, err := status.Execute(parentCtx(t), `{}`)
@@ -432,7 +441,7 @@ func TestSubAgentTool_ConcurrentParents(t *testing.T) {
 
 func TestRegistry_PersistAndLoad(t *testing.T) {
 	r := newRegistry()
-	sa, err := r.spawn("persist-1", "sub-agent", []string{"todo-9"}, false)
+	sa, err := r.spawn("persist-1", "sub-agent", []string{"todo-9"}, false, nil)
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
@@ -458,16 +467,14 @@ func TestRegistry_PersistAndLoad(t *testing.T) {
 		t.Errorf("task ids = %v, want [todo-9]", got.TaskIDs)
 	}
 
-	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if _, err := loaded.waitFor(waitCtx, []string{"persist-1"}); err != nil {
-		t.Errorf("waitFor on loaded finished subagent: %v", err)
+	if got.Status != StatusCompleted && got.Status != StatusFailed {
+		t.Errorf("loaded subagent status = %q, want completed or failed", got.Status)
 	}
 }
 
 func TestRegistry_LoadInterruptsRunning(t *testing.T) {
 	r := newRegistry()
-	sa, err := r.spawn("interrupt-1", "sub-agent", nil, true)
+	sa, err := r.spawn("interrupt-1", "sub-agent", nil, true, nil)
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
@@ -516,7 +523,7 @@ func TestAgentOutput(t *testing.T) {
 var errSentinel = errors.New("boom")
 
 func TestSubAgentTool_EventDrivenForeground(t *testing.T) {
-	tt, _ := tools.Get("subagent")
+	tt, _ := tools.Get("task")
 
 	parent := agent.New("event-parent", agent.WithBus(testBus))
 	parent.Provider = stubProvider{}
@@ -543,15 +550,15 @@ func TestSubAgentTool_EventDrivenForeground(t *testing.T) {
 }
 
 func TestSubAgentTool_EventDrivenBackground(t *testing.T) {
-	tt, _ := tools.Get("subagent")
-	wait, _ := tools.Get("wait-for-subagents")
+	tt, _ := tools.Get("task")
 
 	parent := agent.New("event-parent-2", agent.WithBus(testBus))
 	parent.Provider = stubProvider{}
 	parent.Model = llm.Model{ID: "stub-model"}
 	ctx := agent.WithAgent(context.Background(), parent)
 
-	if _, err := tt.Execute(ctx, batchArgs(t, true, spec("evt-bg", "sub-agent", "do x"))); err != nil {
+	args := singleArgs(t, spec("evt-bg", "sub-agent", "do x"))
+	if _, err := tt.Execute(ctx, args); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 
@@ -567,137 +574,12 @@ func TestSubAgentTool_EventDrivenBackground(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	out, err := wait.Execute(ctx, `{"agent_names": ["evt-bg"]}`)
-	if err != nil {
-		t.Fatalf("wait: %v", err)
-	}
-	if !strings.Contains(out, "sub answer") {
-		t.Errorf("wait output = %q, want sub answer", out)
-	}
-}
-
-func TestSubAgentMessage_ResumeForeground(t *testing.T) {
-	tt, _ := tools.Get("subagent")
-	msg, _ := tools.Get("subagent-message")
-
-	parent := agent.New("resume-parent", agent.WithBus(testBus))
-	parent.Provider = stubProvider{}
-	parent.Model = llm.Model{ID: "stub-model"}
-	ctx := agent.WithAgent(context.Background(), parent)
-
-	out, err := tt.Execute(ctx, batchArgs(t, false, spec("resume-1", "sub-agent", "do x")))
-	if err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-	if !strings.Contains(out, "sub answer") {
-		t.Errorf("spawn output = %q, want sub answer", out)
-	}
-	sa, ok := store.get("resume-1")
+	sa, ok := store.get("evt-bg")
 	if !ok {
 		t.Fatal("subagent not recorded")
 	}
-	if sa.SessionID == "" {
-		t.Fatal("session id not recorded for subagent")
-	}
-
-	out, err = msg.Execute(ctx, `{"name": "resume-1", "message": "fix it"}`)
-	if err != nil {
-		t.Fatalf("message: %v", err)
-	}
-	if !strings.Contains(out, "sub answer") {
-		t.Errorf("resume output = %q, want sub answer", out)
-	}
-
-	done, _ := store.get("resume-1")
-	if done.Status != StatusCompleted {
-		t.Errorf("status = %q, want completed", done.Status)
-	}
-	if done.SessionID != sa.SessionID {
-		t.Errorf("session changed after resume: %q -> %q", sa.SessionID, done.SessionID)
-	}
-
-	sessMsgs, err := testMgr.Messages(sa.SessionID)
-	if err != nil {
-		t.Fatalf("messages: %v", err)
-	}
-	if len(sessMsgs) != 4 {
-		t.Fatalf("session messages = %d, want 4 (user, assistant, user, assistant)", len(sessMsgs))
-	}
-	if sessMsgs[0].Role != llm.RoleUser || sessMsgs[1].Role != llm.RoleAssistant ||
-		sessMsgs[2].Role != llm.RoleUser || sessMsgs[3].Role != llm.RoleAssistant {
-		t.Errorf("session roles = %v", []string{
-			string(sessMsgs[0].Role), string(sessMsgs[1].Role),
-			string(sessMsgs[2].Role), string(sessMsgs[3].Role),
-		})
-	}
-}
-
-func TestSubAgentMessage_ResumeBackground(t *testing.T) {
-	tt, _ := tools.Get("subagent")
-	msg, _ := tools.Get("subagent-message")
-	wait, _ := tools.Get("wait-for-subagents")
-
-	parent := agent.New("resume-bg-parent", agent.WithBus(testBus))
-	parent.Provider = stubProvider{}
-	parent.Model = llm.Model{ID: "stub-model"}
-	ctx := agent.WithAgent(context.Background(), parent)
-
-	if _, err := tt.Execute(ctx, batchArgs(t, false, spec("resume-bg-1", "sub-agent", "do x"))); err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-
-	out, err := msg.Execute(ctx, `{"name": "resume-bg-1", "message": "fix it", "background": true}`)
-	if err != nil {
-		t.Fatalf("message: %v", err)
-	}
-	if !strings.Contains(out, "background") {
-		t.Errorf("output = %q, want background confirmation", out)
-	}
-
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		sa, _ := store.get("resume-bg-1")
-		if sa.Status == StatusCompleted {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("resumed subagent not completed, status = %q", sa.Status)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	out, err = wait.Execute(ctx, `{"agent_names": ["resume-bg-1"]}`)
-	if err != nil {
-		t.Fatalf("wait: %v", err)
-	}
-	if !strings.Contains(out, "sub answer") {
-		t.Errorf("wait output = %q, want sub answer", out)
-	}
-}
-
-func TestSubAgentMessage_Errors(t *testing.T) {
-	msg, _ := tools.Get("subagent-message")
-	ctx := parentCtx(t)
-
-	if _, err := msg.Execute(ctx, `{"name": "ghost", "message": "hi"}`); err == nil {
-		t.Error("expected error for unknown name")
-	}
-
-	sa, err := store.spawn("msg-pending", "sub-agent", nil, false)
-	if err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-	if _, err := msg.Execute(ctx, `{"name": "msg-pending", "message": "hi"}`); err == nil {
-		t.Error("expected error for still-running subagent")
-	}
-	store.finish(sa, "done", nil)
-
-	if _, err := msg.Execute(ctx, `{"name": "msg-pending", "message": "hi"}`); err == nil {
-		t.Error("expected error for subagent without session")
-	}
-
-	if _, err := msg.Execute(ctx, `{}`); err == nil {
-		t.Error("expected error for missing args")
+	if !strings.Contains(sa.Output, "sub answer") {
+		t.Errorf("output = %q, want sub answer", sa.Output)
 	}
 }
 

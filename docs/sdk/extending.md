@@ -95,10 +95,10 @@ eng.RegisterAgent(func() (*sdk.Agent, error) {
 ```
 
 The built-in agent types are `orchestrator`, `explorer`, `planner`, and `developer`,
-and are what `Chat` and the `subagent` tool run. The `sdk.Agent` type exposes all
+and are what `Chat` and the `task` tool run. The `sdk.Agent` type exposes all
 its fields and run methods, but note that a fully wired agent also needs a populated
 tool registry and an event bus; the built-in agents come pre-wired through the
-engine. Registered agent types become available to the `subagent` tool and the TUI
+engine. Registered agent types become available to the `task` tool and the TUI
 mention picker.
 
 ## Providers

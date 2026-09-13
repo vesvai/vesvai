@@ -53,7 +53,7 @@ The workflow:
 2. **Explore** the codebase to map the affected areas.
 3. **Plan** by writing a plan file under `.vesvai/plans/YYYY-MM-DD-<feature>.md`.
 4. **Delegate** chunks to explorer, planner, and developer subagents via the
-   `subagent` tool, running them concurrently.
+   `task` tool, running them concurrently.
 5. **Verify** the results before accepting them.
 6. **Report** the outcome, including what changed and what remains.
 
@@ -66,8 +66,7 @@ Supporting rules the batch command applies:
   `dependsOn` links so progress and dependencies stay visible.
 - Every subagent either proves its work (tests, checks) or reports a failure.
 
-The lifecycle tools — `subagent`, `wait-for-subagents`, `subagents-status`, and
-`subagent-message` — back the whole flow. See
+The lifecycle tools — `task` and `taskstatus` — back the whole flow. See
 [Subagents](subagents.md).
 
 ## `/review`

@@ -1,16 +1,17 @@
 package subagent
 
 import (
-	"context"
 	"fmt"
-	json "github.com/goccy/go-json"
 	"os"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	json "github.com/goccy/go-json"
+
 	"github.com/vesvai/vesvai/internal/agent"
+	"github.com/vesvai/vesvai/internal/agent/reminder"
 	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/core/event"
 	"github.com/vesvai/vesvai/internal/session"
@@ -27,16 +28,17 @@ const (
 )
 
 type SubAgent struct {
-	Name       string    `json:"name"`
-	AgentType  string    `json:"agent"`
-	TaskIDs    []string  `json:"task_id,omitempty"`
-	Background bool      `json:"background"`
-	Status     Status    `json:"status"`
-	Output     string    `json:"output,omitempty"`
-	Err        string    `json:"error,omitempty"`
-	SessionID  string    `json:"session_id,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	Name          string    `json:"name"`
+	AgentType     string    `json:"agent"`
+	TaskIDs       []string  `json:"task_id,omitempty"`
+	Background    bool      `json:"background"`
+	ParentAgentID string    `json:"parent_agent_id,omitempty"`
+	Status        Status    `json:"status"`
+	Output        string    `json:"output,omitempty"`
+	Err           string    `json:"error,omitempty"`
+	SessionID     string    `json:"session_id,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 
 	agentID  string
 	done     chan struct{}
@@ -46,6 +48,7 @@ type SubAgent struct {
 type registry struct {
 	mu       sync.Mutex
 	agents   map[string]*SubAgent
+	parents  map[string]*agent.Agent
 	initDone bool
 	file     string
 	subBus   event.Bus
@@ -54,7 +57,10 @@ type registry struct {
 var store = newRegistry()
 
 func newRegistry() *registry {
-	return &registry{agents: make(map[string]*SubAgent)}
+	return &registry{
+		agents:  make(map[string]*SubAgent),
+		parents: make(map[string]*agent.Agent),
+	}
 }
 
 func (r *registry) init() error {
@@ -220,7 +226,7 @@ func (r *registry) onError(agentID string, err error) {
 	}
 }
 
-func (r *registry) spawn(name, agentType string, taskIDs []string, background bool) (*SubAgent, error) {
+func (r *registry) spawn(name, agentType string, taskIDs []string, background bool, parentAgent *agent.Agent) (*SubAgent, error) {
 	if err := r.init(); err != nil {
 		return nil, err
 	}
@@ -230,15 +236,21 @@ func (r *registry) spawn(name, agentType string, taskIDs []string, background bo
 		return nil, fmt.Errorf("subagent: duplicate name %q (names must be unique)", name)
 	}
 	now := time.Now()
+	var parentID string
+	if parentAgent != nil {
+		parentID = parentAgent.ID
+		r.parents[parentID] = parentAgent
+	}
 	sa := &SubAgent{
-		Name:       name,
-		AgentType:  agentType,
-		TaskIDs:    taskIDs,
-		Background: background,
-		Status:     StatusPending,
-		CreatedAt:  now,
-		UpdatedAt:  now,
-		done:       make(chan struct{}),
+		Name:          name,
+		AgentType:     agentType,
+		TaskIDs:       taskIDs,
+		Background:    background,
+		ParentAgentID: parentID,
+		Status:        StatusPending,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		done:          make(chan struct{}),
 	}
 	r.agents[name] = sa
 	r.mu.Unlock()
@@ -310,6 +322,20 @@ func (r *registry) finish(sa *SubAgent, output string, err error) {
 		sa.Status = StatusCompleted
 	}
 	close(sa.done)
+
+	// Publish notification for background sub-agents to their parent
+	if sa.Background && sa.ParentAgentID != "" {
+		if parent, ok := r.parents[sa.ParentAgentID]; ok {
+			var r reminder.Reminder
+			if err != nil {
+				r = reminder.SubAgentFailed(sa.Name, sa.TaskIDs, err.Error())
+			} else {
+				r = reminder.SubAgentDone(sa.Name, sa.TaskIDs, output)
+			}
+			parent.QueueNotification(r)
+		}
+	}
+
 	r.mu.Unlock()
 	_ = r.save()
 }
@@ -353,49 +379,19 @@ func (r *registry) filter(names []string) ([]SubAgent, error) {
 	return out, nil
 }
 
-func (r *registry) waitFor(ctx context.Context, names []string) ([]SubAgent, error) {
-	if err := r.init(); err != nil {
-		return nil, err
-	}
-	r.mu.Lock()
-	live := make([]*SubAgent, 0, len(names))
-	for _, n := range names {
-		sa, ok := r.agents[n]
-		if !ok {
-			r.mu.Unlock()
-			return nil, fmt.Errorf("subagent: no subagent named %q", n)
-		}
-		live = append(live, sa)
-	}
-	r.mu.Unlock()
-
-	for _, sa := range live {
-		select {
-		case <-sa.done:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-
-	out := make([]SubAgent, 0, len(live))
-	for _, sa := range live {
-		out = append(out, copyOf(sa))
-	}
-	return out, nil
-}
-
 func copyOf(sa *SubAgent) SubAgent {
 	return SubAgent{
-		Name:       sa.Name,
-		AgentType:  sa.AgentType,
-		TaskIDs:    append([]string(nil), sa.TaskIDs...),
-		Background: sa.Background,
-		Status:     sa.Status,
-		Output:     sa.Output,
-		Err:        sa.Err,
-		SessionID:  sa.SessionID,
-		CreatedAt:  sa.CreatedAt,
-		UpdatedAt:  sa.UpdatedAt,
+		Name:          sa.Name,
+		AgentType:     sa.AgentType,
+		TaskIDs:       append([]string(nil), sa.TaskIDs...),
+		Background:    sa.Background,
+		ParentAgentID: sa.ParentAgentID,
+		Status:        sa.Status,
+		Output:        sa.Output,
+		Err:           sa.Err,
+		SessionID:     sa.SessionID,
+		CreatedAt:     sa.CreatedAt,
+		UpdatedAt:     sa.UpdatedAt,
 	}
 }
 

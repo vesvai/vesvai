@@ -43,15 +43,13 @@ var builtinDefaults = map[string]Mode{
 
 	"bash": ModeSemiJudge,
 
-	"todo":               ModeAllow,
-	"todoread":           ModeAllow,
-	"todowrite":          ModeAllow,
-	"webfetch":           ModeAllow,
-	"websearch":          ModeAllow,
-	"subagent":           ModeAllow,
-	"wait-for-subagents": ModeAllow,
-	"subagents-status":   ModeAllow,
-	"subagent-message":   ModeAllow,
+	"todo":       ModeAllow,
+	"todoread":   ModeAllow,
+	"todowrite":  ModeAllow,
+	"webfetch":   ModeAllow,
+	"websearch":  ModeAllow,
+	"task":       ModeAllow,
+	"taskstatus": ModeAllow,
 }
 
 const defaultMode = ModeSemiAsk

@@ -182,19 +182,17 @@ See [Subagents](../features/subagents.md) for the full workflow.
 
 | Tool | Parameters | Description |
 |---|---|---|
-| `subagent` | `subagents[]` (`name`, `agent`, `task`, `task_id`), `background` | Spawn one or more subagents concurrently |
-| `wait-for-subagents` | `agent_names` (required) | Block until the named subagents finish |
-| `subagents-status` | `agent_names` (optional) | Report status: `pending`, `running`, `completed`, `failed`, `interrupted` |
-| `subagent-message` | `name`, `message`, `background` | Resume a finished subagent with its full history |
+| `task` | `name`, `subagent_type`, `prompt`, `task_id[]` (optional), `background` (optional) | Spawn a subagent, or resume a finished one by reusing the same `name` |
+| `taskstatus` | `agent_names[]` (optional) | Report status: `pending`, `running`, `completed`, `failed`, `interrupted` |
 
-Registered agent types for `subagent`: `orchestrator`, `explorer`, `planner`, and
+Registered agent types for `task`: `orchestrator`, `explorer`, `planner`, and
 `developer`.
 
 ## Tool availability per agent
 
 | Agent | Tools |
 |---|---|
-| `orchestrator` | All file tools, `askuserquestion`, `bash`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message`, `todoread`, `todowrite`, `webfetch`, `websearch` |
+| `orchestrator` | All file tools, `askuserquestion`, `bash`, `task`, `taskstatus`, `todoread`, `todowrite`, `webfetch`, `websearch` |
 | `planner` | File tools write-scoped to `.vesvai/plans`, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `developer` | All file tools, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `explorer` | `glob`, `grep`, `list`, `read`, `bash`, `webfetch`, `websearch` |
@@ -209,7 +207,7 @@ built-in defaults:
 | `read`, `write`, `edit`, `delete`, `list`, `glob`, `grep` | `semi-ask` |
 | `bash` | `semi-judge` (whitelisted commands run directly) |
 | `todoread`, `todowrite` | `allow` |
-| `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message` | `allow` |
+| `task`, `taskstatus` | `allow` |
 | `askuserquestion` | `allow` (never gated) |
 | `websearch`, `webfetch` | `semi-ask` |
 
