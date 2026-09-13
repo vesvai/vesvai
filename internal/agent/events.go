@@ -16,6 +16,7 @@ const (
 	TopicAgentAskAnswer       = "agent.ask.answer"
 	TopicErrorMessage         = "agent.error.message"
 	TopicErrorMessageFinished = "agent.error.message.finished"
+	TopicSubAgentNotification = "agent.subagent.notification"
 )
 
 type AgentInput struct {
@@ -118,4 +119,12 @@ type ErrorMessage struct {
 type ErrorMessageFinished struct {
 	AgentID   string
 	AgentName string
+}
+
+type SubAgentNotification struct {
+	ParentAgentID string
+	SubAgentName  string
+	TaskIDs       []string
+	Output        string
+	Err           string
 }

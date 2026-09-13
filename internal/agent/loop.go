@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vesvai/vesvai/internal/agent/reminder"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/llm"
 )
@@ -201,6 +202,13 @@ func emptyAssistantMessage(m llm.Message) bool {
 
 func (a *Agent) iterate(ctx context.Context, state *runState, prov llm.Provider) (llm.Message, []llm.ToolCall, error) {
 	req := a.buildRequest(state)
+
+	if notifications := a.drainNotifications(); len(notifications) > 0 {
+		if formatted := reminder.FormatAll(notifications); formatted != "" {
+			req.Messages = append(req.Messages, llm.SystemMessage(formatted))
+		}
+	}
+
 	if err := a.chain.BeforeLLM(ctx, req); err != nil {
 		return llm.Message{}, nil, err
 	}

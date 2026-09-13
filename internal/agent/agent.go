@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/vesvai/vesvai/internal/agent/middleware"
 	"github.com/vesvai/vesvai/internal/agent/middlewares"
+	"github.com/vesvai/vesvai/internal/agent/reminder"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/agent/tools"
 	"github.com/vesvai/vesvai/internal/core/event"
@@ -42,6 +44,9 @@ type Agent struct {
 	namesResolved   bool
 	Bus             event.Bus
 	log             *logger.Logger
+
+	pendingNotifications []reminder.Reminder
+	notificationsMu      sync.Mutex
 }
 
 func New(name string, opts ...Option) *Agent {
@@ -189,6 +194,23 @@ func (a *Agent) publish(topic string, payload any) {
 		return
 	}
 	a.Bus.Publish(topic, payload)
+}
+
+func (a *Agent) QueueNotification(r reminder.Reminder) {
+	a.notificationsMu.Lock()
+	defer a.notificationsMu.Unlock()
+	a.pendingNotifications = append(a.pendingNotifications, r)
+}
+
+func (a *Agent) drainNotifications() []reminder.Reminder {
+	a.notificationsMu.Lock()
+	defer a.notificationsMu.Unlock()
+	if len(a.pendingNotifications) == 0 {
+		return nil
+	}
+	msgs := a.pendingNotifications
+	a.pendingNotifications = nil
+	return msgs
 }
 
 func (a *Agent) debugf(format string, args ...any) {

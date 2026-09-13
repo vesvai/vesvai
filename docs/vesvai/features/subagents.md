@@ -12,7 +12,7 @@ prompt, and middleware, and runs **concurrently** with its siblings.
 
 | Agent | Role | Write access | Tools |
 |---|---|---|---|
-| `orchestrator` | Top-level coordinator | Full workspace | All file tools, `askuserquestion`, `bash`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message`, `todoread`, `todowrite` |
+| `orchestrator` | Top-level coordinator | Full workspace | All file tools, `askuserquestion`, `bash`, `task`, `taskstatus`, `todoread`, `todowrite`, `webfetch`, `websearch` |
 | `planner` | Architecture and planning | `.vesvai/plans/` only | File tools write-scoped to plans, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `developer` | Implementation | Full workspace except `.vesvai/plans/` | All file tools, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `explorer` | Read-only research | None | `glob`, `grep`, `list`, `read`, `bash`, `webfetch`, `websearch` |
@@ -27,32 +27,33 @@ By default an agent may run up to **150 iterations** per turn.
 
 ## Spawning subagents
 
-The orchestrator uses the `subagent` tool to delegate. It accepts one or more
-subagents and runs them all concurrently:
+The orchestrator uses the `task` tool to delegate. Each call spawns exactly one
+subagent:
 
 ```json
 {
-  "subagents": [
-    { "name": "explore-api", "agent": "explorer",
-      "task": "Find all REST endpoints in internal/server and report file:line references." },
-    { "name": "plan-refactor", "agent": "planner",
-      "task": "Design a plan to split the server package. Write it to .vesvai/plans/." }
-  ],
+  "name": "explore-api",
+  "subagent_type": "explorer",
+  "prompt": "Find all REST endpoints in internal/server and report file:line references.",
+  "task_id": ["todo-1"],
   "background": false
 }
 ```
 
 | Field | Description |
 |---|---|
-| `name` | Unique, descriptive name for this run |
-| `agent` | One of `orchestrator`, `explorer`, `planner`, `developer` |
-| `task` | Instructions: what to do, constraints, what to report back |
+| `name` | Unique, descriptive name for this run. Reusing a finished name resumes with full history. |
+| `subagent_type` | One of `orchestrator`, `explorer`, `planner`, `developer` |
+| `prompt` | Instructions: what to do, constraints, what to report back |
 | `task_id` | Optional todo ids this subagent is working on |
-| `background` | `false` (default) waits for all to finish; `true` returns immediately |
+| `background` | `false` (default) blocks until finished; `true` returns immediately |
 
-Foreground mode blocks until every subagent completes or fails. Background mode
-returns a confirmation immediately and lets the orchestrator continue; results are
-collected later.
+Foreground mode (`background: false`) blocks until the subagent completes or fails,
+then returns its result directly. Background mode returns a confirmation immediately
+and lets the orchestrator continue; results arrive as system reminders.
+
+To spawn multiple subagents in parallel, issue multiple `task` tool calls in a
+single message.
 
 ## Delegation details
 
@@ -63,24 +64,84 @@ collected later.
 - The `task_id` field links a subagent to todo items, so progress is trackable via
   the todo tools.
 
-## Working with background subagents
+## Background subagent notifications
 
-| Tool | Purpose |
-|---|---|
-| `subagents-status` | Check status: `pending`, `running`, `completed`, `failed`, `interrupted` |
-| `wait-for-subagents` | Block until the named subagents finish and return their results |
-| `subagent-message` | Send a follow-up message to a finished subagent, resuming it with its full history |
+When a background subagent completes, the parent agent receives a **system
+reminder** automatically — no polling required. The reminder is injected into the
+parent's LLM context as an XML block before the next iteration:
 
-`subagent-message` re-instantiates the subagent (same agent type, same provider and
-model), prepends its system prompt and stored conversation, and runs it again. This
-is how you iterate on a completed investigation without losing context.
+```xml
+<system-reminders>
+<system-reminder tag="subagent" task="todo-1,todo-2" agent="dark-mode-implementation">
+  Subagent "dark-mode-implementation" finished.
+  Response:
+  Dark mode toggle implemented. All 47 tests pass.
+</system-reminder>
+</system-reminders>
+```
+
+For failed subagents:
+
+```xml
+<system-reminders>
+<system-reminder tag="subagent" task="todo-3" agent="payment-fix">
+  Subagent "payment-fix" failed: currency conversion rounding error in line 42
+</system-reminder>
+</system-reminders>
+```
+
+Key details:
+
+- Multiple reminders from different subagents are **batched** into a single
+  `<system-reminders>` block per loop iteration.
+- Reminders are only sent for **background** subagents. Foreground subagents return
+  results directly as the tool output.
+- The parent does not need to poll or wait — the reminder arrives automatically when
+  the subagent finishes.
+
+## Checking subagent status
+
+Use `taskstatus` to inspect subagents:
+
+```json
+{}
+```
+
+Returns all subagents, or filter by name:
+
+```json
+{
+  "agent_names": ["explore-api", "plan-refactor"]
+}
+```
+
+Status values: `pending`, `running`, `completed`, `failed`, `interrupted`.
+
+## Resuming subagents
+
+Subagents persist across sessions. Their state is stored in
+`.vesvai/subagents.json` and they keep their full conversation history. To resume a
+finished subagent, call `task` again with the **same name**:
+
+```json
+{
+  "name": "explore-api",
+  "subagent_type": "explorer",
+  "prompt": "Now look at the authentication middleware specifically — check for token expiry handling."
+}
+```
+
+The subagent resumes with its complete prior context. Use this to iterate on
+completed work without losing context.
+
+Only spawn a fresh subagent with a new name when no relevant prior subagent exists.
 
 ## Persistence and restart
 
 Subagent state is persisted to `.vesvai/subagents.json` in the project directory.
 If Vesvai restarts while subagents are running, those subagents are marked
 `interrupted` (with reason "app restarted"). You can inspect them with
-`subagents-status` and resume one with `subagent-message`.
+`taskstatus` and resume one by re-spawning with the same name.
 
 Subagent conversations are also stored as sessions, so their history is durable and
 replayable.
