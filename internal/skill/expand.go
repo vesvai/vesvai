@@ -8,6 +8,7 @@ import (
 
 var (
 	skillRefRe = regexp.MustCompile(`(^|[^A-Za-z0-9_/:.-])(/[a-z0-9]+(?:-[a-z0-9]+)*)`)
+	argRefRe   = regexp.MustCompile(`\$([a-zA-Z][a-zA-Z0-9_]*)`)
 )
 
 func ExpandMessage(msg string) string {
@@ -41,8 +42,37 @@ func skillBlock(s *Skill) string {
 	if len(s.AllowedTools) > 0 {
 		fmt.Fprintf(&b, "Allowed tools: %s\n", strings.Join(s.AllowedTools, ", "))
 	}
+	if s.WhenToUse != "" {
+		fmt.Fprintf(&b, "When to use: %s\n", s.WhenToUse)
+	}
+	if s.ArgumentHint != "" {
+		fmt.Fprintf(&b, "Arguments: %s\n", s.ArgumentHint)
+	}
+	if len(s.Arguments) > 0 {
+		fmt.Fprintf(&b, "Parameters: %s\n", strings.Join(s.Arguments, ", "))
+	}
 	b.WriteString("\n")
 	b.WriteString(strings.TrimSpace(s.Instructions))
 	fmt.Fprintf(&b, "\n</skill:%s>\n", s.Name)
 	return b.String()
+}
+
+func ExpandWithArgs(s *Skill, args map[string]string) string {
+	if s == nil {
+		return ""
+	}
+	content := s.Instructions
+	if len(args) > 0 {
+		content = argRefRe.ReplaceAllStringFunc(content, func(m string) string {
+			parts := argRefRe.FindStringSubmatch(m)
+			if len(parts) != 2 {
+				return m
+			}
+			if val, ok := args[parts[1]]; ok {
+				return val
+			}
+			return m
+		})
+	}
+	return content
 }

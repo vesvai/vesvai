@@ -29,6 +29,11 @@ metadata:
   author: example-org
   version: "1.0"
 allowed-tools: "Bash(python:*) Read"
+when_to_use: Use when the user asks to extract text from PDF files
+argument-hint: "<filename>"
+arguments:
+  - filename
+context: fork
 ---
 
 # PDF Tools
@@ -58,6 +63,18 @@ Extract text with pdfplumber.
 	}
 	if len(s.AllowedTools) != 2 || s.AllowedTools[0] != "Bash(python:*)" {
 		t.Fatalf("allowed-tools = %v", s.AllowedTools)
+	}
+	if s.WhenToUse != "Use when the user asks to extract text from PDF files" {
+		t.Fatalf("when_to_use = %q", s.WhenToUse)
+	}
+	if s.ArgumentHint != "<filename>" {
+		t.Fatalf("argument-hint = %q", s.ArgumentHint)
+	}
+	if len(s.Arguments) != 1 || s.Arguments[0] != "filename" {
+		t.Fatalf("arguments = %v", s.Arguments)
+	}
+	if s.Context != "fork" {
+		t.Fatalf("context = %q", s.Context)
 	}
 	if strings.Contains(s.Instructions, "name:") || !strings.Contains(s.Instructions, "Extract text with pdfplumber") {
 		t.Fatalf("instructions must be body without frontmatter:\n%s", s.Instructions)
@@ -194,5 +211,36 @@ Load the plan, review it, execute tasks.
 	}
 	if got != ExpandMessage(got) {
 		t.Fatalf("expansion must be idempotent")
+	}
+}
+
+func TestExpandWithArgs(t *testing.T) {
+	s := &Skill{
+		Name:         "test",
+		Instructions: "# $action $file\nPerform $action on $file.",
+	}
+
+	cases := []struct {
+		args map[string]string
+		want string
+	}{
+		{
+			args: map[string]string{"action": "refactor", "file": "main.go"},
+			want: "# refactor main.go\nPerform refactor on main.go.",
+		},
+		{
+			args: map[string]string{"action": "test"},
+			want: "# test $file\nPerform test on $file.",
+		},
+		{
+			args: nil,
+			want: "# $action $file\nPerform $action on $file.",
+		},
+	}
+	for _, tc := range cases {
+		got := ExpandWithArgs(s, tc.args)
+		if got != tc.want {
+			t.Fatalf("ExpandWithArgs(%v) = %q, want %q", tc.args, got, tc.want)
+		}
 	}
 }

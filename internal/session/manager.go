@@ -158,6 +158,7 @@ func (m *Manager) Fork(sourceID, atMessageID string) (*Session, error) {
 	now := time.Now()
 	fork := *src
 	fork.ID = uuid.NewString()
+	fork.Title = src.Title + " - forked"
 	fork.ParentID = src.ID
 	fork.CreatedAt = now
 	fork.UpdatedAt = now

@@ -66,6 +66,30 @@ func New(name string, opts ...Option) *Agent {
 	return a
 }
 
+func (a *Agent) Clone(name string) *Agent {
+	if name == "" {
+		name = a.Name
+	}
+	c := New(name,
+		WithDescription(a.Description),
+		WithModel(a.Model),
+		WithProvider(a.Provider),
+		WithSystemPrompt(a.SystemPrompt),
+		WithTemperature(a.Temperature),
+		WithTopP(a.TopP),
+		WithMaxTokens(a.MaxTokens),
+		WithMaxIterations(a.MaxIterations),
+		WithReasoningEffort(a.ReasoningEffort),
+		WithBus(a.Bus),
+	)
+	c.log = a.log
+	c.chain = a.chain.Clone()
+	for _, t := range a.Tools.List() {
+		_ = c.Tools.Register(t)
+	}
+	return c
+}
+
 func WithDescription(desc string) Option {
 	return func(a *Agent) { a.Description = desc }
 }
@@ -164,8 +188,6 @@ func WithReasoningEffort(effort string) Option {
 	return func(a *Agent) { a.ReasoningEffort = effort }
 }
 
-// WithStructuredOutput makes the agent request a JSON response matching the
-// given JSON schema from the LLM provider.
 func WithStructuredOutput(name string, schema any) Option {
 	return func(a *Agent) {
 		a.structuredName = name
@@ -202,6 +224,12 @@ func (a *Agent) QueueNotification(r reminder.Reminder) {
 	a.pendingNotifications = append(a.pendingNotifications, r)
 }
 
+func (a *Agent) HasPendingNotifications() bool {
+	a.notificationsMu.Lock()
+	defer a.notificationsMu.Unlock()
+	return len(a.pendingNotifications) > 0
+}
+
 func (a *Agent) drainNotifications() []reminder.Reminder {
 	a.notificationsMu.Lock()
 	defer a.notificationsMu.Unlock()
@@ -211,6 +239,43 @@ func (a *Agent) drainNotifications() []reminder.Reminder {
 	msgs := a.pendingNotifications
 	a.pendingNotifications = nil
 	return msgs
+}
+
+func (a *Agent) Continue(ctx context.Context, history []llm.Message) (*RunResult, error) {
+	if !a.HasPendingNotifications() {
+		return nil, nil
+	}
+	if a.Provider == nil {
+		return nil, a.fail(ctx, ErrNoProvider)
+	}
+	if err := a.resolveToolNames(); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+	if err := a.resolveMiddlewareNames(); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+
+	ctx = WithAgent(ctx, a)
+	state := &runState{agent: a}
+	ctx = WithHistory(ctx, &state.history)
+	a.debugf("agent %q continued run", a.Name)
+	a.publish(TopicAgentStarted, AgentStarted{
+		AgentID:         a.ID,
+		AgentName:       a.Name,
+		Model:           a.Model,
+		Provider:        a.Provider,
+		ReasoningEffort: a.ReasoningEffort,
+	})
+
+	if err := a.chain.BeforeRun(ctx, a.Name, ""); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+
+	prov := a.Provider
+	state.modelID = a.Model.ID
+	state.provider = prov.Name()
+	state.history = append(state.history, history...)
+	return a.loop(ctx, state, prov)
 }
 
 func (a *Agent) debugf(format string, args ...any) {

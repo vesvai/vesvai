@@ -15,6 +15,10 @@ type Skill struct {
 	Compatibility string
 	Metadata      map[string]string
 	AllowedTools  []string
+	WhenToUse     string
+	ArgumentHint  string
+	Arguments     []string
+	Context       string
 	Instructions  string
 	Source        string
 	Path          string
