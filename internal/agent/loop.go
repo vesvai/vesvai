@@ -150,6 +150,9 @@ func (a *Agent) loop(ctx context.Context, state *runState, prov llm.Provider) (*
 			}
 			continue
 		}
+		if a.HasPendingNotifications() {
+			continue
+		}
 		finished = true
 		break
 	}

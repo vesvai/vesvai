@@ -323,7 +323,6 @@ func (r *registry) finish(sa *SubAgent, output string, err error) {
 	}
 	close(sa.done)
 
-	// Publish notification for background sub-agents to their parent
 	if sa.Background && sa.ParentAgentID != "" {
 		if parent, ok := r.parents[sa.ParentAgentID]; ok {
 			var r reminder.Reminder
@@ -333,6 +332,18 @@ func (r *registry) finish(sa *SubAgent, output string, err error) {
 				r = reminder.SubAgentDone(sa.Name, sa.TaskIDs, output)
 			}
 			parent.QueueNotification(r)
+			if parent.Bus != nil {
+				n := agent.SubAgentNotification{
+					ParentAgentID: sa.ParentAgentID,
+					SubAgentName:  sa.Name,
+					TaskIDs:       append([]string(nil), sa.TaskIDs...),
+					Output:        output,
+				}
+				if err != nil {
+					n.Err = err.Error()
+				}
+				parent.Bus.Publish(agent.TopicSubAgentNotification, n)
+			}
 		}
 	}
 

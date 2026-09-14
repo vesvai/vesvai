@@ -11,6 +11,7 @@ import (
 
 	"github.com/vesvai/vesvai/internal/agent/middleware"
 	"github.com/vesvai/vesvai/internal/agent/middlewares"
+	"github.com/vesvai/vesvai/internal/agent/reminder"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/agent/tools"
 	"github.com/vesvai/vesvai/internal/core/event"
@@ -1036,5 +1037,106 @@ func TestAgent_ResumeDoesNotDuplicateSystemPrompt(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("system messages = %d, want 1 (history passed verbatim)", count)
+	}
+}
+
+func TestContinueWithoutNotifications(t *testing.T) {
+	a, _ := newTestAgent(t)
+	res, err := a.Continue(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if res != nil {
+		t.Fatalf("result = %+v, want nil when nothing to process", res)
+	}
+}
+
+func TestContinueProcessesPendingNotification(t *testing.T) {
+	a, prov := newTestAgent(t)
+	prov.responses = []mockResponse{{content: "handled"}}
+	a.QueueNotification(reminder.New("subagent", "background work done", "agent", "bg-1"))
+
+	res, err := a.Continue(context.Background(), []llm.Message{llm.UserMessage("prev")})
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if res == nil || res.Output != "handled" {
+		t.Fatalf("result = %+v, want handled", res)
+	}
+
+	prov.mu.Lock()
+	defer prov.mu.Unlock()
+	msgs := prov.lastReq.Messages
+	if len(msgs) != 2 {
+		t.Fatalf("request messages = %d, want 2 (history + reminder)", len(msgs))
+	}
+	if msgs[0].Role != llm.RoleUser {
+		t.Fatalf("msgs[0] = %+v, want history verbatim", msgs[0])
+	}
+	if msgs[1].Role != llm.RoleSystem || !strings.Contains(fmt.Sprint(msgs[1].Content), "background work done") {
+		t.Fatalf("reminder not injected: %+v", msgs)
+	}
+}
+
+type notifyProvider struct {
+	llm.Provider
+	agent *Agent
+	once  sync.Once
+}
+
+func (p *notifyProvider) Chat(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+	resp, err := p.Provider.Chat(ctx, req)
+	p.once.Do(func() { p.agent.QueueNotification(reminder.New("subagent", "done")) })
+	return resp, err
+}
+
+func TestRunContinuesWhileNotificationsPending(t *testing.T) {
+	base, prov := newTestAgent(t)
+	prov.responses = []mockResponse{{content: "first"}, {content: "second"}}
+	a := &notifyProvider{Provider: base.Provider, agent: base}
+	base.Provider = a
+
+	res, err := base.Run(context.Background(), "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output != "second" {
+		t.Fatalf("output = %q, want second (loop must continue to drain reminder)", res.Output)
+	}
+	if res.Iterations != 2 {
+		t.Fatalf("iterations = %d, want 2", res.Iterations)
+	}
+}
+
+func TestAgentClone(t *testing.T) {
+	bus := event.New()
+	prov := &scriptedProvider{name: "mock"}
+	prov.responses = []mockResponse{{content: "ok"}}
+
+	a := New("original",
+		WithDescription("desc"),
+		WithModel(llm.Model{ID: "m1"}),
+		WithProvider(prov),
+		WithSystemPrompt("sys"),
+		WithTemperature(0.5),
+		WithMaxTokens(2048),
+		WithTool(echoTool()),
+		WithBus(bus),
+	)
+	clone := a.Clone("copy")
+	if clone.ID == a.ID {
+		t.Fatal("clone must have a new identity")
+	}
+	if clone.Name != "copy" {
+		t.Fatalf("clone name = %q, want copy", clone.Name)
+	}
+	if clone.Provider != a.Provider || clone.Model.ID != a.Model.ID || clone.SystemPrompt != "sys" {
+		t.Fatalf("clone fields not copied: %+v", clone)
+	}
+	if clone.Temperature != 0.5 || clone.MaxTokens != 2048 || clone.Bus != bus {
+		t.Fatalf("clone params not copied: %+v", clone)
+	}
+	if _, ok := clone.Tools.Get("echo"); !ok {
+		t.Fatal("clone tools missing")
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/vesvai/vesvai/internal/builtin/agents/orchestrator"
 	"github.com/vesvai/vesvai/internal/builtin/middlewares"
 	"github.com/vesvai/vesvai/internal/builtin/tools/ask"
+	"github.com/vesvai/vesvai/internal/builtin/tools/loadskill"
 	"github.com/vesvai/vesvai/internal/builtin/tools/shell"
 	"github.com/vesvai/vesvai/internal/builtin/tools/subagent"
 	"github.com/vesvai/vesvai/internal/builtin/tools/todo"
@@ -268,6 +269,7 @@ func newRunTestCLI(t *testing.T) (*CLI, *config.Config, *llm.Manager) {
 	subagent.SubAgentTools(sess)
 	ask.AskTool()
 	web.WebTools(fs)
+	loadskill.LoadSkillTool(sess)
 	middlewares.Create(fs, middlewares.Deps{})
 	orchestrator.Register(fs)
 	if _, err := agents.New("orchestrator"); err != nil {

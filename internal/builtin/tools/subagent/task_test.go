@@ -302,6 +302,45 @@ func TestSubAgentTool_BackgroundWithNotification(t *testing.T) {
 	}
 }
 
+func TestSubAgentTool_PublishesNotificationEvent(t *testing.T) {
+	tt, _ := tools.Get("task")
+
+	parent := agent.New("notify-event-parent", agent.WithBus(testBus))
+	parent.Provider = stubProvider{}
+	parent.Model = llm.Model{ID: "stub-model"}
+	ctx := agent.WithAgent(context.Background(), parent)
+
+	var notif *agent.SubAgentNotification
+	_ = testBus.Subscribe(agent.TopicSubAgentNotification, func(e agent.SubAgentNotification) { notif = &e })
+
+	args := singleArgs(t, spec("bg-notify-event", "sub-agent", "do x", map[string]any{"background": true}))
+	if _, err := tt.Execute(ctx, args); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		sa, _ := store.get("bg-notify-event")
+		if sa.Status == StatusCompleted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("background subagent not completed, status = %q", sa.Status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if notif == nil {
+		t.Fatal("subagent notification event not published")
+	}
+	if notif.ParentAgentID != parent.ID || notif.SubAgentName != "bg-notify-event" {
+		t.Errorf("notification = %+v, want parent %q subagent %q", notif, parent.ID, "bg-notify-event")
+	}
+	if !strings.Contains(notif.Output, "sub answer") {
+		t.Errorf("notification output = %q, want sub answer", notif.Output)
+	}
+}
+
 func TestSubAgentTool_BackgroundAndWait(t *testing.T) {
 	tt, _ := tools.Get("task")
 	ctx := parentCtx(t)

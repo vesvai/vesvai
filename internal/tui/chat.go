@@ -94,6 +94,7 @@ func (a *App) subscribeChat(bus event.Bus) error {
 		{agent.TopicErrorMessageFinished, a.onErrorMessageFinished},
 		{session.TopicSessionAttached, a.onSessionAttached},
 		{agent.TopicAgentAsk, a.onAgentAsk},
+		{agent.TopicSubAgentNotification, a.onSubAgentNotification},
 	}
 	for _, s := range subs {
 		if err := bus.Subscribe(s.topic, s.fn); err != nil {
@@ -121,6 +122,7 @@ func (a *App) unsubscribeChat(bus event.Bus) {
 		{agent.TopicErrorMessageFinished, a.onErrorMessageFinished},
 		{session.TopicSessionAttached, a.onSessionAttached},
 		{agent.TopicAgentAsk, a.onAgentAsk},
+		{agent.TopicSubAgentNotification, a.onSubAgentNotification},
 	}
 	for _, s := range subs {
 		_ = bus.Unsubscribe(s.topic, s.fn)
@@ -575,21 +577,26 @@ func (a *App) runAgent(input string) {
 }
 
 func (a *App) runAgentWithAttachments(input string, attachments []llm.Attachment) {
+	ctx, cancel, history := a.prepareAgentRun(attachments)
+	defer a.finishAgentRun(cancel)
+
+	handler := func(agent.StreamEvent) error { return nil }
+	var result *agent.RunResult
+	if len(history) > 0 {
+		result, _ = a.agent.ResumeStream(ctx, input, history, handler)
+	} else {
+		result, _ = a.agent.RunStream(ctx, input, handler)
+	}
+	a.completeAgentRun(result)
+}
+
+func (a *App) prepareAgentRun(attachments []llm.Attachment) (context.Context, context.CancelFunc, []llm.Message) {
 	ctx, cancel := context.WithCancel(a.ctx)
 
 	a.chatMu.Lock()
 	a.agentCancel = cancel
-	a.chatMu.Unlock()
-
-	defer func() {
-		a.chatMu.Lock()
-		a.agentCancel = nil
-		a.chatMu.Unlock()
-		cancel()
-	}()
 
 	orch := a.agent
-	a.chatMu.Lock()
 	if orch.Bus == nil {
 		orch.Bus = a.bus
 	}
@@ -610,14 +617,17 @@ func (a *App) runAgentWithAttachments(input string, attachments []llm.Attachment
 	}
 	a.chatMu.Unlock()
 
-	var result *agent.RunResult
-	handler := func(agent.StreamEvent) error { return nil }
-	if len(history) > 0 {
-		result, _ = orch.ResumeStream(ctx, input, history, handler)
-	} else {
-		result, _ = orch.RunStream(ctx, input, handler)
-	}
+	return ctx, cancel, history
+}
 
+func (a *App) finishAgentRun(cancel context.CancelFunc) {
+	a.chatMu.Lock()
+	a.agentCancel = nil
+	a.chatMu.Unlock()
+	cancel()
+}
+
+func (a *App) completeAgentRun(result *agent.RunResult) {
 	a.chatMu.Lock()
 	if result != nil {
 		a.history = result.History
@@ -625,6 +635,38 @@ func (a *App) runAgentWithAttachments(input string, attachments []llm.Attachment
 	a.running = false
 	a.chatMu.Unlock()
 	a.refreshChat()
+
+	if a.agent.HasPendingNotifications() {
+		go a.continueAgent()
+	}
+}
+
+func (a *App) continueAgent() {
+	a.chatMu.Lock()
+	if a.running || a.agentCancel != nil {
+		a.chatMu.Unlock()
+		return
+	}
+	a.chatMu.Unlock()
+
+	ctx, cancel, history := a.prepareAgentRun(nil)
+	defer a.finishAgentRun(cancel)
+
+	result, _ := a.agent.Continue(ctx, history)
+	a.completeAgentRun(result)
+}
+
+func (a *App) onSubAgentNotification(e agent.SubAgentNotification) {
+	if a.agent == nil || e.ParentAgentID != a.agent.ID {
+		return
+	}
+	a.chatMu.Lock()
+	if a.running || a.agentCancel != nil {
+		a.chatMu.Unlock()
+		return
+	}
+	a.chatMu.Unlock()
+	go a.continueAgent()
 }
 
 func (a *App) activateItem(it *components.ChatItem) {
