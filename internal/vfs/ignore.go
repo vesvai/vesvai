@@ -11,6 +11,19 @@ const ignoreFileGit = ".gitignore"
 
 const ignoreFileVesva = ".vesvaignore"
 
+const (
+	vesvaiDir = ".vesvai"
+	plansDir  = vesvaiDir + "/plans"
+)
+
+func isVesvaiPath(rel string) bool {
+	return rel == vesvaiDir || strings.HasPrefix(rel, vesvaiDir+"/")
+}
+
+func isPlansPath(rel string) bool {
+	return rel == plansDir || strings.HasPrefix(rel, plansDir+"/")
+}
+
 type pattern struct {
 	negated  bool
 	dirOnly  bool
@@ -38,6 +51,9 @@ func (ig *Ignorer) Ignored(rel string, isDir bool) bool {
 	}
 	if rel == ".git" || strings.HasPrefix(rel, ".git/") {
 		return true
+	}
+	if isVesvaiPath(rel) {
+		return false
 	}
 
 	matched := false

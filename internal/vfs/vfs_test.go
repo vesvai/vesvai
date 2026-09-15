@@ -624,8 +624,25 @@ func TestScopedBypassesIgnoreInsideScope(t *testing.T) {
 		t.Fatalf("read in gitignored scope: %v", err)
 	}
 
-	if _, err := fs.Read(".vesvai/plans/plan.md"); !errors.Is(err, ErrIgnored) {
-		t.Fatalf("unscoped read of ignored path: got %v, want ErrIgnored", err)
+	if data, err := fs.Read(".vesvai/plans/plan.md"); err != nil {
+		t.Fatalf("plans dir must be accessible from root despite ignore: %v", err)
+	} else if !strings.Contains(data, "plan") {
+		t.Fatalf("plans read = %q, want plan content", data)
+	}
+
+	if err := os.MkdirAll(filepath.Join(root, ".vesvai", "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".vesvai", "sessions", "secret.txt"), []byte("session-data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := fs.Read(".vesvai/sessions/secret.txt"); err != nil {
+		t.Fatalf("all .vesvai paths must be readable: %v", err)
+	} else if !strings.Contains(data, "session-data") {
+		t.Fatalf("sessions read = %q", data)
+	}
+	if _, err := fs.Write(".vesvai/sessions/other.txt", []byte("x")); !errors.Is(err, ErrIgnored) {
+		t.Fatalf("writing outside plans must be blocked: got %v, want ErrIgnored", err)
 	}
 }
 
@@ -705,8 +722,70 @@ func TestWriteScopeIgnoresGitignoreInsideScope(t *testing.T) {
 		t.Fatalf("read in gitignored scope: %v", err)
 	}
 
-	if _, err := fs.Read(".vesvai/plans/plan.md"); !errors.Is(err, ErrIgnored) {
-		t.Fatalf("unscoped read of ignored path: got %v, want ErrIgnored", err)
+	if data, err := fs.Read(".vesvai/plans/plan.md"); err != nil {
+		t.Fatalf("plans dir must be accessible from root despite ignore: %v", err)
+	} else if !strings.Contains(data, "plan") {
+		t.Fatalf("plans read = %q, want plan content", data)
+	}
+
+	if err := os.MkdirAll(filepath.Join(root, ".vesvai", "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".vesvai", "sessions", "secret.txt"), []byte("session-data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := fs.Read(".vesvai/sessions/secret.txt"); err != nil {
+		t.Fatalf("all .vesvai paths must be readable: %v", err)
+	} else if !strings.Contains(data, "session-data") {
+		t.Fatalf("sessions read = %q", data)
+	}
+	if _, err := fs.Write(".vesvai/sessions/other.txt", []byte("x")); !errors.Is(err, ErrIgnored) {
+		t.Fatalf("writing outside plans must be blocked: got %v, want ErrIgnored", err)
+	}
+}
+
+func TestVesvaiReadableButOnlyPlansWritable(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".vesvai/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".vesvai"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".vesvai", "permissions.json"), []byte(`{"allowed":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs := newTestVFS(t, root)
+
+	if data, err := fs.Read(".vesvai/permissions.json"); err != nil {
+		t.Fatalf("read .vesvai file: %v", err)
+	} else if !strings.Contains(data, "allowed") {
+		t.Fatalf("read .vesvai file = %q", data)
+	}
+	if res, err := fs.List(".vesvai"); err != nil || len(res.Entries) == 0 {
+		t.Fatalf("list .vesvai: %v %+v", err, res.Entries)
+	}
+	if got, err := fs.Grep("allowed", ".vesvai", nil, GrepModeFilesWithMatches, 0); err != nil || len(got) != 1 || got[0].Path != ".vesvai/permissions.json" {
+		t.Fatalf("grep .vesvai: %v %v", got, err)
+	}
+
+	if _, err := fs.Write(".vesvai/plans/spec-1.md", []byte("spec")); err != nil {
+		t.Fatalf("write into plans: %v", err)
+	}
+	if data, err := fs.Read(".vesvai/plans/spec-1.md"); err != nil {
+		t.Fatalf("read plans: %v", err)
+	} else if !strings.Contains(data, "spec") {
+		t.Fatalf("read plans = %q, want spec content", data)
+	}
+
+	if _, err := fs.Write(".vesvai/permissions.json", []byte("{}")); !errors.Is(err, ErrIgnored) {
+		t.Fatalf("write outside plans: got %v, want ErrIgnored", err)
+	}
+	if _, err := fs.Edit(".vesvai/permissions.json", "allowed", "denied", false); !errors.Is(err, ErrIgnored) {
+		t.Fatalf("edit outside plans: got %v, want ErrIgnored", err)
+	}
+	if err := fs.Delete(".vesvai/permissions.json"); !errors.Is(err, ErrIgnored) {
+		t.Fatalf("delete outside plans: got %v, want ErrIgnored", err)
 	}
 }
 

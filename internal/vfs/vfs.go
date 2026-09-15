@@ -251,6 +251,16 @@ func (v *VFS) ignored(rel string, isDir bool) bool {
 	return v.ignorer.Ignored(rel, isDir)
 }
 
+func (v *VFS) writeIgnored(rel string, isDir bool) bool {
+	if v.scope != "" || v.withinWriteScope(rel) {
+		return false
+	}
+	if isVesvaiPath(rel) && !isPlansPath(rel) {
+		return true
+	}
+	return v.ignorer.Ignored(rel, isDir)
+}
+
 func (v *VFS) resolveChecked(vpath string) (string, string, bool, error) {
 	return v.resolveCheckedCtx(nil, vpath)
 }
@@ -298,7 +308,7 @@ func (v *VFS) resolveWriteCheckedCtx(ctx context.Context, op AccessOp, vpath str
 	if !v.within(phys) {
 		return phys, rel, isDir, nil
 	}
-	if v.ignored(rel, isDir) {
+	if v.writeIgnored(rel, isDir) {
 		return "", "", false, ErrIgnored
 	}
 	return phys, rel, isDir, nil
