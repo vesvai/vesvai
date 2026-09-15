@@ -24,6 +24,8 @@ type Agent struct {
 	ID              string
 	Name            string
 	Description     string
+	ParentAgentID   string
+	DisplayName     string
 	Model           llm.Model
 	Provider        llm.Provider
 	SystemPrompt    string
@@ -285,6 +287,8 @@ func (a *Agent) Continue(ctx context.Context, history []llm.Message) (*RunResult
 	a.publish(TopicAgentStarted, AgentStarted{
 		AgentID:         a.ID,
 		AgentName:       a.Name,
+		DisplayName:     a.DisplayName,
+		ParentAgentID:   a.ParentAgentID,
 		Model:           a.Model,
 		Provider:        a.Provider,
 		ReasoningEffort: a.ReasoningEffort,

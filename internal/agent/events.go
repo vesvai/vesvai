@@ -30,6 +30,8 @@ type AgentInput struct {
 type AgentStarted struct {
 	AgentID         string
 	AgentName       string
+	DisplayName     string
+	ParentAgentID   string
 	Model           llm.Model
 	Provider        llm.Provider
 	ReasoningEffort string

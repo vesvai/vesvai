@@ -27,6 +27,8 @@ func SpawnForked(parent *agent.Agent, name, sessionID, prompt string) (string, e
 
 	go func() {
 		sub := parent.Clone(name)
+		sub.ParentAgentID = parent.ID
+		sub.DisplayName = name
 		var history []llm.Message
 		if sessionID != "" && sessionReader != nil {
 			if msgs, readErr := sessionReader.Messages(sessionID); readErr == nil && len(msgs) > 0 {

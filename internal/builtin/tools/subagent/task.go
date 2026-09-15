@@ -138,6 +138,8 @@ func subAgentTool() tool.Tool {
 					}
 					sub.Provider = parent.Provider
 					sub.Model = parent.Model
+					sub.ParentAgentID = parent.ID
+					sub.DisplayName = sa.Name
 
 					var history []llm.Message
 					if sa.SessionID != "" && sessionReader != nil {
@@ -203,6 +205,8 @@ func subAgentTool() tool.Tool {
 				}
 				sub.Provider = parent.Provider
 				sub.Model = parent.Model
+				sub.ParentAgentID = parent.ID
+				sub.DisplayName = sa.Name
 				if parent.Bus != nil {
 					sub.Bus = parent.Bus
 					store.setAgentID(sa.Name, sub.ID)

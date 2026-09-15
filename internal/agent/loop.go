@@ -44,6 +44,8 @@ func (a *Agent) run(ctx context.Context, input string, stream StreamHandler) (*R
 	a.publish(TopicAgentStarted, AgentStarted{
 		AgentID:         a.ID,
 		AgentName:       a.Name,
+		DisplayName:     a.DisplayName,
+		ParentAgentID:   a.ParentAgentID,
 		Model:           a.Model,
 		Provider:        a.Provider,
 		ReasoningEffort: a.ReasoningEffort,
@@ -94,6 +96,8 @@ func (a *Agent) resume(ctx context.Context, input string, history []llm.Message,
 	a.publish(TopicAgentStarted, AgentStarted{
 		AgentID:         a.ID,
 		AgentName:       a.Name,
+		DisplayName:     a.DisplayName,
+		ParentAgentID:   a.ParentAgentID,
 		Model:           a.Model,
 		Provider:        a.Provider,
 		ReasoningEffort: a.ReasoningEffort,

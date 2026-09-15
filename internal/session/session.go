@@ -2,11 +2,22 @@ package session
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/vesvai/vesvai/internal/llm"
 	"github.com/vesvai/vesvai/internal/utils/query"
 )
+
+const defaultTitlePrefix = "New Session "
+
+func defaultSessionTitle() string {
+	return defaultTitlePrefix + time.Now().Format("2006-01-02 15:04:05")
+}
+
+func isPlaceholderTitle(title string) bool {
+	return strings.HasPrefix(title, defaultTitlePrefix)
+}
 
 var (
 	ErrNotFound         = errors.New("session: not found")
