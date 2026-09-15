@@ -147,12 +147,16 @@ func (c *CLI) runRun(out io.Writer, in io.Reader, message string, opts runOption
 			result, err = orch.RunStream(ctx, message, func(agent.StreamEvent) error { return nil })
 		}
 		if err != nil {
-			return fmt.Errorf("orchestrator: %w", err)
+			if !opts.chat || !errors.Is(err, context.Canceled) || result == nil {
+				return fmt.Errorf("orchestrator: %w", err)
+			}
+		}
+		if result != nil {
+			history = result.History
 		}
 		if !opts.chat {
 			return nil
 		}
-		history = result.History
 	}
 	return c.runChatLoop(ctx, orch, renderer, history, in)
 }
@@ -284,6 +288,10 @@ func (c *CLI) runChatLoop(ctx context.Context, orch *agent.Agent, renderer *runR
 			var err error
 			history, err = c.runChatAgent(ctx, orch, line, history)
 			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					renderer.write("%s\n", renderer.dim("run cancelled; send a new message to continue"))
+					continue
+				}
 				return err
 			}
 		case <-wake:
@@ -311,10 +319,13 @@ func (c *CLI) runChatAgent(ctx context.Context, orch *agent.Agent, line string, 
 	} else {
 		result, err = orch.ResumeStream(ctx, line, history, func(agent.StreamEvent) error { return nil })
 	}
-	if err != nil {
-		return history, fmt.Errorf("orchestrator: %w", err)
+	if result != nil {
+		history = result.History
 	}
-	return result.History, nil
+	if err != nil {
+		return history, err
+	}
+	return history, nil
 }
 
 func isChatExit(line string) bool {

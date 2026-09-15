@@ -125,13 +125,16 @@ func (a *Agent) loop(ctx context.Context, state *runState, prov llm.Provider) (*
 	for state.iterations < a.MaxIterations {
 		select {
 		case <-ctx.Done():
-			return nil, a.fail(ctx, ctx.Err())
+			return a.partialResult(state), a.fail(ctx, ctx.Err())
 		default:
 		}
 		state.iterations++
 		msg, calls, err := a.iterate(ctx, state, prov)
 		if err != nil {
-			return nil, a.fail(ctx, err)
+			if msg.Role == llm.RoleAssistant && !emptyAssistantMessage(msg) {
+				state.history = append(state.history, msg)
+			}
+			return a.partialResult(state), a.fail(ctx, err)
 		}
 		if !emptyAssistantMessage(msg) {
 			state.history = append(state.history, msg)
@@ -145,7 +148,7 @@ func (a *Agent) loop(ctx context.Context, state *runState, prov llm.Provider) (*
 		if len(calls) > 0 {
 			for _, call := range calls {
 				if err := a.executeTool(ctx, state, call); err != nil {
-					return nil, a.fail(ctx, err)
+					return a.partialResult(state), a.fail(ctx, err)
 				}
 			}
 			continue
@@ -173,7 +176,7 @@ func (a *Agent) loop(ctx context.Context, state *runState, prov llm.Provider) (*
 		a.debugf("agent %q hit max iterations", a.Name)
 		a.publish(TopicAgentError, AgentError{AgentID: a.ID, AgentName: a.Name, Model: a.Model, Err: err})
 		_ = a.chain.OnError(ctx, err)
-		return result, err
+		return a.partialResult(state), err
 	}
 
 	if err := a.chain.AfterRun(ctx, a.Name, result, nil); err != nil {
@@ -231,6 +234,17 @@ func appendReminder(msgs []llm.Message, text string) []llm.Message {
 	}
 	out[last] = m
 	return out
+}
+
+func (a *Agent) partialResult(state *runState) *RunResult {
+	return &RunResult{
+		AgentName:  a.Name,
+		Model:      a.Model,
+		Provider:   state.provider,
+		History:    state.history,
+		Usage:      state.usage,
+		Iterations: state.iterations,
+	}
 }
 
 func (a *Agent) iterate(ctx context.Context, state *runState, prov llm.Provider) (llm.Message, []llm.ToolCall, error) {
@@ -335,7 +349,18 @@ func (a *Agent) iterateStream(ctx context.Context, state *runState, prov llm.Pro
 		return nil
 	}, prov.ChatStream)
 	if err != nil {
-		return llm.Message{}, nil, err
+		if acc.content == "" && len(acc.order) == 0 && acc.reasoning == "" {
+			return llm.Message{}, nil, err
+		}
+		msg := llm.AssistantMessage(acc.content)
+		if acc.reasoning != "" {
+			msg.Reasoning = acc.reasoning
+		}
+		calls := acc.toolCalls()
+		if len(calls) > 0 {
+			msg.ToolCalls = calls
+		}
+		return msg, calls, err
 	}
 
 	state.output = acc.content

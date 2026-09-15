@@ -1154,6 +1154,90 @@ func TestDetachReminderStopsInjection(t *testing.T) {
 	}
 }
 
+type cancelStreamProvider struct {
+	*scriptedProvider
+	cancel context.CancelFunc
+}
+
+func (p *cancelStreamProvider) ChatStream(ctx context.Context, req *llm.Request, handler llm.StreamHandler) error {
+	p.mu.Lock()
+	chunks := p.streams[0]
+	p.streams = p.streams[1:]
+	p.mu.Unlock()
+	for _, c := range chunks {
+		if err := handler(c); err != nil {
+			return err
+		}
+	}
+	p.cancel()
+	return context.Canceled
+}
+
+func TestRunStreamReturnsPartialHistoryOnCancel(t *testing.T) {
+	base, prov := newTestAgent(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	rec := &cancelStreamProvider{scriptedProvider: prov, cancel: cancel}
+	rec.streams = [][]llm.StreamChunk{
+		{{Content: "partial "}, {Content: "tokens"}},
+	}
+	base.Provider = rec
+
+	res, err := base.RunStream(ctx, "hi", func(StreamEvent) error { return nil })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if res == nil {
+		t.Fatal("result = nil, want partial result with history")
+	}
+	if len(res.History) != 2 {
+		t.Fatalf("history = %d messages, want 2 (user + partial assistant)", len(res.History))
+	}
+	if res.History[0].Role != llm.RoleUser || llm.MessageText(res.History[0]) != "hi" {
+		t.Errorf("history[0] = %+v, want user input", res.History[0])
+	}
+	if res.History[1].Role != llm.RoleAssistant || llm.MessageText(res.History[1]) != "partial tokens" {
+		t.Errorf("history[1] = %+v, want partial assistant content", res.History[1])
+	}
+}
+
+type erroringProvider struct {
+	llm.Provider
+	calls int
+	err   error
+}
+
+func (p *erroringProvider) Chat(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+	p.calls++
+	if p.calls >= 2 {
+		return nil, p.err
+	}
+	return p.Provider.Chat(ctx, req)
+}
+
+func TestRunReturnsPartialHistoryOnError(t *testing.T) {
+	base, prov := newTestAgent(t, WithTool(echoTool()))
+	prov.responses = []mockResponse{
+		{calls: []llm.ToolCall{toolCall("c1", "echo", "hi")}},
+	}
+	ep := &erroringProvider{Provider: base.Provider, err: errors.New("boom")}
+	base.Provider = ep
+
+	res, err := base.Run(context.Background(), "hi")
+	if err == nil {
+		t.Fatal("want error from second iteration")
+	}
+	if res == nil {
+		t.Fatal("result = nil, want partial result with history")
+	}
+	if len(res.History) != 3 {
+		t.Fatalf("history = %d messages, want 3 (user + assistant call + tool result)", len(res.History))
+	}
+	last := res.History[2]
+	if last.Role != llm.RoleTool || llm.MessageText(last) != "echo:hi" {
+		t.Errorf("history[2] = %+v, want tool result", last)
+	}
+}
+
 type notifyProvider struct {
 	llm.Provider
 	agent *Agent
