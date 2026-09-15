@@ -50,6 +50,9 @@ var builtinDefaults = map[string]Mode{
 	"websearch":  ModeAllow,
 	"task":       ModeAllow,
 	"taskstatus": ModeAllow,
+
+	"enterplanmode": ModeAsk,
+	"exitplanmode":  ModeAsk,
 }
 
 const defaultMode = ModeSemiAsk

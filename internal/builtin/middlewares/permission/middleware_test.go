@@ -82,6 +82,12 @@ func TestModeResolution(t *testing.T) {
 	if got := m.modeFor("askuserquestion"); got != ModeAllow {
 		t.Errorf("ask = %v, want allow", got)
 	}
+	if got := m.modeFor("enterplanmode"); got != ModeAsk {
+		t.Errorf("enterplanmode = %v, want ask", got)
+	}
+	if got := m.modeFor("exitplanmode"); got != ModeAsk {
+		t.Errorf("exitplanmode = %v, want ask", got)
+	}
 	if got := m.modeFor("unknown-tool"); got != defaultMode {
 		t.Errorf("unknown tool = %v, want %v", got, defaultMode)
 	}
@@ -141,6 +147,45 @@ func TestAskModeUserAllow(t *testing.T) {
 	}
 	if runs != 1 {
 		t.Fatalf("runs = %d, want 1", runs)
+	}
+}
+
+func TestPlanModeToolsAskByDefault(t *testing.T) {
+	fs := newFS(t)
+	a, bus := testAgent(t, readSpec(fs))
+	ctx := agent.WithAgent(context.Background(), a)
+	respondToAsks(bus, a.ID, map[string]string{"decision": "Allow"}, nil, nil)
+
+	m := testMiddleware(t, Deps{})
+	var runs int
+	_, err := m.InvokeTool(ctx, llm.ToolCall{Function: llm.Function{Name: "enterplanmode", Arguments: "{}"}}, func(ctx context.Context, call llm.ToolCall) (string, error) {
+		runs++
+		return "entered", nil
+	})
+	if err != nil {
+		t.Fatalf("approved enterplanmode should run: %v", err)
+	}
+	if runs != 1 {
+		t.Fatalf("runs = %d, want 1", runs)
+	}
+}
+
+func TestPlanModeToolsDeniedWithoutApproval(t *testing.T) {
+	a, _ := testAgent(t)
+	ctx := agent.WithAgent(context.Background(), a)
+
+	m := testMiddleware(t, Deps{})
+	var runs int
+	_, err := m.InvokeTool(ctx, llm.ToolCall{Function: llm.Function{Name: "exitplanmode", Arguments: "{}"}}, func(ctx context.Context, call llm.ToolCall) (string, error) {
+		runs++
+		return "exited", nil
+	})
+	var denied *DeniedError
+	if !errors.As(err, &denied) {
+		t.Fatalf("expected DeniedError, got %v", err)
+	}
+	if runs != 0 {
+		t.Fatalf("unapproved plan tool must not run, runs = %d", runs)
 	}
 }
 
