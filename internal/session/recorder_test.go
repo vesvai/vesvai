@@ -342,6 +342,90 @@ func TestRecorderResumeContinuesSession(t *testing.T) {
 	}
 }
 
+func TestRecorderResumeRepointsExistingAgent(t *testing.T) {
+	mgr, _, bus := newTestRecorder(t)
+
+	publishStarted(bus, "a1", "agent-one", "groq", "llama-3.3")
+	bus.Publish(agent.TopicAgentInput, agent.AgentInput{AgentID: "a1", Input: "first"})
+	bus.Publish(agent.TopicAgentMessage, agent.AgentMessage{
+		AgentID: "a1", AgentName: "agent-one",
+		Message: llm.AssistantMessage("first answer"),
+	})
+
+	sessions, _, _ := mgr.List(query.Query{})
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %+v, want 1", sessions)
+	}
+	origID := sessions[0].ID
+
+	second, err := mgr.Create(CreateOptions{Provider: "groq", Model: "llama-3.3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bus.Publish(TopicSessionResume, SessionResume{AgentID: "a1", SessionID: second.ID})
+	bus.Publish(agent.TopicAgentInput, agent.AgentInput{AgentID: "a1", Input: "switched"})
+	bus.Publish(agent.TopicAgentMessage, agent.AgentMessage{
+		AgentID: "a1", AgentName: "agent-one",
+		Message: llm.AssistantMessage("second answer"),
+	})
+
+	firstMsgs, _ := mgr.Messages(origID)
+	if len(firstMsgs) != 2 {
+		t.Fatalf("first session messages = %+v, want 2 (unchanged)", firstMsgs)
+	}
+	secondMsgs, _ := mgr.Messages(second.ID)
+	if len(secondMsgs) != 2 {
+		t.Fatalf("second session messages = %+v, want 2", secondMsgs)
+	}
+	if secondMsgs[0].Content != "switched" || secondMsgs[1].Content != "second answer" {
+		t.Fatalf("second session messages = %+v", secondMsgs)
+	}
+}
+
+func TestRecorderDetachStartsNewSession(t *testing.T) {
+	mgr, _, bus := newTestRecorder(t)
+
+	publishStarted(bus, "a1", "agent-one", "groq", "llama-3.3")
+	bus.Publish(agent.TopicAgentInput, agent.AgentInput{AgentID: "a1", Input: "first"})
+
+	sessions, _, _ := mgr.List(query.Query{})
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %+v, want 1", sessions)
+	}
+	origID := sessions[0].ID
+
+	bus.Publish(TopicSessionResume, SessionResume{AgentID: "a1"})
+	publishStarted(bus, "a1", "agent-one", "groq", "llama-3.3")
+	bus.Publish(agent.TopicAgentInput, agent.AgentInput{AgentID: "a1", Input: "fresh"})
+	bus.Publish(agent.TopicAgentMessage, agent.AgentMessage{
+		AgentID: "a1", AgentName: "agent-one",
+		Message: llm.AssistantMessage("fresh answer"),
+	})
+
+	sessions, _, _ = mgr.List(query.Query{})
+	if len(sessions) != 2 {
+		t.Fatalf("sessions = %+v, want 2 (new session after detach)", sessions)
+	}
+	var newID string
+	for _, s := range sessions {
+		if s.ID != origID {
+			newID = s.ID
+		}
+	}
+	origMsgs, _ := mgr.Messages(origID)
+	if len(origMsgs) != 1 {
+		t.Fatalf("original session messages = %+v, want 1 (unchanged)", origMsgs)
+	}
+	newMsgs, _ := mgr.Messages(newID)
+	if len(newMsgs) != 2 {
+		t.Fatalf("new session messages = %+v, want 2", newMsgs)
+	}
+	if newMsgs[0].Content != "fresh" || newMsgs[1].Content != "fresh answer" {
+		t.Fatalf("new session messages = %+v", newMsgs)
+	}
+}
+
 func TestRecorderPublishesSessionAttached(t *testing.T) {
 	_, _, bus := newTestRecorder(t)
 

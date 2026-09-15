@@ -107,12 +107,20 @@ func (r *Recorder) getSessionInfo(agentID string) (*sessionInfo, bool) {
 }
 
 func (r *Recorder) handleResume(e SessionResume) {
-	if e.AgentID == "" || e.SessionID == "" {
+	if e.AgentID == "" {
 		return
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if e.SessionID == "" {
+		delete(r.sessions, e.AgentID)
+		delete(r.resumed, e.AgentID)
+		return
+	}
 	r.resumed[e.AgentID] = e.SessionID
-	r.mu.Unlock()
+	if info, ok := r.sessions[e.AgentID]; ok && info.sessionID != e.SessionID {
+		info.sessionID = e.SessionID
+	}
 }
 
 func (r *Recorder) handleStarted(e agent.AgentStarted) {
