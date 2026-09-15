@@ -1,6 +1,10 @@
 package components
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/vesvai/vesvai/internal/tui/styles"
+)
 
 func TestRenderMarkdownHeading(t *testing.T) {
 	lines := RenderMarkdown("# Hello")
@@ -60,6 +64,39 @@ func TestRenderMarkdownHr(t *testing.T) {
 	lines := RenderMarkdown("---")
 	if len(lines) != 1 || !lines[0].Hr {
 		t.Errorf("expected hr, got %+v", lines)
+	}
+}
+
+func TestMdToLinesTrimsLeadingBlankLines(t *testing.T) {
+	styles.RegisterDefaults()
+	styles.Set("dark")
+
+	lines := MdToLines("\n\nNow let me dive deeper.", 80, styles.Current())
+	if len(lines) == 0 {
+		t.Fatal("expected rendered lines")
+	}
+	if blankLine(lines[0]) {
+		t.Fatalf("first line is blank, want content: %+v", lines[0])
+	}
+	var first string
+	for _, c := range lines[0] {
+		first += string(c.R)
+	}
+	if first != "Now let me dive deeper." {
+		t.Fatalf("first line = %q, want content", first)
+	}
+}
+
+func TestMdToLinesKeepsInteriorBlankLines(t *testing.T) {
+	styles.RegisterDefaults()
+	styles.Set("dark")
+
+	lines := MdToLines("first\n\nsecond", 80, styles.Current())
+	if len(lines) != 3 {
+		t.Fatalf("lines = %d, want 3 (first, blank, second)", len(lines))
+	}
+	if !blankLine(lines[1]) {
+		t.Fatalf("middle line = %+v, want blank", lines[1])
 	}
 }
 
