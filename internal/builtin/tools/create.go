@@ -4,6 +4,7 @@ import (
 	"github.com/vesvai/vesvai/internal/builtin/tools/ask"
 	"github.com/vesvai/vesvai/internal/builtin/tools/file"
 	"github.com/vesvai/vesvai/internal/builtin/tools/loadskill"
+	"github.com/vesvai/vesvai/internal/builtin/tools/plan"
 	"github.com/vesvai/vesvai/internal/builtin/tools/shell"
 	"github.com/vesvai/vesvai/internal/builtin/tools/subagent"
 	"github.com/vesvai/vesvai/internal/builtin/tools/todo"
@@ -20,4 +21,5 @@ func Create(fs *vfs.VFS, sess *session.Manager) {
 	subagent.SubAgentTools(sess)
 	ask.AskTool()
 	loadskill.LoadSkillTool(sess)
+	plan.PlanTools(fs)
 }
