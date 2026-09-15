@@ -203,8 +203,44 @@ func emptyAssistantMessage(m llm.Message) bool {
 	return m.Role == llm.RoleAssistant && len(m.ToolCalls) == 0 && llm.MessageText(m) == ""
 }
 
+func appendReminder(msgs []llm.Message, text string) []llm.Message {
+	if len(msgs) == 0 {
+		return append(msgs, llm.SystemMessage(text))
+	}
+	last := -1
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == llm.RoleUser || msgs[i].Role == llm.RoleTool {
+			last = i
+			break
+		}
+	}
+	if last < 0 {
+		return append(msgs, llm.SystemMessage(text))
+	}
+	out := append([]llm.Message(nil), msgs...)
+	m := out[last]
+	switch c := m.Content.(type) {
+	case string:
+		m.Content = c + "\n\n" + text
+	case llm.Content:
+		m.Content = llm.Content{Text: c.Text + "\n\n" + text, Attachments: c.Attachments}
+	case []any:
+		parts := append([]any(nil), c...)
+		parts = append(parts, map[string]any{"type": "text", "text": text})
+		m.Content = parts
+	}
+	out[last] = m
+	return out
+}
+
 func (a *Agent) iterate(ctx context.Context, state *runState, prov llm.Provider) (llm.Message, []llm.ToolCall, error) {
 	req := a.buildRequest(state)
+
+	if r := a.StandingReminder(); r != nil {
+		if formatted := reminder.FormatAll([]reminder.Reminder{*r}); formatted != "" {
+			req.Messages = appendReminder(req.Messages, formatted)
+		}
+	}
 
 	if notifications := a.drainNotifications(); len(notifications) > 0 {
 		if formatted := reminder.FormatAll(notifications); formatted != "" {

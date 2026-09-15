@@ -46,6 +46,7 @@ type Agent struct {
 	log             *logger.Logger
 
 	pendingNotifications []reminder.Reminder
+	attachedReminder     *reminder.Reminder
 	notificationsMu      sync.Mutex
 }
 
@@ -222,6 +223,28 @@ func (a *Agent) QueueNotification(r reminder.Reminder) {
 	a.notificationsMu.Lock()
 	defer a.notificationsMu.Unlock()
 	a.pendingNotifications = append(a.pendingNotifications, r)
+}
+
+func (a *Agent) AttachReminder(r reminder.Reminder) {
+	a.notificationsMu.Lock()
+	defer a.notificationsMu.Unlock()
+	a.attachedReminder = &r
+}
+
+func (a *Agent) DetachReminder() {
+	a.notificationsMu.Lock()
+	defer a.notificationsMu.Unlock()
+	a.attachedReminder = nil
+}
+
+func (a *Agent) StandingReminder() *reminder.Reminder {
+	a.notificationsMu.Lock()
+	defer a.notificationsMu.Unlock()
+	if a.attachedReminder == nil {
+		return nil
+	}
+	r := *a.attachedReminder
+	return &r
 }
 
 func (a *Agent) HasPendingNotifications() bool {

@@ -1078,6 +1078,82 @@ func TestContinueProcessesPendingNotification(t *testing.T) {
 	}
 }
 
+type recordingProvider struct {
+	llm.Provider
+	reqs []*llm.Request
+}
+
+func (p *recordingProvider) Chat(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+	reqCopy := *req
+	reqCopy.Messages = append([]llm.Message(nil), req.Messages...)
+	p.reqs = append(p.reqs, &reqCopy)
+	return p.Provider.Chat(ctx, req)
+}
+
+func TestRunInjectsAttachedReminderEveryIteration(t *testing.T) {
+	base, prov := newTestAgent(t, WithTool(echoTool()))
+	prov.responses = []mockResponse{
+		{calls: []llm.ToolCall{toolCall("c1", "echo", "hi")}},
+		{content: "second"},
+	}
+	rec := &recordingProvider{Provider: base.Provider}
+	base.Provider = rec
+	base.AttachReminder(reminder.New("plan_mode", "PLAN MODE ACTIVE"))
+
+	res, err := base.Run(context.Background(), "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output != "second" {
+		t.Fatalf("output = %q, want second", res.Output)
+	}
+	if len(rec.reqs) != 2 {
+		t.Fatalf("requests = %d, want 2", len(rec.reqs))
+	}
+	wantRoles := []llm.Role{llm.RoleUser, llm.RoleTool}
+	for i, req := range rec.reqs {
+		last := req.Messages[len(req.Messages)-1]
+		if last.Role != wantRoles[i] {
+			t.Errorf("req[%d] last message role = %q, want %q", i, last.Role, wantRoles[i])
+		}
+		if !strings.Contains(fmt.Sprint(last.Content), "PLAN MODE ACTIVE") {
+			t.Errorf("req[%d] last message = %+v, want reminder appended to its content", i, last)
+		}
+		for _, m := range req.Messages {
+			if m.Role == llm.RoleSystem && strings.Contains(fmt.Sprint(m.Content), "PLAN MODE ACTIVE") {
+				t.Errorf("req[%d] reminder must not be a separate system message: %+v", i, m)
+			}
+		}
+	}
+	if strings.Contains(fmt.Sprint(res.History), "PLAN MODE ACTIVE") {
+		t.Fatalf("history must not contain the ephemeral reminder")
+	}
+}
+
+func TestDetachReminderStopsInjection(t *testing.T) {
+	base, prov := newTestAgent(t)
+	base.AttachReminder(reminder.New("plan_mode", "PLAN MODE ACTIVE"))
+
+	prov.responses = []mockResponse{{content: "one"}}
+	if _, err := base.Run(context.Background(), "hi"); err != nil {
+		t.Fatal(err)
+	}
+	base.DetachReminder()
+
+	prov.responses = []mockResponse{{content: "two"}}
+	if _, err := base.Run(context.Background(), "again"); err != nil {
+		t.Fatal(err)
+	}
+
+	prov.mu.Lock()
+	defer prov.mu.Unlock()
+	for _, m := range prov.lastReq.Messages {
+		if strings.Contains(fmt.Sprint(m.Content), "PLAN MODE ACTIVE") {
+			t.Fatalf("reminder still injected after detach: %+v", prov.lastReq.Messages)
+		}
+	}
+}
+
 type notifyProvider struct {
 	llm.Provider
 	agent *Agent
