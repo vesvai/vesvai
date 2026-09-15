@@ -1,7 +1,6 @@
 package permission
 
 import (
-	"path/filepath"
 	"strings"
 
 	json "github.com/goccy/go-json"
@@ -63,8 +62,10 @@ func bashAllowed(args string) bool {
 	}
 
 	binPath := tokens[0]
-	baseCmd := filepath.Base(binPath)
-	baseCmd = strings.ToLower(baseCmd)
+	if strings.ContainsAny(binPath, "/\\") {
+		return false
+	}
+	baseCmd := strings.ToLower(binPath)
 
 	baseCmd = strings.TrimSuffix(baseCmd, ".exe")
 	baseCmd = strings.TrimSuffix(baseCmd, ".bat")
