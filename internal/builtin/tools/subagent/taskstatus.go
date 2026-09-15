@@ -6,6 +6,7 @@ import (
 
 	json "github.com/goccy/go-json"
 
+	"github.com/vesvai/vesvai/internal/agent"
 	"github.com/vesvai/vesvai/internal/agent/prompt"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 )
@@ -47,10 +48,11 @@ func subAgentsStatusTool() tool.Tool {
 				return "", fmt.Errorf("taskstatus: invalid arguments: %w", err)
 			}
 
+			parent := agent.FromContext(ctx)
 			if len(params.AgentNames) == 0 {
-				return "Subagents:\n" + formatStatuses(store.all()), nil
+				return "Subagents:\n" + formatStatuses(store.all(parent)), nil
 			}
-			agents, err := store.filter(params.AgentNames)
+			agents, err := store.filter(params.AgentNames, parent)
 			if err != nil {
 				return "", fmt.Errorf("taskstatus: %w", err)
 			}

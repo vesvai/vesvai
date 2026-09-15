@@ -17,6 +17,7 @@ import (
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/agent/tools"
 	builtinmw "github.com/vesvai/vesvai/internal/builtin/middlewares"
+	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/core/event"
 	"github.com/vesvai/vesvai/internal/core/logger"
 	"github.com/vesvai/vesvai/internal/llm"
@@ -205,7 +206,7 @@ func TestSubAgentTool_Foreground(t *testing.T) {
 	if !strings.Contains(out, "sub answer") {
 		t.Errorf("output = %q, want sub answer", out)
 	}
-	sa, ok := store.get("fg-1")
+	sa, ok := store.get("fg-1", nil)
 	if !ok {
 		t.Fatal("subagent not recorded")
 	}
@@ -225,7 +226,7 @@ func TestSubAgentTool_DuplicateName(t *testing.T) {
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		sa, _ := store.get("dup-1")
+		sa, _ := store.get("dup-1", nil)
 		if sa.Status == StatusCompleted || sa.Status == StatusFailed {
 			break
 		}
@@ -253,7 +254,7 @@ func TestSubAgentTool_MultipleForeground(t *testing.T) {
 		if !strings.Contains(out, "sub answer") {
 			t.Errorf("output = %q, want sub answer", out)
 		}
-		sa, ok := store.get(name)
+		sa, ok := store.get(name, nil)
 		if !ok {
 			t.Fatalf("%s not recorded", name)
 		}
@@ -283,7 +284,7 @@ func TestSubAgentTool_BackgroundWithNotification(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		sa, _ := store.get("bg-notify-1")
+		sa, _ := store.get("bg-notify-1", nil)
 		if sa.Status == StatusCompleted {
 			break
 		}
@@ -293,7 +294,7 @@ func TestSubAgentTool_BackgroundWithNotification(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	sa, ok := store.get("bg-notify-1")
+	sa, ok := store.get("bg-notify-1", nil)
 	if !ok {
 		t.Fatal("subagent not recorded")
 	}
@@ -320,7 +321,7 @@ func TestSubAgentTool_PublishesNotificationEvent(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		sa, _ := store.get("bg-notify-event")
+		sa, _ := store.get("bg-notify-event", nil)
 		if sa.Status == StatusCompleted {
 			break
 		}
@@ -356,7 +357,7 @@ func TestSubAgentTool_BackgroundAndWait(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		sa, _ := store.get("bg-1")
+		sa, _ := store.get("bg-1", nil)
 		if sa.Status == StatusCompleted {
 			break
 		}
@@ -366,7 +367,7 @@ func TestSubAgentTool_BackgroundAndWait(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	sa, ok := store.get("bg-1")
+	sa, ok := store.get("bg-1", nil)
 	if !ok {
 		t.Fatal("subagent not recorded")
 	}
@@ -375,6 +376,80 @@ func TestSubAgentTool_BackgroundAndWait(t *testing.T) {
 	}
 	if !strings.Contains(sa.Output, "sub answer") {
 		t.Errorf("output = %q, want sub answer", sa.Output)
+	}
+}
+
+func TestSubagentsSessionIsolation(t *testing.T) {
+	r := newRegistry()
+	pa := agent.New("parent-a")
+	pb := agent.New("parent-b")
+
+	r.onSessionAttached(pa.ID, "sess-a")
+	r.onSessionAttached(pb.ID, "sess-b")
+
+	sa, err := r.spawn("iso-1", "sub-agent", nil, false, pa)
+	if err != nil {
+		t.Fatalf("spawn a: %v", err)
+	}
+	if _, err := r.spawn("iso-2", "sub-agent", nil, false, pb); err != nil {
+		t.Fatalf("spawn b: %v", err)
+	}
+
+	if _, ok := r.get("iso-1", pa); !ok {
+		t.Fatal("subagent must be visible in its own session")
+	}
+	if _, ok := r.get("iso-2", pb); !ok {
+		t.Fatal("subagent must be visible in its own session")
+	}
+	if _, ok := r.get("iso-1", pb); ok {
+		t.Fatal("subagent must NOT be visible in another session")
+	}
+	if _, ok := r.get("iso-2", pa); ok {
+		t.Fatal("subagent must NOT be visible in another session")
+	}
+
+	sa.Status = StatusCompleted
+	sa.finished = true
+	r.saveFor(sa)
+
+	loaded := newRegistry()
+	loaded.onSessionAttached(pa.ID, "sess-a")
+	loaded.onSessionAttached(pb.ID, "sess-b")
+	got, ok := loaded.get("iso-1", pa)
+	if !ok {
+		t.Fatal("persisted subagent not loaded in its session")
+	}
+	if got.Name != "iso-1" {
+		t.Fatalf("loaded = %q", got.Name)
+	}
+	if _, ok := loaded.get("iso-1", pb); ok {
+		t.Fatal("persisted subagent leaked into another session")
+	}
+}
+
+func TestSubagentSessionFollowsResume(t *testing.T) {
+	r := newRegistry()
+	bus := event.New()
+	r.subscribe(bus)
+	parent := agent.New("resume-parent", agent.WithBus(bus))
+
+	bus.Publish(session.TopicSessionResume, session.SessionResume{AgentID: parent.ID, SessionID: "sess-r1"})
+	if _, err := r.spawn("resume-1", "sub-agent", nil, false, parent); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if _, ok := r.get("resume-1", parent); !ok {
+		t.Fatal("subagent not found in its session")
+	}
+
+	bus.Publish(session.TopicSessionResume, session.SessionResume{AgentID: parent.ID, SessionID: "sess-r2"})
+	if _, err := r.spawn("resume-2", "sub-agent", nil, false, parent); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if _, ok := r.get("resume-1", parent); ok {
+		t.Fatal("subagent from previous session leaked into the new session")
+	}
+	if _, ok := r.get("resume-2", parent); !ok {
+		t.Fatal("subagent not found in switched session")
 	}
 }
 
@@ -452,7 +527,7 @@ func TestSubAgentTool_ConcurrentParents(t *testing.T) {
 		allDone := true
 		for i := 0; i < parents; i++ {
 			name := fmt.Sprintf("conc-%d", i)
-			sa, _ := store.get(name)
+			sa, _ := store.get(name, nil)
 			if sa.Status != StatusCompleted {
 				allDone = false
 				break
@@ -487,15 +562,19 @@ func TestRegistry_PersistAndLoad(t *testing.T) {
 	r.start(sa)
 	r.finish(sa, "persisted output", nil)
 
-	if _, err := os.Stat(r.file); err != nil {
-		t.Fatalf("subagents.json not written: %v", err)
+	file, err := config.GetProjectConfigPath("subagents", "default.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("subagents default.json not written: %v", err)
 	}
 
 	loaded := newRegistry()
 	if err := loaded.init(); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	got, ok := loaded.get("persist-1")
+	got, ok := loaded.get("persist-1", nil)
 	if !ok {
 		t.Fatal("persisted subagent not loaded")
 	}
@@ -523,7 +602,7 @@ func TestRegistry_LoadInterruptsRunning(t *testing.T) {
 	if err := loaded.init(); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	got, ok := loaded.get("interrupt-1")
+	got, ok := loaded.get("interrupt-1", nil)
 	if !ok {
 		t.Fatal("running subagent not loaded")
 	}
@@ -576,7 +655,7 @@ func TestSubAgentTool_EventDrivenForeground(t *testing.T) {
 	if !strings.Contains(out, "sub answer") {
 		t.Errorf("output = %q, want sub answer", out)
 	}
-	sa, ok := store.get("evt-fg")
+	sa, ok := store.get("evt-fg", nil)
 	if !ok {
 		t.Fatal("subagent not recorded")
 	}
@@ -603,7 +682,7 @@ func TestSubAgentTool_EventDrivenBackground(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		sa, _ := store.get("evt-bg")
+		sa, _ := store.get("evt-bg", nil)
 		if sa.Status == StatusCompleted {
 			break
 		}
@@ -613,7 +692,7 @@ func TestSubAgentTool_EventDrivenBackground(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	sa, ok := store.get("evt-bg")
+	sa, ok := store.get("evt-bg", nil)
 	if !ok {
 		t.Fatal("subagent not recorded")
 	}

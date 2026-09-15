@@ -3,6 +3,7 @@ package subagent
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -27,6 +28,8 @@ const (
 	StatusInterrupted Status = "interrupted"
 )
 
+const defaultSessionID = "default"
+
 type SubAgent struct {
 	Name          string    `json:"name"`
 	AgentType     string    `json:"agent"`
@@ -40,55 +43,86 @@ type SubAgent struct {
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
 
-	agentID  string
-	done     chan struct{}
-	finished bool
+	sessionID string
+	agentID   string
+	done      chan struct{}
+	finished  bool
+}
+
+type sessionStore struct {
+	file   string
+	agents map[string]*SubAgent
+	loaded bool
 }
 
 type registry struct {
-	mu       sync.Mutex
-	agents   map[string]*SubAgent
-	parents  map[string]*agent.Agent
-	initDone bool
-	file     string
-	subBus   event.Bus
+	mu            sync.Mutex
+	agentSessions map[string]string
+	parents       map[string]*agent.Agent
+	sessions      map[string]*sessionStore
+	subBus        event.Bus
 }
 
 var store = newRegistry()
 
 func newRegistry() *registry {
 	return &registry{
-		agents:  make(map[string]*SubAgent),
-		parents: make(map[string]*agent.Agent),
+		agentSessions: make(map[string]string),
+		parents:       make(map[string]*agent.Agent),
+		sessions:      make(map[string]*sessionStore),
 	}
 }
 
 func (r *registry) init() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.initDone {
-		return nil
-	}
 	if err := config.EnsureProjectConfigDir(); err != nil {
 		return fmt.Errorf("subagent: ensure config dir: %w", err)
 	}
-	file, err := config.GetProjectConfigPath("subagents.json")
-	if err != nil {
-		return fmt.Errorf("subagent: config path: %w", err)
+	return nil
+}
+
+func (r *registry) storeFor(sessionID string) (*sessionStore, error) {
+	if err := r.init(); err != nil {
+		return nil, err
 	}
-	r.file = file
+	r.mu.Lock()
+	ss, ok := r.sessions[sessionID]
+	if !ok {
+		ss = &sessionStore{agents: make(map[string]*SubAgent)}
+		r.sessions[sessionID] = ss
+	}
+	r.mu.Unlock()
+	if ss.loaded {
+		return ss, nil
+	}
+
+	file, err := config.GetProjectConfigPath("subagents", sessionID+".json")
+	if err != nil {
+		return nil, fmt.Errorf("subagent: config path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		return nil, fmt.Errorf("subagent: ensure subagents dir: %w", err)
+	}
+	ss.file = file
 
 	data, err := os.ReadFile(file)
 	if err != nil {
-		if os.IsNotExist(err) {
-			r.initDone = true
-			return nil
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("subagent: read file: %w", err)
 		}
-		return fmt.Errorf("subagent: read file: %w", err)
 	}
+	if len(data) == 0 && sessionID == defaultSessionID {
+		if legacy, lerr := config.GetProjectConfigPath("subagents.json"); lerr == nil {
+			if ldata, rerr := os.ReadFile(legacy); rerr == nil {
+				data = ldata
+			}
+		}
+	}
+
 	var list []*SubAgent
-	if err := json.Unmarshal(data, &list); err != nil {
-		return fmt.Errorf("subagent: parse: %w", err)
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &list); err != nil {
+			return nil, fmt.Errorf("subagent: parse: %w", err)
+		}
 	}
 	changed := false
 	for _, sa := range list {
@@ -103,27 +137,21 @@ func (r *registry) init() error {
 			sa.finished = true
 			close(sa.done)
 		}
-		r.agents[sa.Name] = sa
-	}
-	r.initDone = true
-	if changed {
-		return r.saveLocked()
-	}
-	return nil
-}
-
-func (r *registry) save() error {
-	if err := r.init(); err != nil {
-		return err
+		sa.sessionID = sessionID
+		ss.agents[sa.Name] = sa
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.saveLocked()
+	ss.loaded = true
+	r.mu.Unlock()
+	if changed {
+		_ = r.saveStore(ss)
+	}
+	return ss, nil
 }
 
-func (r *registry) saveLocked() error {
-	list := make([]*SubAgent, 0, len(r.agents))
-	for _, sa := range r.agents {
+func (r *registry) saveStore(ss *sessionStore) error {
+	list := make([]*SubAgent, 0, len(ss.agents))
+	for _, sa := range ss.agents {
 		list = append(list, sa)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt.Before(list[j].CreatedAt) })
@@ -131,10 +159,31 @@ func (r *registry) saveLocked() error {
 	if err != nil {
 		return fmt.Errorf("subagent: marshal: %w", err)
 	}
-	if err := os.WriteFile(r.file, data, 0o644); err != nil {
+	if err := os.WriteFile(ss.file, data, 0o644); err != nil {
 		return fmt.Errorf("subagent: write: %w", err)
 	}
 	return nil
+}
+
+func (r *registry) saveFor(sa *SubAgent) {
+	if sa == nil || sa.sessionID == "" {
+		return
+	}
+	if ss, err := r.storeFor(sa.sessionID); err == nil {
+		_ = r.saveStore(ss)
+	}
+}
+
+func (r *registry) sessionFor(parent *agent.Agent) string {
+	if parent == nil {
+		return defaultSessionID
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if id := r.agentSessions[parent.ID]; id != "" {
+		return id
+	}
+	return defaultSessionID
 }
 
 func (r *registry) subscribe(bus event.Bus) {
@@ -161,6 +210,9 @@ func (r *registry) subscribe(bus event.Bus) {
 	bus.Subscribe(session.TopicSessionAttached, func(attached session.SessionAttached) {
 		r.onSessionAttached(attached.AgentID, attached.SessionID)
 	})
+	bus.Subscribe(session.TopicSessionResume, func(resume session.SessionResume) {
+		r.onSessionResume(resume.AgentID, resume.SessionID)
+	})
 }
 
 func (r *registry) onSessionAttached(agentID, sessionID string) {
@@ -168,13 +220,20 @@ func (r *registry) onSessionAttached(agentID, sessionID string) {
 		return
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, sa := range r.agents {
-		if sa.agentID == agentID {
-			sa.SessionID = sessionID
-			return
-		}
+	r.agentSessions[agentID] = sessionID
+	r.mu.Unlock()
+	if sa := r.byAgentID(agentID); sa != nil {
+		sa.SessionID = sessionID
 	}
+}
+
+func (r *registry) onSessionResume(agentID, sessionID string) {
+	if agentID == "" || sessionID == "" {
+		return
+	}
+	r.mu.Lock()
+	r.agentSessions[agentID] = sessionID
+	r.mu.Unlock()
 }
 
 func (r *registry) byAgentID(agentID string) *SubAgent {
@@ -183,9 +242,11 @@ func (r *registry) byAgentID(agentID string) *SubAgent {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, sa := range r.agents {
-		if sa.agentID == agentID {
-			return sa
+	for _, ss := range r.sessions {
+		for _, sa := range ss.agents {
+			if sa.agentID == agentID {
+				return sa
+			}
 		}
 	}
 	return nil
@@ -199,10 +260,40 @@ func IsSubagentSession(sessionID string) bool {
 		return false
 	}
 	store.mu.Lock()
-	defer store.mu.Unlock()
-	for _, sa := range store.agents {
-		if sa.SessionID == sessionID {
-			return true
+	for _, ss := range store.sessions {
+		for _, sa := range ss.agents {
+			if sa.SessionID == sessionID {
+				store.mu.Unlock()
+				return true
+			}
+		}
+	}
+	store.mu.Unlock()
+
+	dir, err := config.GetProjectConfigPath("subagents")
+	if err != nil {
+		return false
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var list []*SubAgent
+		if err := json.Unmarshal(data, &list); err != nil {
+			continue
+		}
+		for _, sa := range list {
+			if sa.SessionID == sessionID {
+				return true
+			}
 		}
 	}
 	return false
@@ -227,19 +318,18 @@ func (r *registry) onError(agentID string, err error) {
 }
 
 func (r *registry) spawn(name, agentType string, taskIDs []string, background bool, parentAgent *agent.Agent) (*SubAgent, error) {
-	if err := r.init(); err != nil {
+	sessionID := r.sessionFor(parentAgent)
+	ss, err := r.storeFor(sessionID)
+	if err != nil {
 		return nil, err
-	}
-	r.mu.Lock()
-	if _, ok := r.agents[name]; ok {
-		r.mu.Unlock()
-		return nil, fmt.Errorf("subagent: duplicate name %q (names must be unique)", name)
 	}
 	now := time.Now()
 	var parentID string
 	if parentAgent != nil {
 		parentID = parentAgent.ID
+		r.mu.Lock()
 		r.parents[parentID] = parentAgent
+		r.mu.Unlock()
 	}
 	sa := &SubAgent{
 		Name:          name,
@@ -251,22 +341,29 @@ func (r *registry) spawn(name, agentType string, taskIDs []string, background bo
 		CreatedAt:     now,
 		UpdatedAt:     now,
 		done:          make(chan struct{}),
+		sessionID:     sessionID,
 	}
-	r.agents[name] = sa
+	r.mu.Lock()
+	if _, ok := ss.agents[name]; ok {
+		r.mu.Unlock()
+		return nil, fmt.Errorf("subagent: duplicate name %q (names must be unique)", name)
+	}
+	ss.agents[name] = sa
 	r.mu.Unlock()
-	if err := r.save(); err != nil {
+	if err := r.saveStore(ss); err != nil {
 		return nil, err
 	}
 	return sa, nil
 }
 
-func (r *registry) resume(name string) (*SubAgent, error) {
-	if err := r.init(); err != nil {
+func (r *registry) resume(name string, parent *agent.Agent) (*SubAgent, error) {
+	ss, err := r.storeFor(r.sessionFor(parent))
+	if err != nil {
 		return nil, err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	sa, ok := r.agents[name]
+	sa, ok := ss.agents[name]
 	if !ok {
 		return nil, fmt.Errorf("subagent: no subagent named %q", name)
 	}
@@ -277,7 +374,7 @@ func (r *registry) resume(name string) (*SubAgent, error) {
 	sa.Status = StatusPending
 	sa.done = make(chan struct{})
 	sa.UpdatedAt = time.Now()
-	if err := r.saveLocked(); err != nil {
+	if err := r.saveStore(ss); err != nil {
 		return nil, err
 	}
 	return sa, nil
@@ -286,8 +383,11 @@ func (r *registry) resume(name string) (*SubAgent, error) {
 func (r *registry) setAgentID(name, agentID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if sa, ok := r.agents[name]; ok {
-		sa.agentID = agentID
+	for _, ss := range r.sessions {
+		if sa, ok := ss.agents[name]; ok {
+			sa.agentID = agentID
+			return
+		}
 	}
 }
 
@@ -296,7 +396,7 @@ func (r *registry) start(sa *SubAgent) {
 	sa.Status = StatusRunning
 	sa.UpdatedAt = time.Now()
 	r.mu.Unlock()
-	_ = r.save()
+	r.saveFor(sa)
 }
 
 func (r *registry) finish(sa *SubAgent, output string, err error) {
@@ -309,7 +409,7 @@ func (r *registry) finish(sa *SubAgent, output string, err error) {
 			sa.Err = err.Error()
 		}
 		r.mu.Unlock()
-		_ = r.save()
+		r.saveFor(sa)
 		return
 	}
 	sa.finished = true
@@ -348,40 +448,42 @@ func (r *registry) finish(sa *SubAgent, output string, err error) {
 	}
 
 	r.mu.Unlock()
-	_ = r.save()
+	r.saveFor(sa)
 }
 
-func (r *registry) get(name string) (SubAgent, bool) {
-	if err := r.init(); err != nil {
+func (r *registry) get(name string, parent *agent.Agent) (SubAgent, bool) {
+	ss, err := r.storeFor(r.sessionFor(parent))
+	if err != nil {
 		return SubAgent{}, false
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	sa, ok := r.agents[name]
+	sa, ok := ss.agents[name]
 	if !ok {
 		return SubAgent{}, false
 	}
 	return copyOf(sa), true
 }
 
-func (r *registry) all() []SubAgent {
-	if err := r.init(); err != nil {
+func (r *registry) all(parent *agent.Agent) []SubAgent {
+	ss, err := r.storeFor(r.sessionFor(parent))
+	if err != nil {
 		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]SubAgent, 0, len(r.agents))
-	for _, sa := range r.agents {
+	out := make([]SubAgent, 0, len(ss.agents))
+	for _, sa := range ss.agents {
 		out = append(out, copyOf(sa))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out
 }
 
-func (r *registry) filter(names []string) ([]SubAgent, error) {
+func (r *registry) filter(names []string, parent *agent.Agent) ([]SubAgent, error) {
 	out := make([]SubAgent, 0, len(names))
 	for _, n := range names {
-		sa, ok := r.get(n)
+		sa, ok := r.get(n, parent)
 		if !ok {
 			return nil, fmt.Errorf("subagent: no subagent named %q", n)
 		}

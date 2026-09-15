@@ -118,11 +118,11 @@ func subAgentTool() tool.Tool {
 				return "", fmt.Errorf("subagent: unknown agent %q (available: %s)", params.SubagentType, strings.Join(agentsList, ", "))
 			}
 
-			if existing, ok := store.get(params.Name); ok {
+			if existing, ok := store.get(params.Name, parent); ok {
 				if existing.Status == StatusRunning || existing.Status == StatusPending {
 					return "", fmt.Errorf("subagent: %q is still running", params.Name)
 				}
-				sa, err := store.resume(params.Name)
+				sa, err := store.resume(params.Name, parent)
 				if err != nil {
 					return "", err
 				}
@@ -181,7 +181,7 @@ func subAgentTool() tool.Tool {
 					return "", fmt.Errorf("subagent: %w", ctx.Err())
 				}
 
-				done, _ := store.get(sa.Name)
+				done, _ := store.get(sa.Name, parent)
 				if done.Status == StatusFailed {
 					return fmt.Sprintf("Subagent %q failed: %s\n", done.Name, done.Err), nil
 				}
@@ -232,7 +232,7 @@ func subAgentTool() tool.Tool {
 				return "", fmt.Errorf("subagent: %w", ctx.Err())
 			}
 
-			done, _ := store.get(sa.Name)
+			done, _ := store.get(sa.Name, parent)
 			if done.Status == StatusFailed {
 				return fmt.Sprintf("Subagent %q failed: %s\n", done.Name, done.Err), nil
 			}
