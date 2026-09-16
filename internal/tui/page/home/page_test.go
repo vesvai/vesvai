@@ -93,7 +93,7 @@ func TestHomeSkillPickerFlow(t *testing.T) {
 	p := New()
 	p.SetSkills([]components.ListItem{
 		{Label: "go-development", Detail: "write Go"},
-		{Label: "web-search", Detail: "search"},
+		{Label: "websearch", Detail: "search"},
 	})
 	p.HandleKey(tcell.NewEventKey(tcell.KeyRune, '/', 0))
 	if active, query := p.Input().SlashQuery(); !active || query != "" {
@@ -138,7 +138,7 @@ func TestHomeSkillPickerDraw(t *testing.T) {
 	p := New()
 	p.SetSkills([]components.ListItem{
 		{Label: "go-development", Detail: "write Go"},
-		{Label: "web-search", Detail: "search"},
+		{Label: "websearch", Detail: "search"},
 	})
 	p.HandleKey(tcell.NewEventKey(tcell.KeyRune, '/', 0))
 	p.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'g', 0))
@@ -265,7 +265,7 @@ func TestHomeSkillPickerRendersSkills(t *testing.T) {
 	p := New()
 	p.SetSkills([]components.ListItem{
 		{Label: "go-development", Detail: "write go"},
-		{Label: "web-search", Detail: ""},
+		{Label: "websearch", Detail: ""},
 	})
 	p.HandleKey(tcell.NewEventKey(tcell.KeyRune, '/', 0))
 	p.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'g', 0))

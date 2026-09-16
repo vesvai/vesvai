@@ -130,10 +130,11 @@ func (m *Manager) registerHooks() {
 		if len(diags) == 0 {
 			return content
 		}
-		content += "---\nDiagnostics:\n"
+		content += "\n<file_diagnostics>\n"
 		for _, d := range diags {
-			content += fmt.Sprintf("  %s:%d:%d: %s [severity=%d]\n", path, d.Line(), d.Column(), d.Message, d.Severity)
+			content += fmt.Sprintf("%s:%d:%d: %s [severity=%d]\n", path, d.Line(), d.Column(), d.Message, d.Severity)
 		}
+		content += "</file_diagnostics>\n"
 		return content
 	})
 	m.fs.OnAfterWrite(func(path, content string) string {
@@ -142,10 +143,11 @@ func (m *Manager) registerHooks() {
 		if len(diags) == 0 {
 			return content
 		}
-		content += "\nDiagnostics:\n"
+		content += "\n<file_diagnostics>\n"
 		for _, d := range diags {
-			content += fmt.Sprintf("  %s:%d:%d: %s [severity=%d]\n", path, d.Line(), d.Column(), d.Message, d.Severity)
+			content += fmt.Sprintf("%s:%d:%d: %s [severity=%d]\n", path, d.Line(), d.Column(), d.Message, d.Severity)
 		}
+		content += "</file_diagnostics>\n"
 		return content
 	})
 	m.fs.OnFileDelete(func(ev vfs.FileDelete) vfs.FileDelete {
@@ -287,7 +289,18 @@ func (m *Manager) notifyDiagnostics(path string) []diagnostic.Diagnostic {
 		}
 	}
 	if !notified {
-		return m.Diagnostics(path)
+		deadline := time.After(5 * time.Second)
+		for {
+			diags := m.Diagnostics(path)
+			if len(diags) > 0 {
+				return diags
+			}
+			select {
+			case <-deadline:
+				return m.Diagnostics(path)
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
 	}
 	return m.waitDiagnostics(path, before)
 }

@@ -1,20 +1,26 @@
 package skill
 
 import (
-	"fmt"
+	"encoding/json"
 	"regexp"
 	"strings"
+
+	"github.com/google/uuid"
+
+	"github.com/vesvai/vesvai/internal/agent"
+	"github.com/vesvai/vesvai/internal/llm"
 )
 
 var (
 	skillRefRe = regexp.MustCompile(`(^|[^A-Za-z0-9_/:.-])(/[a-z0-9]+(?:-[a-z0-9]+)*)`)
+	argRefRe   = regexp.MustCompile(`\$([a-zA-Z][a-zA-Z0-9_]*)`)
 )
 
-func ExpandMessage(msg string) string {
-	if !strings.Contains(msg, "/") {
-		return msg
+func ExpandMessage(in agent.MessageInput) agent.MessageInput {
+	if !strings.Contains(in.Text, "/") {
+		return in
 	}
-	return skillRefRe.ReplaceAllStringFunc(msg, func(m string) string {
+	in.Text = skillRefRe.ReplaceAllStringFunc(in.Text, func(m string) string {
 		parts := skillRefRe.FindStringSubmatch(m)
 		if len(parts) != 3 {
 			return m
@@ -24,25 +30,39 @@ func ExpandMessage(msg string) string {
 		if !ok {
 			return m
 		}
-		return prefix + skillBlock(s)
+		args, err := json.Marshal(map[string]string{"name": s.Name})
+		if err != nil {
+			return m
+		}
+		in.Calls = append(in.Calls, llm.ToolCall{
+			ID:   uuid.NewString(),
+			Type: "function",
+			Function: llm.Function{
+				Name:      "loadskill",
+				Arguments: string(args),
+			},
+		})
+		return prefix
 	})
+	return in
 }
 
-func skillBlock(s *Skill) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "\n<skill:%s>\n", s.Name)
-	if s.Description != "" {
-		fmt.Fprintf(&b, "Description: %s\n", s.Description)
+func ExpandWithArgs(s *Skill, args map[string]string) string {
+	if s == nil {
+		return ""
 	}
-	fmt.Fprintf(&b, "Path: %s\n", s.Path)
-	if s.HasScripts {
-		fmt.Fprintf(&b, "Scripts: %s\n", s.ScriptsPath)
+	content := s.Instructions
+	if len(args) > 0 {
+		content = argRefRe.ReplaceAllStringFunc(content, func(m string) string {
+			parts := argRefRe.FindStringSubmatch(m)
+			if len(parts) != 2 {
+				return m
+			}
+			if val, ok := args[parts[1]]; ok {
+				return val
+			}
+			return m
+		})
 	}
-	if len(s.AllowedTools) > 0 {
-		fmt.Fprintf(&b, "Allowed tools: %s\n", strings.Join(s.AllowedTools, ", "))
-	}
-	b.WriteString("\n")
-	b.WriteString(strings.TrimSpace(s.Instructions))
-	fmt.Fprintf(&b, "\n</skill:%s>\n", s.Name)
-	return b.String()
+	return content
 }

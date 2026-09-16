@@ -282,8 +282,7 @@ func (s *Server) newOrchestratorAgent() (*agent.Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve model: %w", err)
 	}
-	orch.Provider = prov
-	orch.Model = mdl
+	orch.SetModelProvider(mdl, prov)
 	return orch, nil
 }
 

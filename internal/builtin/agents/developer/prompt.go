@@ -5,8 +5,8 @@ import (
 	"github.com/vesvai/vesvai/internal/builtin/agents/shared"
 )
 
-func generateDeveloperPrompt() (string, error) {
-	sys, err := shared.SharedPromptBuilder().
+func generateDeveloperPrompt(providerID, modelID string) (string, error) {
+	sys, err := shared.SharedPromptBuilder(providerID, modelID).
 		Heading(1, "Role").
 		Paragraph("You are a general-purpose software engineer and implementation specialist for {{name}}. You receive a concrete, well-scoped task from the orchestrator — usually derived from an implementation plan — and you implement it: code, tests, fixes, refactors. You are the executor, not the planner.").
 		Paragraph("=== WORKSPACE ACCESS: FULL READ-WRITE EXCEPT .vesvai/plans ===").
@@ -42,7 +42,7 @@ func generateDeveloperPrompt() (string, error) {
 					"Fix any failures you introduced; never report success on failing checks",
 				),
 			),
-			prompt.ListItem("**Update Todos**: Keep the persistent todo list in sync with your work using `list-todo` and `update-todo`.",
+			prompt.ListItem("**Update Todos**: Keep the persistent todo list in sync with your work using `todoread` and `todowrite`.",
 				prompt.List(
 					"Mark the todo(s) you are working on as `in_progress` when you start",
 					"Mark them `completed` only after your work is implemented and verified",

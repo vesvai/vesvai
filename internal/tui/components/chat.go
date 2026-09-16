@@ -31,11 +31,12 @@ type ChatItem struct {
 	Text      string
 	Reasoning string
 
-	ToolName   string
-	ToolArgs   string
-	ToolOutput string
-	ToolErr    string
-	Diff       []DiffHunk
+	ToolName     string
+	ToolArgs     string
+	ToolOutput   string
+	ToolErr      string
+	Diff         []DiffHunk
+	WriteContent string
 
 	AgentID          string
 	SubagentName     string
@@ -662,9 +663,9 @@ func (c *Chat) toolLines(it *ChatItem, width int) []Line {
 
 	isEdit := strings.HasPrefix(it.ToolName, "edit:") || it.ToolName == "edit"
 	isWrite := strings.HasPrefix(it.ToolName, "write:") || it.ToolName == "write"
-	isList := strings.Contains(it.ToolName, "list-todo") || strings.Contains(it.ToolName, "update-todo")
+	isList := strings.Contains(it.ToolName, "todoread") || strings.Contains(it.ToolName, "todowrite")
 	isBash := strings.HasPrefix(it.ToolName, "bash:") || it.ToolName == "bash"
-	isAsk := it.ToolName == "ask"
+	isAsk := it.ToolName == "askuserquestion"
 	isRunning := it.ToolErr == "" && it.ToolOutput == ""
 
 	if isRunning {
@@ -802,8 +803,6 @@ func (c *Chat) todoCardLines(it *ChatItem, width int) []Line {
 		deps   string
 	}
 	var todos []todoItem
-	var current *todoItem
-	_ = current
 
 	textLines := strings.Split(it.ToolOutput, "\n")
 	for _, l := range textLines {
@@ -828,18 +827,6 @@ func (c *Chat) todoCardLines(it *ChatItem, width int) []Line {
 			lines = append(lines, sep)
 			lines = append(lines, cardFooter(border, dim, th.Base(), width, fmt.Sprintf("0 / 0 completed")))
 			return lines
-		}
-		if strings.HasPrefix(trimmed, "Deleted") || strings.HasPrefix(trimmed, "Created") || strings.HasPrefix(trimmed, "Updated") {
-			row := Line{{R: '│', S: border}, {R: ' ', S: th.Base()}}
-			for _, r := range trimmed {
-				row = append(row, Cell{R: r, S: dim})
-			}
-			for row.Width() < width-1 {
-				row = append(row, Cell{R: ' ', S: th.Base()})
-			}
-			row = append(row, Cell{R: '│', S: border})
-			lines = append(lines, row)
-			continue
 		}
 
 		status := ""
@@ -1365,7 +1352,7 @@ func (c *Chat) writeCardLines(it *ChatItem, width int) []Line {
 	sep = append(sep, Cell{R: '┤', S: border})
 	lines = append(lines, sep)
 
-	content := it.ToolOutput
+	content := it.WriteContent
 	if content == "" {
 		content = "(empty)"
 	}

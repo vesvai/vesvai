@@ -25,7 +25,7 @@ func NewManager(store Store, bus event.Bus, log *logger.Logger) *Manager {
 
 func (m *Manager) Create(opts CreateOptions) (*Session, error) {
 	if opts.Title == "" {
-		opts.Title = "New Session " + time.Now().Format("2006-01-02 15:04:05")
+		opts.Title = defaultSessionTitle()
 	}
 	now := time.Now()
 	s := &Session{
@@ -158,6 +158,7 @@ func (m *Manager) Fork(sourceID, atMessageID string) (*Session, error) {
 	now := time.Now()
 	fork := *src
 	fork.ID = uuid.NewString()
+	fork.Title = src.Title + " - forked"
 	fork.ParentID = src.ID
 	fork.CreatedAt = now
 	fork.UpdatedAt = now
@@ -259,6 +260,10 @@ func (m *Manager) Snapshots(sessionID string) ([]Snapshot, error) {
 
 func (m *Manager) Messages(sessionID string) ([]Message, error) {
 	return m.store.Messages(sessionID)
+}
+
+func (m *Manager) Bus() event.Bus {
+	return m.bus
 }
 
 func (m *Manager) SetCurrent(id string) error {

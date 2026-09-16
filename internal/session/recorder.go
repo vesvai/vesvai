@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/vesvai/vesvai/internal/agent"
@@ -14,9 +15,12 @@ import (
 const chunksPerCommit = 10
 
 type sessionInfo struct {
-	sessionID string
-	provider  llm.Provider
-	model     llm.Model
+	sessionID       string
+	provider        llm.Provider
+	model           llm.Model
+	subagent        bool
+	parentSessionID string
+	displayName     string
 }
 
 type Recorder struct {
@@ -107,12 +111,20 @@ func (r *Recorder) getSessionInfo(agentID string) (*sessionInfo, bool) {
 }
 
 func (r *Recorder) handleResume(e SessionResume) {
-	if e.AgentID == "" || e.SessionID == "" {
+	if e.AgentID == "" {
 		return
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if e.SessionID == "" {
+		delete(r.sessions, e.AgentID)
+		delete(r.resumed, e.AgentID)
+		return
+	}
 	r.resumed[e.AgentID] = e.SessionID
-	r.mu.Unlock()
+	if info, ok := r.sessions[e.AgentID]; ok && info.sessionID != e.SessionID {
+		info.sessionID = e.SessionID
+	}
 }
 
 func (r *Recorder) handleStarted(e agent.AgentStarted) {
@@ -124,6 +136,16 @@ func (r *Recorder) handleStarted(e agent.AgentStarted) {
 	sessID := r.resumed[e.AgentID]
 	r.mu.Unlock()
 
+	subagent := e.ParentAgentID != ""
+	displayName := e.DisplayName
+	if displayName == "" {
+		displayName = e.AgentName
+	}
+	var parentSessionID string
+	if subagent {
+		parentSessionID = r.sessionIDForAgent(e.ParentAgentID)
+	}
+
 	if sessID == "" {
 		opts := CreateOptions{}
 		if e.Provider != nil {
@@ -133,6 +155,13 @@ func (r *Recorder) handleStarted(e agent.AgentStarted) {
 		opts.ReasoningEffort = e.ReasoningEffort
 		if dir, err := os.Getwd(); err == nil {
 			opts.ProjectDir = dir
+		}
+		if subagent {
+			parentTitle := r.sessionTitle(parentSessionID)
+			if isPlaceholderTitle(parentTitle) {
+				parentTitle = ""
+			}
+			opts.Title = joinTitle(parentTitle, displayName)
 		}
 
 		s, err := r.mgr.Create(opts)
@@ -144,9 +173,12 @@ func (r *Recorder) handleStarted(e agent.AgentStarted) {
 	}
 
 	info := &sessionInfo{
-		sessionID: sessID,
-		provider:  e.Provider,
-		model:     e.Model,
+		sessionID:       sessID,
+		provider:        e.Provider,
+		model:           e.Model,
+		subagent:        subagent,
+		parentSessionID: parentSessionID,
+		displayName:     displayName,
 	}
 	r.mu.Lock()
 	r.sessions[e.AgentID] = info
@@ -156,6 +188,42 @@ func (r *Recorder) handleStarted(e agent.AgentStarted) {
 		AgentID:   e.AgentID,
 		SessionID: sessID,
 	})
+}
+
+func (r *Recorder) sessionIDForAgent(agentID string) string {
+	if agentID == "" {
+		return ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if info, ok := r.sessions[agentID]; ok {
+		return info.sessionID
+	}
+	return ""
+}
+
+func (r *Recorder) sessionTitle(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	s, err := r.mgr.Get(sessionID)
+	if err != nil {
+		return ""
+	}
+	return s.Title
+}
+
+func joinTitle(parentTitle, name string) string {
+	parentTitle = strings.TrimSpace(parentTitle)
+	name = strings.TrimSpace(name)
+	switch {
+	case parentTitle == "":
+		return name
+	case name == "":
+		return parentTitle
+	default:
+		return parentTitle + " - " + name
+	}
 }
 
 func (r *Recorder) handleInput(e agent.AgentInput) {
@@ -170,7 +238,7 @@ func (r *Recorder) handleInput(e agent.AgentInput) {
 	}
 
 	if first {
-		if info, ok := r.getSessionInfo(e.AgentID); ok && info.provider != nil {
+		if info, ok := r.getSessionInfo(e.AgentID); ok && info.provider != nil && !info.subagent {
 			go r.generateTitle(id, info.provider, info.model, e.Input)
 		}
 	}
@@ -190,9 +258,32 @@ func (r *Recorder) generateTitle(sessionID string, provider llm.Provider, model 
 		r.log.Fdebug("session recorder: generate title: %v", err)
 		return
 	}
-	if title != "" {
-		if err := r.mgr.SetTitle(sessionID, title); err != nil {
-			r.log.Fdebug("session recorder: set title: %v", err)
+	if title == "" {
+		return
+	}
+	if err := r.mgr.SetTitle(sessionID, title); err != nil {
+		r.log.Fdebug("session recorder: set title: %v", err)
+		return
+	}
+	r.updateChildTitles(sessionID, title)
+}
+
+func (r *Recorder) updateChildTitles(parentSessionID, parentTitle string) {
+	type child struct {
+		sessionID string
+		name      string
+	}
+	var children []child
+	r.mu.Lock()
+	for _, info := range r.sessions {
+		if info.subagent && info.parentSessionID == parentSessionID {
+			children = append(children, child{sessionID: info.sessionID, name: info.displayName})
+		}
+	}
+	r.mu.Unlock()
+	for _, c := range children {
+		if err := r.mgr.SetTitle(c.sessionID, joinTitle(parentTitle, c.name)); err != nil {
+			r.log.Fdebug("session recorder: set subagent title: %v", err)
 		}
 	}
 }

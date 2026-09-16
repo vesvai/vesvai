@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vesvai/vesvai/internal/agent/reminder"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/llm"
 )
@@ -25,7 +26,8 @@ func (a *Agent) run(ctx context.Context, input string, stream StreamHandler) (*R
 	if strings.TrimSpace(input) == "" {
 		return nil, a.fail(ctx, ErrEmptyInput)
 	}
-	input = expandInput(input)
+	mi := expandInput(input)
+	input = mi.Text
 	if a.Provider == nil {
 		return nil, a.fail(ctx, ErrNoProvider)
 	}
@@ -43,6 +45,8 @@ func (a *Agent) run(ctx context.Context, input string, stream StreamHandler) (*R
 	a.publish(TopicAgentStarted, AgentStarted{
 		AgentID:         a.ID,
 		AgentName:       a.Name,
+		DisplayName:     a.DisplayName,
+		ParentAgentID:   a.ParentAgentID,
 		Model:           a.Model,
 		Provider:        a.Provider,
 		ReasoningEffort: a.ReasoningEffort,
@@ -66,7 +70,14 @@ func (a *Agent) run(ctx context.Context, input string, stream StreamHandler) (*R
 	if a.SystemPrompt != "" {
 		state.history = append(state.history, llm.SystemMessage(a.SystemPrompt))
 	}
-	state.history = append(state.history, a.userMessage(input))
+	if strings.TrimSpace(input) != "" {
+		state.history = append(state.history, a.userMessage(input))
+	}
+	if len(mi.Calls) > 0 {
+		if err := a.resolveInputCalls(ctx, state, mi.Calls); err != nil {
+			return nil, a.fail(ctx, err)
+		}
+	}
 
 	return a.loop(ctx, state, prov)
 }
@@ -75,7 +86,8 @@ func (a *Agent) resume(ctx context.Context, input string, history []llm.Message,
 	if strings.TrimSpace(input) == "" {
 		return nil, a.fail(ctx, ErrEmptyInput)
 	}
-	input = expandInput(input)
+	mi := expandInput(input)
+	input = mi.Text
 	if a.Provider == nil {
 		return nil, a.fail(ctx, ErrNoProvider)
 	}
@@ -93,6 +105,8 @@ func (a *Agent) resume(ctx context.Context, input string, history []llm.Message,
 	a.publish(TopicAgentStarted, AgentStarted{
 		AgentID:         a.ID,
 		AgentName:       a.Name,
+		DisplayName:     a.DisplayName,
+		ParentAgentID:   a.ParentAgentID,
 		Model:           a.Model,
 		Provider:        a.Provider,
 		ReasoningEffort: a.ReasoningEffort,
@@ -114,7 +128,14 @@ func (a *Agent) resume(ctx context.Context, input string, history []llm.Message,
 	state.provider = prov.Name()
 
 	state.history = append(state.history, history...)
-	state.history = append(state.history, a.userMessage(input))
+	if strings.TrimSpace(input) != "" {
+		state.history = append(state.history, a.userMessage(input))
+	}
+	if len(mi.Calls) > 0 {
+		if err := a.resolveInputCalls(ctx, state, mi.Calls); err != nil {
+			return nil, a.fail(ctx, err)
+		}
+	}
 
 	return a.loop(ctx, state, prov)
 }
@@ -124,13 +145,16 @@ func (a *Agent) loop(ctx context.Context, state *runState, prov llm.Provider) (*
 	for state.iterations < a.MaxIterations {
 		select {
 		case <-ctx.Done():
-			return nil, a.fail(ctx, ctx.Err())
+			return a.partialResult(state), a.fail(ctx, ctx.Err())
 		default:
 		}
 		state.iterations++
 		msg, calls, err := a.iterate(ctx, state, prov)
 		if err != nil {
-			return nil, a.fail(ctx, err)
+			if msg.Role == llm.RoleAssistant && !emptyAssistantMessage(msg) {
+				state.history = append(state.history, msg)
+			}
+			return a.partialResult(state), a.fail(ctx, err)
 		}
 		if !emptyAssistantMessage(msg) {
 			state.history = append(state.history, msg)
@@ -144,9 +168,12 @@ func (a *Agent) loop(ctx context.Context, state *runState, prov llm.Provider) (*
 		if len(calls) > 0 {
 			for _, call := range calls {
 				if err := a.executeTool(ctx, state, call); err != nil {
-					return nil, a.fail(ctx, err)
+					return a.partialResult(state), a.fail(ctx, err)
 				}
 			}
+			continue
+		}
+		if a.HasPendingNotifications() {
 			continue
 		}
 		finished = true
@@ -169,7 +196,7 @@ func (a *Agent) loop(ctx context.Context, state *runState, prov llm.Provider) (*
 		a.debugf("agent %q hit max iterations", a.Name)
 		a.publish(TopicAgentError, AgentError{AgentID: a.ID, AgentName: a.Name, Model: a.Model, Err: err})
 		_ = a.chain.OnError(ctx, err)
-		return result, err
+		return a.partialResult(state), err
 	}
 
 	if err := a.chain.AfterRun(ctx, a.Name, result, nil); err != nil {
@@ -195,12 +222,78 @@ func (a *Agent) userMessage(input string) llm.Message {
 	return llm.UserMessage(llm.ContentWithAttachments(input, a.Attachments))
 }
 
+func (a *Agent) resolveInputCalls(ctx context.Context, state *runState, calls []llm.ToolCall) error {
+	msg := llm.AssistantMessage("")
+	msg.ToolCalls = calls
+	state.history = append(state.history, msg)
+	for _, call := range calls {
+		if err := a.executeTool(ctx, state, call); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func emptyAssistantMessage(m llm.Message) bool {
 	return m.Role == llm.RoleAssistant && len(m.ToolCalls) == 0 && llm.MessageText(m) == ""
 }
 
+func appendReminder(msgs []llm.Message, text string) []llm.Message {
+	if len(msgs) == 0 {
+		return append(msgs, llm.SystemMessage(text))
+	}
+	last := -1
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == llm.RoleUser || msgs[i].Role == llm.RoleTool {
+			last = i
+			break
+		}
+	}
+	if last < 0 {
+		return append(msgs, llm.SystemMessage(text))
+	}
+	out := append([]llm.Message(nil), msgs...)
+	m := out[last]
+	switch c := m.Content.(type) {
+	case string:
+		m.Content = c + "\n\n" + text
+	case llm.Content:
+		m.Content = llm.Content{Text: c.Text + "\n\n" + text, Attachments: c.Attachments}
+	case []any:
+		parts := append([]any(nil), c...)
+		parts = append(parts, map[string]any{"type": "text", "text": text})
+		m.Content = parts
+	}
+	out[last] = m
+	return out
+}
+
+func (a *Agent) partialResult(state *runState) *RunResult {
+	return &RunResult{
+		AgentName:  a.Name,
+		Model:      a.Model,
+		Provider:   state.provider,
+		History:    state.history,
+		Usage:      state.usage,
+		Iterations: state.iterations,
+	}
+}
+
 func (a *Agent) iterate(ctx context.Context, state *runState, prov llm.Provider) (llm.Message, []llm.ToolCall, error) {
 	req := a.buildRequest(state)
+
+	if r := a.StandingReminder(); r != nil {
+		if formatted := reminder.FormatAll([]reminder.Reminder{*r}); formatted != "" {
+			req.Messages = appendReminder(req.Messages, formatted)
+		}
+	}
+
+	if notifications := a.drainNotifications(); len(notifications) > 0 {
+		if formatted := reminder.FormatAll(notifications); formatted != "" {
+			req.Messages = append(req.Messages, llm.SystemMessage(formatted))
+		}
+	}
+
 	if err := a.chain.BeforeLLM(ctx, req); err != nil {
 		return llm.Message{}, nil, err
 	}
@@ -288,7 +381,18 @@ func (a *Agent) iterateStream(ctx context.Context, state *runState, prov llm.Pro
 		return nil
 	}, prov.ChatStream)
 	if err != nil {
-		return llm.Message{}, nil, err
+		if acc.content == "" && len(acc.order) == 0 && acc.reasoning == "" {
+			return llm.Message{}, nil, err
+		}
+		msg := llm.AssistantMessage(acc.content)
+		if acc.reasoning != "" {
+			msg.Reasoning = acc.reasoning
+		}
+		calls := acc.toolCalls()
+		if len(calls) > 0 {
+			msg.ToolCalls = calls
+		}
+		return msg, calls, err
 	}
 
 	state.output = acc.content

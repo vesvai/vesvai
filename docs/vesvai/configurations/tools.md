@@ -4,7 +4,7 @@ icon: lucide/wrench
 
 # Tools
 
-Tools are the functions the model can call. Vesvai ships with 17 built-in tools and
+Tools are the functions the model can call. Vesvai ships with 18 built-in tools and
 registers additional tools from connected [MCP servers](mcp.md). Custom tools can be
 added with the [SDK](../../sdk/extending.md).
 
@@ -109,7 +109,7 @@ code is included in the output.
 
 ## Web
 
-### `web-search`
+### `websearch`
 
 Search the web (DuckDuckGo HTML endpoint) and return titles, URLs, and snippets.
 
@@ -118,7 +118,7 @@ Search the web (DuckDuckGo HTML endpoint) and return titles, URLs, and snippets.
 | `query` | string | yes | Search query |
 | `maxResults` | integer | no | 1–20; defaults to 10 |
 
-### `web-fetch`
+### `webfetch`
 
 Fetch a URL. HTML is converted to Markdown by default.
 
@@ -131,7 +131,7 @@ Responses are capped at 10 MiB; binary content is noted but not returned.
 
 ## Interaction
 
-### `ask`
+### `askuserquestion`
 
 Ask the user one or more questions and block until answers are submitted.
 
@@ -153,14 +153,14 @@ Todos persist in `.vesvai/todos.json` in the project directory. Statuses are
 `pending`, `in_progress`, `completed`, and `cancelled`; priorities are `high`,
 `medium`, and `low`.
 
-### `list-todo`
+### `todoread`
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `status` | string | no | Filter by status |
 | `priority` | string | no | Filter by priority |
 
-### `update-todo`
+### `todowrite`
 
 Create, update, delete, or change the status of a todo. Omit `id` to create a todo
 with an auto-generated id (`todo-1`, `todo-2`, ...). Providing an existing `id`
@@ -176,28 +176,54 @@ performs a partial update. Dependencies are stored and displayed but not enforce
 | `dependsOn` | string[] | no | Todo ids this task depends on |
 | `action` | string | no | Set to `delete` to remove the todo |
 
+## Plan mode
+
+### `enterplanmode`
+
+Enter plan mode: attaches a standing **plan-mode reminder** that is injected into
+every LLM request until `exitplanmode` is called. While active the agent is
+read-only and must only research and plan. The tool call itself requires user
+approval (`ask` by default).
+
+### `exitplanmode`
+
+Leave plan mode: removes the standing plan-mode reminder. Requires user approval
+(`ask` by default).
+
+## Skills
+
+### `loadskill`
+
+Load a skill by name. Returns the skill's `<skill:...>` block as a tool result, or —
+for skills with `context: fork` — spawns a background subagent from a forked session
+and returns a confirmation. See [Skills](skills.md). The same effect is triggered
+automatically when a message contains `/skill-name`.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Skill name |
+| `arguments` | object | no | Values substituted into `$arg_name` placeholders |
+
 ## Subagents
 
 See [Subagents](../features/subagents.md) for the full workflow.
 
 | Tool | Parameters | Description |
 |---|---|---|
-| `subagent` | `subagents[]` (`name`, `agent`, `task`, `task_id`), `background` | Spawn one or more subagents concurrently |
-| `wait-for-subagents` | `agent_names` (required) | Block until the named subagents finish |
-| `subagents-status` | `agent_names` (optional) | Report status: `pending`, `running`, `completed`, `failed`, `interrupted` |
-| `subagent-message` | `name`, `message`, `background` | Resume a finished subagent with its full history |
+| `task` | `name`, `subagent_type`, `prompt`, `task_id[]` (optional), `background` (optional) | Spawn a subagent, or resume a finished one by reusing the same `name` |
+| `taskstatus` | `agent_names[]` (optional) | Report status: `pending`, `running`, `completed`, `failed`, `interrupted` |
 
-Registered agent types for `subagent`: `orchestrator`, `explorer`, `planner`, and
+Registered agent types for `task`: `orchestrator`, `explorer`, `planner`, and
 `developer`.
 
 ## Tool availability per agent
 
 | Agent | Tools |
 |---|---|
-| `orchestrator` | All file tools, `ask`, `bash`, `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message`, `list-todo`, `update-todo` |
-| `planner` | File tools write-scoped to `.vesvai/plans`, `bash`, `web-fetch`, `web-search`, `list-todo`, `update-todo` |
-| `developer` | All file tools, `bash`, `web-fetch`, `web-search`, `list-todo`, `update-todo` |
-| `explorer` | `glob`, `grep`, `list`, `read`, `bash`, `web-fetch`, `web-search` |
+| `orchestrator` | All file tools, `askuserquestion`, `bash`, `task`, `taskstatus`, `todoread`, `todowrite`, `webfetch`, `websearch`, `loadskill`, `enterplanmode`, `exitplanmode` |
+| `planner` | File tools write-scoped to `.vesvai/plans`, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
+| `developer` | All file tools, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
+| `explorer` | `glob`, `grep`, `list`, `read`, `bash`, `webfetch`, `websearch` |
 
 ## Permissions
 
@@ -207,11 +233,12 @@ built-in defaults:
 | Tool | Default mode |
 |---|---|
 | `read`, `write`, `edit`, `delete`, `list`, `glob`, `grep` | `semi-ask` |
-| `bash` | `semi-judge` (whitelisted commands run directly) |
-| `list-todo`, `update-todo` | `allow` |
-| `subagent`, `wait-for-subagents`, `subagents-status`, `subagent-message` | `allow` |
-| `ask` | `allow` (never gated) |
-| `web-search`, `web-fetch` | `semi-ask` |
+| `bash` | `semi-judge` (whitelisted bare commands run directly) |
+| `todoread`, `todowrite` | `allow` |
+| `task`, `taskstatus` | `allow` |
+| `webfetch`, `websearch`, `loadskill` | `allow` |
+| `enterplanmode`, `exitplanmode` | `ask` |
+| `askuserquestion` | `allow` (never gated) |
 
 Override any tool with the `permission.rules` map in [Config](../config.md#permission).
 MCP tools default to the configured `permission.default`.

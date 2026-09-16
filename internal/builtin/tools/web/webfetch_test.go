@@ -12,7 +12,7 @@ func TestFetchToolBasic(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestFetchToolPlainText(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +46,7 @@ func TestFetchToolPlainText(t *testing.T) {
 }
 
 func TestFetchToolMissingURL(t *testing.T) {
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	_, err := tool.Execute(t.Context(), `{}`)
 	if err == nil {
 		t.Fatal("expected error for missing url")
@@ -54,7 +54,7 @@ func TestFetchToolMissingURL(t *testing.T) {
 }
 
 func TestFetchToolInvalidURL(t *testing.T) {
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	_, err := tool.Execute(t.Context(), `{"url": "not-a-url"}`)
 	if err == nil {
 		t.Fatal("expected error for invalid url")
@@ -68,7 +68,7 @@ func TestFetchToolStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestFetchToolContentType(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := fetchTool(nil)
+	tool := webfetchTool(nil)
 	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`"}`)
 	if err != nil {
 		t.Fatal(err)
@@ -95,14 +95,14 @@ func TestFetchToolContentType(t *testing.T) {
 	}
 }
 
-func TestFetchToolRawHTML(t *testing.T) {
+func TestFetchToolFormatHTML(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("<html><body><h1>Hello</h1><p>World</p></body></html>"))
 	}))
 	defer server.Close()
 
-	tool := fetchTool(nil)
-	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`", "raw": true}`)
+	tool := webfetchTool(nil)
+	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`", "format": "html"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,6 +111,44 @@ func TestFetchToolRawHTML(t *testing.T) {
 	}
 	if !contains(t, out, "<html>") {
 		t.Errorf("expected raw HTML '<html>', got:\n%s", out)
+	}
+}
+
+func TestFetchToolFormatText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("<html><body><h1>Hello</h1><p>World</p></body></html>"))
+	}))
+	defer server.Close()
+
+	tool := webfetchTool(nil)
+	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`", "format": "text"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(t, out, "Hello") {
+		t.Errorf("expected 'Hello' in output, got:\n%s", out)
+	}
+	if !contains(t, out, "World") {
+		t.Errorf("expected 'World' in output, got:\n%s", out)
+	}
+	if contains(t, out, "**") {
+		t.Errorf("expected no markdown formatting in text mode, got:\n%s", out)
+	}
+}
+
+func TestFetchToolTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	tool := webfetchTool(nil)
+	out, err := tool.Execute(t.Context(), `{"url": "`+server.URL+`", "timeout": 10}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(t, out, "ok") {
+		t.Errorf("expected 'ok' in output, got:\n%s", out)
 	}
 }
 

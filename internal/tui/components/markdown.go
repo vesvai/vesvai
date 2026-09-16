@@ -262,5 +262,22 @@ func MdToLines(src string, width int, th styles.Theme) []Line {
 			out = append(out, LineFromSegments(segList, width))
 		}
 	}
-	return out
+	return trimLeadingBlankLines(out)
+}
+
+func trimLeadingBlankLines(lines []Line) []Line {
+	i := 0
+	for i < len(lines) && blankLine(lines[i]) {
+		i++
+	}
+	return lines[i:]
+}
+
+func blankLine(l Line) bool {
+	for _, c := range l {
+		if c.R != ' ' && c.R != 0 {
+			return false
+		}
+	}
+	return true
 }

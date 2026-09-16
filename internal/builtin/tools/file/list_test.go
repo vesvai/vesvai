@@ -72,3 +72,85 @@ func TestListToolNonexistent(t *testing.T) {
 		t.Fatal("expected error for nonexistent directory")
 	}
 }
+
+func TestListToolTreeStructure(t *testing.T) {
+	fs := setupTestVFS(t, map[string]string{
+		"a.txt":            "aaa",
+		"b.txt":            "bbb",
+		"sub/c.txt":        "ccc",
+		"sub/d.txt":        "ddd",
+		"sub/nested/e.txt": "eee",
+	})
+	tool := listTool(fs)
+
+	out, err := tool.Execute(t.Context(), `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(t, out, "sub/") {
+		t.Errorf("expected tree to show 'sub/' directory, got:\n%s", out)
+	}
+	if !contains(t, out, "nested/") {
+		t.Errorf("expected tree to show 'nested/' directory, got:\n%s", out)
+	}
+	if !contains(t, out, "c.txt") {
+		t.Errorf("expected tree to show 'c.txt', got:\n%s", out)
+	}
+	if !contains(t, out, "e.txt") {
+		t.Errorf("expected tree to show 'e.txt', got:\n%s", out)
+	}
+}
+
+func TestListToolIgnore(t *testing.T) {
+	fs := setupTestVFS(t, map[string]string{
+		"a.txt":     "aaa",
+		"b.log":     "bbb",
+		"sub/c.txt": "ccc",
+		"sub/d.log": "ddd",
+	})
+	tool := listTool(fs)
+
+	out, err := tool.Execute(t.Context(), `{"ignore": ["*.log"]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(t, out, "a.txt") {
+		t.Errorf("expected output to contain 'a.txt', got:\n%s", out)
+	}
+	if !contains(t, out, "c.txt") {
+		t.Errorf("expected output to contain 'c.txt', got:\n%s", out)
+	}
+	if contains(t, out, "b.log") {
+		t.Errorf("expected output NOT to contain 'b.log', got:\n%s", out)
+	}
+	if contains(t, out, "d.log") {
+		t.Errorf("expected output NOT to contain 'd.log', got:\n%s", out)
+	}
+}
+
+func TestListToolIgnoreMultiplePatterns(t *testing.T) {
+	fs := setupTestVFS(t, map[string]string{
+		"a.txt":     "aaa",
+		"b.log":     "bbb",
+		"c.tmp":     "ccc",
+		"sub/d.txt": "ddd",
+	})
+	tool := listTool(fs)
+
+	out, err := tool.Execute(t.Context(), `{"ignore": ["*.log", "*.tmp"]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(t, out, "a.txt") {
+		t.Errorf("expected output to contain 'a.txt', got:\n%s", out)
+	}
+	if !contains(t, out, "d.txt") {
+		t.Errorf("expected output to contain 'd.txt', got:\n%s", out)
+	}
+	if contains(t, out, "b.log") {
+		t.Errorf("expected output NOT to contain 'b.log', got:\n%s", out)
+	}
+	if contains(t, out, "c.tmp") {
+		t.Errorf("expected output NOT to contain 'c.tmp', got:\n%s", out)
+	}
+}

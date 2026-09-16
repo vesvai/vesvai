@@ -37,7 +37,7 @@ func TestManagerLazyStartAndDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(res, "Diagnostics:") {
+	if strings.Contains(res, "<file_diagnostics>") {
 		t.Fatalf("cold read must not have diagnostics, got %q", res)
 	}
 

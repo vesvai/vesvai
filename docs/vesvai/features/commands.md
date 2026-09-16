@@ -5,8 +5,9 @@ icon: lucide/square-terminal
 # Commands
 
 Vesvai's slash commands are implemented as **skills**: type `/name` in the input
-and the skill's instructions are injected into the conversation. Three commands are
-built in — `/init`, `/batch`, and `/review` — and you can
+and Vesvai issues a `loadskill` tool call, so the skill's instructions arrive as a
+tool result (or run as a background subagent for `context: fork` skills). Three
+commands are built in — `/init`, `/batch`, and `/review` — and you can
 [add your own](../configurations/skills.md#creating-your-own) with a `SKILL.md` file.
 
 In the TUI, type `/` to open the picker and filter by name. The same token works in
@@ -53,21 +54,20 @@ The workflow:
 2. **Explore** the codebase to map the affected areas.
 3. **Plan** by writing a plan file under `.vesvai/plans/YYYY-MM-DD-<feature>.md`.
 4. **Delegate** chunks to explorer, planner, and developer subagents via the
-   `subagent` tool, running them concurrently.
+   `task` tool, running them concurrently.
 5. **Verify** the results before accepting them.
 6. **Report** the outcome, including what changed and what remains.
 
 Supporting rules the batch command applies:
 
-- Subagent names are unique and task-descriptive; results can be re-used from
-  `.vesvai/subagents.json`.
+- Subagent names are unique and task-descriptive; results can be re-used from the
+  session's subagent store (`.vesvai/subagents/<session-id>.json`).
 - The plan file is the source of truth for what is being changed and why.
 - Todo items use a hierarchy (`todo-1`, `todo-1.1`, ...), priorities, and
   `dependsOn` links so progress and dependencies stay visible.
 - Every subagent either proves its work (tests, checks) or reports a failure.
 
-The lifecycle tools — `subagent`, `wait-for-subagents`, `subagents-status`, and
-`subagent-message` — back the whole flow. See
+The lifecycle tools — `task` and `taskstatus` — back the whole flow. See
 [Subagents](subagents.md).
 
 ## `/review`

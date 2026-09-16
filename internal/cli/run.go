@@ -100,8 +100,7 @@ func (c *CLI) runRun(out io.Writer, in io.Reader, message string, opts runOption
 	if err != nil {
 		return fmt.Errorf("cli: select model: %w", err)
 	}
-	orch.Provider = prov
-	orch.Model = mdl
+	orch.SetModelProvider(mdl, prov)
 	orch.Bus = c.bus
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -147,12 +146,16 @@ func (c *CLI) runRun(out io.Writer, in io.Reader, message string, opts runOption
 			result, err = orch.RunStream(ctx, message, func(agent.StreamEvent) error { return nil })
 		}
 		if err != nil {
-			return fmt.Errorf("orchestrator: %w", err)
+			if !opts.chat || !errors.Is(err, context.Canceled) || result == nil {
+				return fmt.Errorf("orchestrator: %w", err)
+			}
+		}
+		if result != nil {
+			history = result.History
 		}
 		if !opts.chat {
 			return nil
 		}
-		history = result.History
 	}
 	return c.runChatLoop(ctx, orch, renderer, history, in)
 }
@@ -240,36 +243,88 @@ func (c *CLI) runChatLoop(ctx context.Context, orch *agent.Agent, renderer *runR
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
+	lines := make(chan string)
+	go func() {
+		for scanner.Scan() {
+			lines <- strings.TrimSpace(scanner.Text())
+		}
+		close(lines)
+	}()
+
+	wake := make(chan struct{}, 1)
+	onNotification := func(e agent.SubAgentNotification) {
+		if e.ParentAgentID != orch.ID {
+			return
+		}
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
+	if err := c.bus.Subscribe(agent.TopicSubAgentNotification, onNotification); err != nil {
+		return fmt.Errorf("cli: subscribe subagent notification: %w", err)
+	}
+	defer c.bus.Unsubscribe(agent.TopicSubAgentNotification, onNotification)
+
 	for {
 		if tty {
 			renderer.prompt()
 		}
-		if !scanner.Scan() {
-			break
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				return nil
+			}
+			if line == "" {
+				continue
+			}
+			if isChatExit(line) {
+				return nil
+			}
+			if !tty {
+				renderer.write("> %s\n", line)
+			}
+			var err error
+			history, err = c.runChatAgent(ctx, orch, line, history)
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					renderer.write("%s\n", renderer.dim("run cancelled; send a new message to continue"))
+					continue
+				}
+				return err
+			}
+		case <-wake:
+			if tty {
+				renderer.write("\n")
+			}
+			result, err := orch.Continue(ctx, history)
+			if err != nil {
+				return fmt.Errorf("orchestrator: %w", err)
+			}
+			if result != nil {
+				history = result.History
+			}
+		case <-ctx.Done():
+			return nil
 		}
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		if isChatExit(line) {
-			break
-		}
-		if !tty {
-			renderer.write("> %s\n", line)
-		}
-		var result *agent.RunResult
-		var err error
-		if len(history) == 0 {
-			result, err = orch.RunStream(ctx, line, func(agent.StreamEvent) error { return nil })
-		} else {
-			result, err = orch.ResumeStream(ctx, line, history, func(agent.StreamEvent) error { return nil })
-		}
-		if err != nil {
-			return fmt.Errorf("orchestrator: %w", err)
-		}
+	}
+}
+
+func (c *CLI) runChatAgent(ctx context.Context, orch *agent.Agent, line string, history []llm.Message) ([]llm.Message, error) {
+	var result *agent.RunResult
+	var err error
+	if len(history) == 0 {
+		result, err = orch.RunStream(ctx, line, func(agent.StreamEvent) error { return nil })
+	} else {
+		result, err = orch.ResumeStream(ctx, line, history, func(agent.StreamEvent) error { return nil })
+	}
+	if result != nil {
 		history = result.History
 	}
-	return nil
+	if err != nil {
+		return history, err
+	}
+	return history, nil
 }
 
 func isChatExit(line string) bool {
@@ -1003,7 +1058,7 @@ func (r *runRenderer) onAsk(e agent.AgentAsk) {
 	if e.AgentID != r.mainID {
 		return
 	}
-	r.write("\n%s %s is asking:\n", r.green("ask"), e.AgentName)
+	r.write("\n%s %s is asking:\n", r.green("askuserquestion"), e.AgentName)
 	answers := make(map[string]string)
 
 	for _, q := range e.Questions {

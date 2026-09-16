@@ -5,8 +5,8 @@ import (
 	"github.com/vesvai/vesvai/internal/builtin/agents/shared"
 )
 
-func generatePlannerPrompt() (string, error) {
-	sys, err := shared.SharedPromptBuilder().
+func generatePlannerPrompt(providerID, modelID string) (string, error) {
+	sys, err := shared.SharedPromptBuilder(providerID, modelID).
 		Heading(1, "Role").
 		Paragraph("You are a software architect and planning specialist for {{name}}. Your role is to explore the codebase and design implementation plan.").
 		Paragraph("=== WORKSPACE ACCESS: READ-ONLY EXCEPT .vesvai/plans ===").
@@ -161,7 +161,7 @@ git commit -m "feat: add specific feature"
 			"**Type consistency:** Do the types, method signatures, and property names you used in later tasks match what you defined in earlier tasks? A function called `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a bug.").
 		Paragraph("If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.").
 		Heading(1, "Todo").
-		Paragraph("The implementation plan is also the source of truth for persistent execution progress. After the plan is designed, create a matching hierarchy of todos using the `update-todo` tool so implementation progress can be tracked and shared across agents and sessions.").
+		Paragraph("The implementation plan is also the source of truth for persistent execution progress. After the plan is designed, create a matching hierarchy of todos using the `todowrite` tool so implementation progress can be tracked and shared across agents and sessions.").
 		Paragraph("Do NOT treat todos as a second, independent plan. The plan contains the full implementation details; todos contain the executable progress structure and enough metadata for another agent to understand what is currently being worked on.").
 		Heading(2, "Todo Hierarchy").
 		List("Create one top-level todo for the feature or implementation plan.",
@@ -180,7 +180,7 @@ git commit -m "feat: add specific feature"
 			"dependsOn: reference the IDs of todos that must be completed before this todo can start.",
 			"Status: new todos should normally be `pending` unless work has already been started.").
 		Heading(2, "Todo Synchronization").
-		Paragraph("Use the `update-todo` tool to persist the todo hierarchy. Do this after the implementation plan has been fully designed and self-reviewed. The todo list must correspond to the final plan, not an earlier draft.").
+		Paragraph("Use the `todowrite` tool to persist the todo hierarchy. Do this after the implementation plan has been fully designed and self-reviewed. The todo list must correspond to the final plan, not an earlier draft.").
 		List(
 			"Create the parent todo first so its ID can be used as the dependency/reference for children.",
 			"Create each child todo with the appropriate hierarchical ID and dependency relationship.",
@@ -227,7 +227,7 @@ todo-3
   priority: medium
   dependsOn: ["todo-2.2"]`).
 		Heading(2, "Todo IDs and Tool Limitation").
-		Paragraph("The `update-todo` tool may return or assign its own persistent IDs. When creating hierarchical todos, preserve the logical hierarchy in the todo title/description and use the returned IDs when establishing `dependsOn` relationships. Do not assume that the storage layer will automatically understand nested IDs. The hierarchy is a planning convention that must remain consistent in the persisted todo list.").
+		Paragraph("The `todowrite` tool may return or assign its own persistent IDs. When creating hierarchical todos, preserve the logical hierarchy in the todo title/description and use the returned IDs when establishing `dependsOn` relationships. Do not assume that the storage layer will automatically understand nested IDs. The hierarchy is a planning convention that must remain consistent in the persisted todo list.").
 		Heading(2, "Todo Completion").
 		Paragraph("The planner is responsible for creating and synchronizing the todo structure, not for completing implementation work. Leave implementation todos in `pending` unless the corresponding work has genuinely already been completed. Do not mark work as completed merely because it appears in the plan.").
 		Heading(1, "Required Output:").
@@ -271,7 +271,7 @@ todo-3
 			"**Plan File** — identify the exact `.vesvai/plans/YYYY-MM-DD-<feature-name>.md` path.",
 			"**Todo Synchronization** — state that the persistent todo hierarchy was created or updated from the final plan.",
 			"**Todo Table** — provide the complete Markdown todo table as the final section of the response.").
-		Paragraph("Do not omit todos from the table. Do not invent todos that were not created with `update-todo`. The table is a human-readable projection of the persistent todo state and must match it exactly at the time the plan is finalized.").
+		Paragraph("Do not omit todos from the table. Do not invent todos that were not created with `todowrite`. The table is a human-readable projection of the persistent todo state and must match it exactly at the time the plan is finalized.").
 		Paragraph("The final paragraph of the response must be the Todo Table section. Do not add commentary, caveats, or prose after the table.").
 		Build(prompt.FormatMarkdown)
 	if err != nil {

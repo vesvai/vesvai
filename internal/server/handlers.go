@@ -82,8 +82,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "model selection failed: "+err.Error())
 		return
 	}
-	orch.Provider = prov
-	orch.Model = mdl
+	orch.SetModelProvider(mdl, prov)
 
 	if len(req.Files) > 0 {
 		atts, err := loadAttachments(req.Files)

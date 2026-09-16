@@ -5,8 +5,12 @@ import (
 )
 
 type SkillInfo struct {
-	Name        string
-	Description string
+	Name         string
+	Description  string
+	WhenToUse    string
+	ArgumentHint string
+	Arguments    []string
+	Context      string
 }
 
 type hr struct {
@@ -57,6 +61,15 @@ func (s *skillsList) renderMarkdown(_ *renderCtx) (string, error) {
 		if it.Description != "" {
 			sb.WriteString(": " + it.Description)
 		}
+		if it.WhenToUse != "" {
+			sb.WriteString(" (when: " + it.WhenToUse + ")")
+		}
+		if len(it.Arguments) > 0 {
+			sb.WriteString(" [args: " + strings.Join(it.Arguments, ", ") + "]")
+		}
+		if it.ArgumentHint != "" {
+			sb.WriteString(" " + it.ArgumentHint)
+		}
 	}
 	return sb.String(), nil
 }
@@ -71,7 +84,17 @@ func (s *skillsList) renderXML(_ *renderCtx) (string, error) {
 		if i > 0 {
 			sb.WriteString("\n")
 		}
-		sb.WriteString(`  <skill name="` + escapeXML(it.Name) + `" description="` + escapeXML(it.Description) + `"/>`)
+		sb.WriteString(`  <skill name="` + escapeXML(it.Name) + `" description="` + escapeXML(it.Description) + `"`)
+		if it.WhenToUse != "" {
+			sb.WriteString(` when_to_use="` + escapeXML(it.WhenToUse) + `"`)
+		}
+		if len(it.Arguments) > 0 {
+			sb.WriteString(` arguments="` + escapeXML(strings.Join(it.Arguments, ",")) + `"`)
+		}
+		if it.Context != "" {
+			sb.WriteString(` context="` + escapeXML(it.Context) + `"`)
+		}
+		sb.WriteString("/>")
 	}
 	if len(s.items) > 0 {
 		sb.WriteString("\n")
@@ -83,7 +106,20 @@ func (s *skillsList) renderXML(_ *renderCtx) (string, error) {
 func (s *skillsList) renderJSON(_ *renderCtx) (any, error) {
 	items := make([]map[string]any, 0, len(s.items))
 	for _, it := range s.items {
-		items = append(items, map[string]any{"name": it.Name, "description": it.Description})
+		item := map[string]any{"name": it.Name, "description": it.Description}
+		if it.WhenToUse != "" {
+			item["when_to_use"] = it.WhenToUse
+		}
+		if len(it.Arguments) > 0 {
+			item["arguments"] = it.Arguments
+		}
+		if it.ArgumentHint != "" {
+			item["argument_hint"] = it.ArgumentHint
+		}
+		if it.Context != "" {
+			item["context"] = it.Context
+		}
+		items = append(items, item)
 	}
 	return map[string]any{"type": "skills", "items": items}, nil
 }

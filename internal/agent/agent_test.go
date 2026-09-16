@@ -11,6 +11,7 @@ import (
 
 	"github.com/vesvai/vesvai/internal/agent/middleware"
 	"github.com/vesvai/vesvai/internal/agent/middlewares"
+	"github.com/vesvai/vesvai/internal/agent/reminder"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/agent/tools"
 	"github.com/vesvai/vesvai/internal/core/event"
@@ -1036,5 +1037,336 @@ func TestAgent_ResumeDoesNotDuplicateSystemPrompt(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("system messages = %d, want 1 (history passed verbatim)", count)
+	}
+}
+
+func TestContinueWithoutNotifications(t *testing.T) {
+	a, _ := newTestAgent(t)
+	res, err := a.Continue(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if res != nil {
+		t.Fatalf("result = %+v, want nil when nothing to process", res)
+	}
+}
+
+func TestContinueProcessesPendingNotification(t *testing.T) {
+	a, prov := newTestAgent(t)
+	prov.responses = []mockResponse{{content: "handled"}}
+	a.QueueNotification(reminder.New("subagent", "background work done", "agent", "bg-1"))
+
+	res, err := a.Continue(context.Background(), []llm.Message{llm.UserMessage("prev")})
+	if err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if res == nil || res.Output != "handled" {
+		t.Fatalf("result = %+v, want handled", res)
+	}
+
+	prov.mu.Lock()
+	defer prov.mu.Unlock()
+	msgs := prov.lastReq.Messages
+	if len(msgs) != 2 {
+		t.Fatalf("request messages = %d, want 2 (history + reminder)", len(msgs))
+	}
+	if msgs[0].Role != llm.RoleUser {
+		t.Fatalf("msgs[0] = %+v, want history verbatim", msgs[0])
+	}
+	if msgs[1].Role != llm.RoleSystem || !strings.Contains(fmt.Sprint(msgs[1].Content), "background work done") {
+		t.Fatalf("reminder not injected: %+v", msgs)
+	}
+}
+
+type recordingProvider struct {
+	llm.Provider
+	reqs []*llm.Request
+}
+
+func (p *recordingProvider) Chat(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+	reqCopy := *req
+	reqCopy.Messages = append([]llm.Message(nil), req.Messages...)
+	p.reqs = append(p.reqs, &reqCopy)
+	return p.Provider.Chat(ctx, req)
+}
+
+func TestRunInjectsAttachedReminderEveryIteration(t *testing.T) {
+	base, prov := newTestAgent(t, WithTool(echoTool()))
+	prov.responses = []mockResponse{
+		{calls: []llm.ToolCall{toolCall("c1", "echo", "hi")}},
+		{content: "second"},
+	}
+	rec := &recordingProvider{Provider: base.Provider}
+	base.Provider = rec
+	base.AttachReminder(reminder.New("plan_mode", "PLAN MODE ACTIVE"))
+
+	res, err := base.Run(context.Background(), "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output != "second" {
+		t.Fatalf("output = %q, want second", res.Output)
+	}
+	if len(rec.reqs) != 2 {
+		t.Fatalf("requests = %d, want 2", len(rec.reqs))
+	}
+	wantRoles := []llm.Role{llm.RoleUser, llm.RoleTool}
+	for i, req := range rec.reqs {
+		last := req.Messages[len(req.Messages)-1]
+		if last.Role != wantRoles[i] {
+			t.Errorf("req[%d] last message role = %q, want %q", i, last.Role, wantRoles[i])
+		}
+		if !strings.Contains(fmt.Sprint(last.Content), "PLAN MODE ACTIVE") {
+			t.Errorf("req[%d] last message = %+v, want reminder appended to its content", i, last)
+		}
+		for _, m := range req.Messages {
+			if m.Role == llm.RoleSystem && strings.Contains(fmt.Sprint(m.Content), "PLAN MODE ACTIVE") {
+				t.Errorf("req[%d] reminder must not be a separate system message: %+v", i, m)
+			}
+		}
+	}
+	if strings.Contains(fmt.Sprint(res.History), "PLAN MODE ACTIVE") {
+		t.Fatalf("history must not contain the ephemeral reminder")
+	}
+}
+
+func TestDetachReminderStopsInjection(t *testing.T) {
+	base, prov := newTestAgent(t)
+	base.AttachReminder(reminder.New("plan_mode", "PLAN MODE ACTIVE"))
+
+	prov.responses = []mockResponse{{content: "one"}}
+	if _, err := base.Run(context.Background(), "hi"); err != nil {
+		t.Fatal(err)
+	}
+	base.DetachReminder()
+
+	prov.responses = []mockResponse{{content: "two"}}
+	if _, err := base.Run(context.Background(), "again"); err != nil {
+		t.Fatal(err)
+	}
+
+	prov.mu.Lock()
+	defer prov.mu.Unlock()
+	for _, m := range prov.lastReq.Messages {
+		if strings.Contains(fmt.Sprint(m.Content), "PLAN MODE ACTIVE") {
+			t.Fatalf("reminder still injected after detach: %+v", prov.lastReq.Messages)
+		}
+	}
+}
+
+type cancelStreamProvider struct {
+	*scriptedProvider
+	cancel context.CancelFunc
+}
+
+func (p *cancelStreamProvider) ChatStream(ctx context.Context, req *llm.Request, handler llm.StreamHandler) error {
+	p.mu.Lock()
+	chunks := p.streams[0]
+	p.streams = p.streams[1:]
+	p.mu.Unlock()
+	for _, c := range chunks {
+		if err := handler(c); err != nil {
+			return err
+		}
+	}
+	p.cancel()
+	return context.Canceled
+}
+
+func TestRunStreamReturnsPartialHistoryOnCancel(t *testing.T) {
+	base, prov := newTestAgent(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	rec := &cancelStreamProvider{scriptedProvider: prov, cancel: cancel}
+	rec.streams = [][]llm.StreamChunk{
+		{{Content: "partial "}, {Content: "tokens"}},
+	}
+	base.Provider = rec
+
+	res, err := base.RunStream(ctx, "hi", func(StreamEvent) error { return nil })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if res == nil {
+		t.Fatal("result = nil, want partial result with history")
+	}
+	if len(res.History) != 2 {
+		t.Fatalf("history = %d messages, want 2 (user + partial assistant)", len(res.History))
+	}
+	if res.History[0].Role != llm.RoleUser || llm.MessageText(res.History[0]) != "hi" {
+		t.Errorf("history[0] = %+v, want user input", res.History[0])
+	}
+	if res.History[1].Role != llm.RoleAssistant || llm.MessageText(res.History[1]) != "partial tokens" {
+		t.Errorf("history[1] = %+v, want partial assistant content", res.History[1])
+	}
+}
+
+type erroringProvider struct {
+	llm.Provider
+	calls int
+	err   error
+}
+
+func (p *erroringProvider) Chat(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+	p.calls++
+	if p.calls >= 2 {
+		return nil, p.err
+	}
+	return p.Provider.Chat(ctx, req)
+}
+
+func TestRunReturnsPartialHistoryOnError(t *testing.T) {
+	base, prov := newTestAgent(t, WithTool(echoTool()))
+	prov.responses = []mockResponse{
+		{calls: []llm.ToolCall{toolCall("c1", "echo", "hi")}},
+	}
+	ep := &erroringProvider{Provider: base.Provider, err: errors.New("boom")}
+	base.Provider = ep
+
+	res, err := base.Run(context.Background(), "hi")
+	if err == nil {
+		t.Fatal("want error from second iteration")
+	}
+	if res == nil {
+		t.Fatal("result = nil, want partial result with history")
+	}
+	if len(res.History) != 3 {
+		t.Fatalf("history = %d messages, want 3 (user + assistant call + tool result)", len(res.History))
+	}
+	last := res.History[2]
+	if last.Role != llm.RoleTool || llm.MessageText(last) != "echo:hi" {
+		t.Errorf("history[2] = %+v, want tool result", last)
+	}
+}
+
+func TestRunResolvesInputToolCalls(t *testing.T) {
+	a, prov := newTestAgent(t)
+	prov.responses = []mockResponse{{content: "done"}}
+	a.Tools.Register(tool.NewSpec("loadskill", "loads a skill", nil, func(_ context.Context, args string) (string, error) {
+		return "skill-content:" + args, nil
+	}))
+
+	OnMessageInput(func(in MessageInput) MessageInput {
+		if !strings.Contains(in.Text, "resolve-input-calls-test") {
+			return in
+		}
+		in.Text = strings.ReplaceAll(in.Text, "/review", "")
+		in.Calls = append(in.Calls, llm.ToolCall{ID: "c-skill", Type: "function", Function: llm.Function{Name: "loadskill", Arguments: `{"name":"review"}`}})
+		return in
+	})
+
+	res, err := a.Run(context.Background(), "resolve-input-calls-test /review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output != "done" {
+		t.Fatalf("output = %q, want done", res.Output)
+	}
+	if len(res.History) != 4 {
+		t.Fatalf("history = %d messages, want 4 (user, tool call, tool result, answer)", len(res.History))
+	}
+	if res.History[0].Role != llm.RoleUser || strings.Contains(llm.MessageText(res.History[0]), "/review") {
+		t.Fatalf("history[0] = %+v, want stripped user message", res.History[0])
+	}
+	msg := res.History[1]
+	if msg.Role != llm.RoleAssistant || len(msg.ToolCalls) != 1 || msg.ToolCalls[0].Function.Name != "loadskill" {
+		t.Fatalf("history[1] = %+v, want synthetic loadskill call", msg)
+	}
+	toolMsg := res.History[2]
+	if toolMsg.Role != llm.RoleTool || !strings.Contains(llm.MessageText(toolMsg), "skill-content") {
+		t.Fatalf("history[2] = %+v, want tool result", toolMsg)
+	}
+}
+
+func TestRunSkipsEmptyUserMessageAfterExpansion(t *testing.T) {
+	a, prov := newTestAgent(t)
+	prov.responses = []mockResponse{{content: "done"}}
+	a.Tools.Register(tool.NewSpec("loadskill", "loads a skill", nil, func(_ context.Context, args string) (string, error) {
+		return "skill-content:" + args, nil
+	}))
+
+	OnMessageInput(func(in MessageInput) MessageInput {
+		if !strings.Contains(in.Text, "only-skill-input-test") {
+			return in
+		}
+		in.Text = ""
+		in.Calls = append(in.Calls, llm.ToolCall{ID: "c-only", Type: "function", Function: llm.Function{Name: "loadskill", Arguments: `{"name":"x"}`}})
+		return in
+	})
+
+	res, err := a.Run(context.Background(), "only-skill-input-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.History) != 3 {
+		t.Fatalf("history = %d messages, want 3 (tool call, tool result, answer)", len(res.History))
+	}
+	if res.History[0].Role != llm.RoleAssistant || len(res.History[0].ToolCalls) != 1 {
+		t.Fatalf("history[0] = %+v, want synthetic tool call without user message", res.History[0])
+	}
+	if res.History[1].Role != llm.RoleTool {
+		t.Fatalf("history[1] = %+v, want tool result", res.History[1])
+	}
+}
+
+type notifyProvider struct {
+	llm.Provider
+	agent *Agent
+	once  sync.Once
+}
+
+func (p *notifyProvider) Chat(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+	resp, err := p.Provider.Chat(ctx, req)
+	p.once.Do(func() { p.agent.QueueNotification(reminder.New("subagent", "done")) })
+	return resp, err
+}
+
+func TestRunContinuesWhileNotificationsPending(t *testing.T) {
+	base, prov := newTestAgent(t)
+	prov.responses = []mockResponse{{content: "first"}, {content: "second"}}
+	a := &notifyProvider{Provider: base.Provider, agent: base}
+	base.Provider = a
+
+	res, err := base.Run(context.Background(), "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output != "second" {
+		t.Fatalf("output = %q, want second (loop must continue to drain reminder)", res.Output)
+	}
+	if res.Iterations != 2 {
+		t.Fatalf("iterations = %d, want 2", res.Iterations)
+	}
+}
+
+func TestAgentClone(t *testing.T) {
+	bus := event.New()
+	prov := &scriptedProvider{name: "mock"}
+	prov.responses = []mockResponse{{content: "ok"}}
+
+	a := New("original",
+		WithDescription("desc"),
+		WithModel(llm.Model{ID: "m1"}),
+		WithProvider(prov),
+		WithSystemPrompt("sys"),
+		WithTemperature(0.5),
+		WithMaxTokens(2048),
+		WithTool(echoTool()),
+		WithBus(bus),
+	)
+	clone := a.Clone("copy")
+	if clone.ID == a.ID {
+		t.Fatal("clone must have a new identity")
+	}
+	if clone.Name != "copy" {
+		t.Fatalf("clone name = %q, want copy", clone.Name)
+	}
+	if clone.Provider != a.Provider || clone.Model.ID != a.Model.ID || clone.SystemPrompt != "sys" {
+		t.Fatalf("clone fields not copied: %+v", clone)
+	}
+	if clone.Temperature != 0.5 || clone.MaxTokens != 2048 || clone.Bus != bus {
+		t.Fatalf("clone params not copied: %+v", clone)
+	}
+	if _, ok := clone.Tools.Get("echo"); !ok {
+		t.Fatal("clone tools missing")
 	}
 }

@@ -10,7 +10,7 @@ func TestPickerFilter(t *testing.T) {
 	p := NewPicker("test")
 	p.SetAll([]ListItem{
 		{Label: "go-development", Detail: "write Go code"},
-		{Label: "web-search", Detail: "search the web"},
+		{Label: "websearch", Detail: "search the web"},
 		{Label: "testing", Detail: "run tests"},
 	})
 	p.Update("go")

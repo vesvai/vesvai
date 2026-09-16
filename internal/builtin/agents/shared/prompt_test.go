@@ -61,7 +61,7 @@ func TestGitVarsNotInRepo(t *testing.T) {
 }
 
 func TestSharedPromptBuilds(t *testing.T) {
-	out, err := SharedPromptBuilder().Build(prompt.FormatMarkdown)
+	out, err := SharedPromptBuilder("", "").Build(prompt.FormatMarkdown)
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
@@ -70,7 +70,6 @@ func TestSharedPromptBuilds(t *testing.T) {
 	}
 	for _, want := range []string{
 		"interactive CLI tool",
-		"powered by the model named deepseek-v4-flash",
 		"Working directory:",
 		"Platform:",
 		"Today",
@@ -91,7 +90,7 @@ func TestSharedPromptBuildsInNonRepo(t *testing.T) {
 	}
 	defer os.Chdir(old)
 
-	if _, err := SharedPromptBuilder().Build(prompt.FormatMarkdown); err != nil {
+	if _, err := SharedPromptBuilder("", "").Build(prompt.FormatMarkdown); err != nil {
 		t.Fatalf("build failed outside a repo: %v", err)
 	}
 }

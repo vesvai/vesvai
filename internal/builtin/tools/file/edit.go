@@ -3,34 +3,50 @@ package file
 import (
 	"context"
 	"fmt"
+
 	json "github.com/goccy/go-json"
 
+	"github.com/vesvai/vesvai/internal/agent/prompt"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/vfs"
 )
 
+func generateEditToolPrompt() (string, error) {
+	sys, err := editToolPromptBuilder().
+		Build(prompt.FormatMarkdown)
+	if err != nil {
+		return "", err
+	}
+	return sys, nil
+}
+
 func editTool(fs *vfs.VFS) tool.Tool {
+	prompt, err := generateEditToolPrompt()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate edit tool prompt: %v", err))
+	}
+
 	return tool.NewSpec(
 		"edit",
-		"Apply a text replacement to a file. The file must have been read first with the 'read' tool (a snapshot is required). Replaces the FIRST occurrence of 'oldString' by default. Set 'replaceAll' to true to replace ALL occurrences. Returns an error if the file has changed externally since the last read (hash mismatch) — in that case re-read the file first. Returns an error if 'oldString' is not found in the file. Use this tool for surgical edits instead of rewriting the entire file with 'write'. Preserves file permissions.",
+		prompt,
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"filePath": map[string]any{
 					"type":        "string",
-					"description": "Virtual path to the file within the workspace (e.g. 'src/main.go').",
+					"description": "The absolute path to the file to modify.",
 				},
 				"oldString": map[string]any{
 					"type":        "string",
-					"description": "Exact text to search for in the file. Must match exactly including whitespace and indentation. The first occurrence is replaced by default.",
+					"description": "The text to replace.",
 				},
 				"newString": map[string]any{
 					"type":        "string",
-					"description": "Replacement text that will replace 'oldString' in the file.",
+					"description": "The text to replace it with (must be different from oldString).",
 				},
 				"replaceAll": map[string]any{
 					"type":        "boolean",
-					"description": "If true, replace ALL occurrences of 'oldString'. If false (default), replace only the first occurrence.",
+					"description": "Replace all occurrences of oldString (default false).",
 				},
 			},
 			"required": []string{"filePath", "oldString", "newString"},

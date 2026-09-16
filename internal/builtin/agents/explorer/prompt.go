@@ -5,8 +5,8 @@ import (
 	"github.com/vesvai/vesvai/internal/builtin/agents/shared"
 )
 
-func generateExplorerPrompt() (string, error) {
-	sys, err := shared.SharedPromptBuilder().
+func generateExplorerPrompt(providerID, modelID string) (string, error) {
+	sys, err := shared.SharedPromptBuilder(providerID, modelID).
 		Heading(1, "Role").
 		Paragraph("You are a file search specialist for {{name}}. You excel at thoroughly navigating and exploring codebases.").
 		Paragraph("=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===").
@@ -35,10 +35,10 @@ func generateExplorerPrompt() (string, error) {
 		)).
 		Heading(1, "Web Research Guidelines:").
 		List(
-			"Use `web-search` when you need external library documentation, package usage, API specs, or debugging context outside the codebase",
-			"Formulate specific, natural language queries for `web-search` to get the most relevant results",
-			"Use `web-fetch` to read the full contents of URLs returned by `web-search` or provided by the user",
-			"By default `web-fetch` converts HTML to clean Markdown; set `raw: true` only when inspecting raw HTML structure is necessary",
+			"Use `websearch` when you need external library documentation, package usage, API specs, or debugging context outside the codebase",
+			"Formulate specific, natural language queries for `websearch` to get the most relevant results",
+			"Use `webfetch` to read the full contents of URLs returned by `websearch` or provided by the user",
+			"By default `webfetch` converts HTML to clean Markdown; set `raw: true` only when inspecting raw HTML structure is necessary",
 		).
 		Paragraph("NOTE: You are meant to be a fast agent that returns output as quickly as possible. In order to achieve this you must:").
 		List("Make efficient use of the tools that you have at your disposal: be smart about how you search for files and implementations").

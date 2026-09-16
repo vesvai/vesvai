@@ -342,6 +342,186 @@ func TestRecorderResumeContinuesSession(t *testing.T) {
 	}
 }
 
+func TestRecorderResumeRepointsExistingAgent(t *testing.T) {
+	mgr, _, bus := newTestRecorder(t)
+
+	publishStarted(bus, "a1", "agent-one", "groq", "llama-3.3")
+	bus.Publish(agent.TopicAgentInput, agent.AgentInput{AgentID: "a1", Input: "first"})
+	bus.Publish(agent.TopicAgentMessage, agent.AgentMessage{
+		AgentID: "a1", AgentName: "agent-one",
+		Message: llm.AssistantMessage("first answer"),
+	})
+
+	sessions, _, _ := mgr.List(query.Query{})
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %+v, want 1", sessions)
+	}
+	origID := sessions[0].ID
+
+	second, err := mgr.Create(CreateOptions{Provider: "groq", Model: "llama-3.3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bus.Publish(TopicSessionResume, SessionResume{AgentID: "a1", SessionID: second.ID})
+	bus.Publish(agent.TopicAgentInput, agent.AgentInput{AgentID: "a1", Input: "switched"})
+	bus.Publish(agent.TopicAgentMessage, agent.AgentMessage{
+		AgentID: "a1", AgentName: "agent-one",
+		Message: llm.AssistantMessage("second answer"),
+	})
+
+	firstMsgs, _ := mgr.Messages(origID)
+	if len(firstMsgs) != 2 {
+		t.Fatalf("first session messages = %+v, want 2 (unchanged)", firstMsgs)
+	}
+	secondMsgs, _ := mgr.Messages(second.ID)
+	if len(secondMsgs) != 2 {
+		t.Fatalf("second session messages = %+v, want 2", secondMsgs)
+	}
+	if secondMsgs[0].Content != "switched" || secondMsgs[1].Content != "second answer" {
+		t.Fatalf("second session messages = %+v", secondMsgs)
+	}
+}
+
+func TestRecorderDetachStartsNewSession(t *testing.T) {
+	mgr, _, bus := newTestRecorder(t)
+
+	publishStarted(bus, "a1", "agent-one", "groq", "llama-3.3")
+	bus.Publish(agent.TopicAgentInput, agent.AgentInput{AgentID: "a1", Input: "first"})
+
+	sessions, _, _ := mgr.List(query.Query{})
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %+v, want 1", sessions)
+	}
+	origID := sessions[0].ID
+
+	bus.Publish(TopicSessionResume, SessionResume{AgentID: "a1"})
+	publishStarted(bus, "a1", "agent-one", "groq", "llama-3.3")
+	bus.Publish(agent.TopicAgentInput, agent.AgentInput{AgentID: "a1", Input: "fresh"})
+	bus.Publish(agent.TopicAgentMessage, agent.AgentMessage{
+		AgentID: "a1", AgentName: "agent-one",
+		Message: llm.AssistantMessage("fresh answer"),
+	})
+
+	sessions, _, _ = mgr.List(query.Query{})
+	if len(sessions) != 2 {
+		t.Fatalf("sessions = %+v, want 2 (new session after detach)", sessions)
+	}
+	var newID string
+	for _, s := range sessions {
+		if s.ID != origID {
+			newID = s.ID
+		}
+	}
+	origMsgs, _ := mgr.Messages(origID)
+	if len(origMsgs) != 1 {
+		t.Fatalf("original session messages = %+v, want 1 (unchanged)", origMsgs)
+	}
+	newMsgs, _ := mgr.Messages(newID)
+	if len(newMsgs) != 2 {
+		t.Fatalf("new session messages = %+v, want 2", newMsgs)
+	}
+	if newMsgs[0].Content != "fresh" || newMsgs[1].Content != "fresh answer" {
+		t.Fatalf("new session messages = %+v", newMsgs)
+	}
+}
+
+func publishSubagentStarted(bus event.Bus, id, agentName, displayName, parentID string, provider llm.Provider) {
+	bus.Publish(agent.TopicAgentStarted, agent.AgentStarted{
+		AgentID:       id,
+		AgentName:     agentName,
+		DisplayName:   displayName,
+		ParentAgentID: parentID,
+		Model:         llm.Model{ID: "m"},
+		Provider:      provider,
+	})
+}
+
+func TestRecorderSubagentSessionUsesParentTitle(t *testing.T) {
+	mgr, _, bus := newTestRecorder(t)
+
+	publishStarted(bus, "p1", "orchestrator", "groq", "llama-3.3")
+	sessions, _, _ := mgr.List(query.Query{})
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(sessions))
+	}
+	parentID := sessions[0].ID
+	if err := mgr.SetTitle(parentID, "Fix auth bug"); err != nil {
+		t.Fatal(err)
+	}
+
+	publishSubagentStarted(bus, "s1", "explorer", "explore auth", "p1", stubProvider{name: "groq"})
+
+	sessions, _, _ = mgr.List(query.Query{})
+	if len(sessions) != 2 {
+		t.Fatalf("sessions = %d, want 2", len(sessions))
+	}
+	var subTitle string
+	for _, s := range sessions {
+		if s.ID != parentID {
+			subTitle = s.Title
+		}
+	}
+	if subTitle != "Fix auth bug - explore auth" {
+		t.Fatalf("subagent title = %q, want %q", subTitle, "Fix auth bug - explore auth")
+	}
+}
+
+func TestRecorderSubagentDoesNotGenerateAITitle(t *testing.T) {
+	mgr, _, bus := newTestRecorder(t)
+	prov := &titleCountingProvider{}
+
+	publishStarted(bus, "p1", "orchestrator", "groq", "llama-3.3")
+	publishSubagentStarted(bus, "s1", "explorer", "explore auth", "p1", prov)
+
+	bus.Publish(agent.TopicAgentInput, agent.AgentInput{AgentID: "s1", Input: "explore the auth flow"})
+	time.Sleep(200 * time.Millisecond)
+
+	if prov.Count() != 0 {
+		t.Fatalf("subagent triggered AI title generation: calls = %d, want 0", prov.Count())
+	}
+	sessions, _, _ := mgr.List(query.Query{})
+	for _, s := range sessions {
+		if s.Title == "Session title" {
+			t.Fatalf("subagent session got an AI title")
+		}
+	}
+}
+
+func TestRecorderSubagentTitleUpdatesWhenParentTitleGenerated(t *testing.T) {
+	mgr, rec, bus := newTestRecorder(t)
+	prov := &titleCountingProvider{}
+
+	publishStarted(bus, "p1", "orchestrator", "groq", "llama-3.3")
+	sessions, _, _ := mgr.List(query.Query{})
+	parentID := sessions[0].ID
+
+	publishSubagentStarted(bus, "s1", "explorer", "explore auth", "p1", prov)
+	sessions, _, _ = mgr.List(query.Query{})
+	var subID string
+	for _, s := range sessions {
+		if s.ID != parentID {
+			subID = s.ID
+			if s.Title != "explore auth" {
+				t.Fatalf("subagent title = %q, want %q before parent title", s.Title, "explore auth")
+			}
+		}
+	}
+	if subID == "" {
+		t.Fatal("subagent session not created")
+	}
+
+	rec.generateTitle(parentID, prov, llm.Model{ID: "m"}, "fix auth")
+
+	sub, err := mgr.Get(subID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.Title != "Session title - explore auth" {
+		t.Fatalf("subagent title = %q, want %q", sub.Title, "Session title - explore auth")
+	}
+}
+
 func TestRecorderPublishesSessionAttached(t *testing.T) {
 	_, _, bus := newTestRecorder(t)
 

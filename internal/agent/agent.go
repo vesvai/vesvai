@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/vesvai/vesvai/internal/agent/middleware"
 	"github.com/vesvai/vesvai/internal/agent/middlewares"
+	"github.com/vesvai/vesvai/internal/agent/reminder"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/agent/tools"
 	"github.com/vesvai/vesvai/internal/core/event"
@@ -22,9 +24,12 @@ type Agent struct {
 	ID              string
 	Name            string
 	Description     string
+	ParentAgentID   string
+	DisplayName     string
 	Model           llm.Model
 	Provider        llm.Provider
 	SystemPrompt    string
+	SystemPromptFn  func(providerID, modelID string) string
 	Temperature     float64
 	TopP            float64
 	MaxTokens       int
@@ -42,6 +47,10 @@ type Agent struct {
 	namesResolved   bool
 	Bus             event.Bus
 	log             *logger.Logger
+
+	pendingNotifications []reminder.Reminder
+	attachedReminder     *reminder.Reminder
+	notificationsMu      sync.Mutex
 }
 
 func New(name string, opts ...Option) *Agent {
@@ -61,6 +70,31 @@ func New(name string, opts ...Option) *Agent {
 	return a
 }
 
+func (a *Agent) Clone(name string) *Agent {
+	if name == "" {
+		name = a.Name
+	}
+	c := New(name,
+		WithDescription(a.Description),
+		WithModel(a.Model),
+		WithProvider(a.Provider),
+		WithSystemPrompt(a.SystemPrompt),
+		WithSystemPromptFn(a.SystemPromptFn),
+		WithTemperature(a.Temperature),
+		WithTopP(a.TopP),
+		WithMaxTokens(a.MaxTokens),
+		WithMaxIterations(a.MaxIterations),
+		WithReasoningEffort(a.ReasoningEffort),
+		WithBus(a.Bus),
+	)
+	c.log = a.log
+	c.chain = a.chain.Clone()
+	for _, t := range a.Tools.List() {
+		_ = c.Tools.Register(t)
+	}
+	return c
+}
+
 func WithDescription(desc string) Option {
 	return func(a *Agent) { a.Description = desc }
 }
@@ -75,6 +109,18 @@ func WithProvider(p llm.Provider) Option {
 
 func WithSystemPrompt(prompt string) Option {
 	return func(a *Agent) { a.SystemPrompt = prompt }
+}
+
+func WithSystemPromptFn(fn func(providerID, modelID string) string) Option {
+	return func(a *Agent) { a.SystemPromptFn = fn }
+}
+
+func (a *Agent) SetModelProvider(model llm.Model, provider llm.Provider) {
+	a.Model = model
+	a.Provider = provider
+	if a.SystemPromptFn != nil && provider != nil {
+		a.SystemPrompt = a.SystemPromptFn(provider.Name(), model.ID)
+	}
 }
 
 func WithTemperature(temp float64) Option {
@@ -159,8 +205,6 @@ func WithReasoningEffort(effort string) Option {
 	return func(a *Agent) { a.ReasoningEffort = effort }
 }
 
-// WithStructuredOutput makes the agent request a JSON response matching the
-// given JSON schema from the LLM provider.
 func WithStructuredOutput(name string, schema any) Option {
 	return func(a *Agent) {
 		a.structuredName = name
@@ -189,6 +233,90 @@ func (a *Agent) publish(topic string, payload any) {
 		return
 	}
 	a.Bus.Publish(topic, payload)
+}
+
+func (a *Agent) QueueNotification(r reminder.Reminder) {
+	a.notificationsMu.Lock()
+	defer a.notificationsMu.Unlock()
+	a.pendingNotifications = append(a.pendingNotifications, r)
+}
+
+func (a *Agent) AttachReminder(r reminder.Reminder) {
+	a.notificationsMu.Lock()
+	defer a.notificationsMu.Unlock()
+	a.attachedReminder = &r
+}
+
+func (a *Agent) DetachReminder() {
+	a.notificationsMu.Lock()
+	defer a.notificationsMu.Unlock()
+	a.attachedReminder = nil
+}
+
+func (a *Agent) StandingReminder() *reminder.Reminder {
+	a.notificationsMu.Lock()
+	defer a.notificationsMu.Unlock()
+	if a.attachedReminder == nil {
+		return nil
+	}
+	r := *a.attachedReminder
+	return &r
+}
+
+func (a *Agent) HasPendingNotifications() bool {
+	a.notificationsMu.Lock()
+	defer a.notificationsMu.Unlock()
+	return len(a.pendingNotifications) > 0
+}
+
+func (a *Agent) drainNotifications() []reminder.Reminder {
+	a.notificationsMu.Lock()
+	defer a.notificationsMu.Unlock()
+	if len(a.pendingNotifications) == 0 {
+		return nil
+	}
+	msgs := a.pendingNotifications
+	a.pendingNotifications = nil
+	return msgs
+}
+
+func (a *Agent) Continue(ctx context.Context, history []llm.Message) (*RunResult, error) {
+	if !a.HasPendingNotifications() {
+		return nil, nil
+	}
+	if a.Provider == nil {
+		return nil, a.fail(ctx, ErrNoProvider)
+	}
+	if err := a.resolveToolNames(); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+	if err := a.resolveMiddlewareNames(); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+
+	ctx = WithAgent(ctx, a)
+	state := &runState{agent: a}
+	ctx = WithHistory(ctx, &state.history)
+	a.debugf("agent %q continued run", a.Name)
+	a.publish(TopicAgentStarted, AgentStarted{
+		AgentID:         a.ID,
+		AgentName:       a.Name,
+		DisplayName:     a.DisplayName,
+		ParentAgentID:   a.ParentAgentID,
+		Model:           a.Model,
+		Provider:        a.Provider,
+		ReasoningEffort: a.ReasoningEffort,
+	})
+
+	if err := a.chain.BeforeRun(ctx, a.Name, ""); err != nil {
+		return nil, a.fail(ctx, err)
+	}
+
+	prov := a.Provider
+	state.modelID = a.Model.ID
+	state.provider = prov.Name()
+	state.history = append(state.history, history...)
+	return a.loop(ctx, state, prov)
 }
 
 func (a *Agent) debugf(format string, args ...any) {

@@ -487,7 +487,11 @@ func (a *App) openSettings() {
 	}
 	s.SetOnSessionChange(func(info settings.SessionInfo) {
 		a.chatMu.Lock()
+		changed := a.session == nil || a.session.info.ID != info.ID
 		a.session = &activeSession{info: info}
+		if changed && a.agent != nil {
+			a.agent.DetachReminder()
+		}
 		a.reasoningEffort = info.ReasoningEffort
 		if a.deps.LLM != nil && info.Provider != "" && info.Model != "" {
 			if res := a.deps.LLM.Select(llm.SelectRequest{
@@ -509,8 +513,14 @@ func (a *App) openSettings() {
 		a.usage = llm.Usage{}
 		a.chat.Clear()
 		a.main = nil
+		if a.agent != nil {
+			a.agent.DetachReminder()
+		}
 		a.refreshHomeLocked()
 		a.chatMu.Unlock()
+		if a.agent != nil && a.bus != nil {
+			a.bus.Publish(session.TopicSessionResume, session.SessionResume{AgentID: a.agent.ID})
+		}
 	})
 	s.SetOnClose(func() { a.setOverlay(nil) })
 	s.SetOnThemeChange(func() {

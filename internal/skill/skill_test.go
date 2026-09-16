@@ -5,6 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	json "github.com/goccy/go-json"
+
+	"github.com/vesvai/vesvai/internal/agent"
 )
 
 func writeSkill(t *testing.T, dir, name, content string) {
@@ -29,6 +33,11 @@ metadata:
   author: example-org
   version: "1.0"
 allowed-tools: "Bash(python:*) Read"
+when_to_use: Use when the user asks to extract text from PDF files
+argument-hint: "<filename>"
+arguments:
+  - filename
+context: fork
 ---
 
 # PDF Tools
@@ -58,6 +67,18 @@ Extract text with pdfplumber.
 	}
 	if len(s.AllowedTools) != 2 || s.AllowedTools[0] != "Bash(python:*)" {
 		t.Fatalf("allowed-tools = %v", s.AllowedTools)
+	}
+	if s.WhenToUse != "Use when the user asks to extract text from PDF files" {
+		t.Fatalf("when_to_use = %q", s.WhenToUse)
+	}
+	if s.ArgumentHint != "<filename>" {
+		t.Fatalf("argument-hint = %q", s.ArgumentHint)
+	}
+	if len(s.Arguments) != 1 || s.Arguments[0] != "filename" {
+		t.Fatalf("arguments = %v", s.Arguments)
+	}
+	if s.Context != "fork" {
+		t.Fatalf("context = %q", s.Context)
 	}
 	if strings.Contains(s.Instructions, "name:") || !strings.Contains(s.Instructions, "Extract text with pdfplumber") {
 		t.Fatalf("instructions must be body without frontmatter:\n%s", s.Instructions)
@@ -169,30 +190,74 @@ Load the plan, review it, execute tasks.
 		in   string
 		want string
 	}{
-		{"Use the /executing-plans skill", "Executing Plans"},
+		{"Use the /executing-plans skill", "Use the  skill"},
 		{"Unknown /no-such-skill stays", "/no-such-skill"},
 		{"URL https://example.com/foo must survive", "https://example.com/foo"},
 		{"Path a/b/c must survive", "a/b/c"},
 		{"No skills here", "No skills here"},
 	}
 	for _, tc := range cases {
-		got := ExpandMessage(tc.in)
-		if !strings.Contains(got, tc.want) {
-			t.Fatalf("ExpandMessage(%q) = %q, want it to contain %q", tc.in, got, tc.want)
+		got := ExpandMessage(agent.MessageInput{Text: tc.in})
+		if !strings.Contains(got.Text, tc.want) {
+			t.Fatalf("ExpandMessage(%q) = %q, want it to contain %q", tc.in, got.Text, tc.want)
 		}
 	}
 
-	got := ExpandMessage("Use /executing-plans now")
-	if strings.Contains(got, "---\nname:") {
-		t.Fatalf("expanded content must not contain frontmatter:\n%s", got)
+	got := ExpandMessage(agent.MessageInput{Text: "Use /executing-plans now"})
+	if got.Text != "Use  now" {
+		t.Fatalf("token must be stripped: %q", got.Text)
 	}
-	if strings.Contains(got, "Use /executing-plans") {
-		t.Fatalf("token must be replaced:\n%s", got)
+	if len(got.Calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(got.Calls))
 	}
-	if !strings.Contains(got, "<skill:executing-plans>") {
-		t.Fatalf("skill block missing:\n%s", got)
+	call := got.Calls[0]
+	if call.ID == "" || call.Type != "function" {
+		t.Fatalf("call = %+v, want id and type", call)
 	}
-	if got != ExpandMessage(got) {
-		t.Fatalf("expansion must be idempotent")
+	if call.Function.Name != "loadskill" {
+		t.Fatalf("tool name = %q, want loadskill", call.Function.Name)
+	}
+	var args map[string]string
+	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+		t.Fatalf("parse args: %v", err)
+	}
+	if args["name"] != "executing-plans" {
+		t.Fatalf("args = %v, want name executing-plans", args)
+	}
+
+	multi := ExpandMessage(agent.MessageInput{Text: "/executing-plans /executing-plans"})
+	if len(multi.Calls) != 2 {
+		t.Fatalf("calls = %d, want 2 for repeated skill", len(multi.Calls))
+	}
+}
+
+func TestExpandWithArgs(t *testing.T) {
+	s := &Skill{
+		Name:         "test",
+		Instructions: "# $action $file\nPerform $action on $file.",
+	}
+
+	cases := []struct {
+		args map[string]string
+		want string
+	}{
+		{
+			args: map[string]string{"action": "refactor", "file": "main.go"},
+			want: "# refactor main.go\nPerform refactor on main.go.",
+		},
+		{
+			args: map[string]string{"action": "test"},
+			want: "# test $file\nPerform test on $file.",
+		},
+		{
+			args: nil,
+			want: "# $action $file\nPerform $action on $file.",
+		},
+	}
+	for _, tc := range cases {
+		got := ExpandWithArgs(s, tc.args)
+		if got != tc.want {
+			t.Fatalf("ExpandWithArgs(%v) = %q, want %q", tc.args, got, tc.want)
+		}
 	}
 }

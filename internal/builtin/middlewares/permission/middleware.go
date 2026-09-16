@@ -43,15 +43,16 @@ var builtinDefaults = map[string]Mode{
 
 	"bash": ModeSemiJudge,
 
-	"todo":               ModeAllow,
-	"list-todo":          ModeAllow,
-	"update-todo":        ModeAllow,
-	"webfetch":           ModeAllow,
-	"websearch":          ModeAllow,
-	"subagent":           ModeAllow,
-	"wait-for-subagents": ModeAllow,
-	"subagents-status":   ModeAllow,
-	"subagent-message":   ModeAllow,
+	"todo":       ModeAllow,
+	"todoread":   ModeAllow,
+	"todowrite":  ModeAllow,
+	"webfetch":   ModeAllow,
+	"websearch":  ModeAllow,
+	"task":       ModeAllow,
+	"taskstatus": ModeAllow,
+
+	"enterplanmode": ModeAsk,
+	"exitplanmode":  ModeAsk,
 }
 
 const defaultMode = ModeSemiAsk
@@ -100,7 +101,7 @@ func (m *Middleware) judge() *agent.Agent {
 }
 
 func (m *Middleware) modeFor(name string) Mode {
-	if name == "ask" {
+	if name == "askuserquestion" {
 		return ModeAllow
 	}
 	if m.cfg != nil {

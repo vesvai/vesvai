@@ -5,8 +5,8 @@ import (
 	"github.com/vesvai/vesvai/internal/builtin/agents/shared"
 )
 
-func generateOrchestratorPrompt() (string, error) {
-	sys, err := shared.SharedPromptBuilder().
+func generateOrchestratorPrompt(providerID, modelID string) (string, error) {
+	sys, err := shared.SharedPromptBuilder(providerID, modelID).
 		Build(prompt.FormatMarkdown)
 	if err != nil {
 		return "", err

@@ -36,6 +36,10 @@ func (c *Chain) snapshot() []Middleware {
 	return append([]Middleware(nil), c.mws...)
 }
 
+func (c *Chain) Clone() *Chain {
+	return &Chain{mws: c.snapshot()}
+}
+
 func (c *Chain) BeforeRun(ctx context.Context, agentName, input string) error {
 	for _, m := range c.snapshot() {
 		if err := m.BeforeRun(ctx, agentName, input); err != nil {

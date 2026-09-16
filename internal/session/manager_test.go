@@ -110,7 +110,7 @@ func TestManagerFork(t *testing.T) {
 	if fork.ID == s.ID || fork.ParentID != s.ID {
 		t.Fatalf("fork = %+v", fork)
 	}
-	if fork.Title != s.Title || fork.Provider != s.Provider || fork.Model != s.Model || fork.ProjectDir != s.ProjectDir {
+	if fork.Title != s.Title+" - forked" || fork.Provider != s.Provider || fork.Model != s.Model || fork.ProjectDir != s.ProjectDir {
 		t.Fatalf("fork meta = %+v", fork)
 	}
 	msgs, _ := mgr.Messages(fork.ID)

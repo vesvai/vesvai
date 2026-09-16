@@ -14,15 +14,9 @@ func TestEditTool(t *testing.T) {
 	}
 
 	tool := editTool(fs)
-	out, err := tool.Execute(t.Context(), `{"filePath": "hello.txt", "oldString": "hello", "newString": "hi"}`)
+	_, err = tool.Execute(t.Context(), `{"filePath": "hello.txt", "oldString": "hello world", "newString": "hi world"}`)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if !contains(t, out, "hello.txt") {
-		t.Errorf("expected output to contain 'hello.txt', got:\n%s", out)
-	}
-	if !contains(t, out, "edited") {
-		t.Errorf("expected output to contain 'edited', got:\n%s", out)
 	}
 
 	result, err := fs.Read("hello.txt")

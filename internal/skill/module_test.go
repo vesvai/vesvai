@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vesvai/vesvai/internal/agent"
 	"github.com/vesvai/vesvai/internal/agent/prompt"
 )
 
@@ -42,9 +43,12 @@ func TestMaterializedSkillParsesAndExpands(t *testing.T) {
 		t.Fatal("init must be registered")
 	}
 
-	out := ExpandMessage("implement it /init")
-	if !strings.Contains(out, "<skill:init>") {
-		t.Fatalf("expansion failed:\n%s", out)
+	out := ExpandMessage(agent.MessageInput{Text: "implement it /init"})
+	if out.Text != "implement it " {
+		t.Fatalf("skill token must be stripped: %q", out.Text)
+	}
+	if len(out.Calls) != 1 || out.Calls[0].Function.Name != "loadskill" {
+		t.Fatalf("expected a loadskill tool call, got %+v", out.Calls)
 	}
 
 	infos := []prompt.SkillInfo{{Name: s.Name, Description: s.Description}}

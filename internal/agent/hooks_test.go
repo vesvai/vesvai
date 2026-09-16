@@ -12,11 +12,11 @@ const hookMarker = "%%skill-test%%"
 
 func registerMarkerHook(t *testing.T) {
 	t.Helper()
-	OnMessageInput(func(s string) string {
-		if strings.Contains(s, hookMarker) {
-			return s + " [skill loaded]"
+	OnMessageInput(func(in MessageInput) MessageInput {
+		if strings.Contains(in.Text, hookMarker) {
+			in.Text += " [skill loaded]"
 		}
-		return s
+		return in
 	})
 }
 

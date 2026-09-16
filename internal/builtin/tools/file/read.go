@@ -3,31 +3,48 @@ package file
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	json "github.com/goccy/go-json"
 
+	"github.com/vesvai/vesvai/internal/agent/prompt"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/vfs"
 )
 
+func generateReadToolPrompt() (string, error) {
+	sys, err := readToolPromptBuilder().
+		Build(prompt.FormatMarkdown)
+	if err != nil {
+		return "", err
+	}
+	return sys, nil
+}
+
 func readTool(fs *vfs.VFS) tool.Tool {
+	prompt, err := generateReadToolPrompt()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate read tool prompt: %v", err))
+	}
+
 	return tool.NewSpec(
 		"read",
-		"Read a file from the workspace. Returns the file content with line numbers, along with metadata (path, hash, size, line count). Supports partial reads: use 'offset' (1-indexed starting line) and 'limit' (max lines to return) to read a specific range. If offset and limit are omitted, the entire file is returned. The file hash can be used to detect external changes before editing with the 'edit' tool. Respects .gitignore/.vesvaignore rules. Returns LSP diagnostics (errors, warnings) if available. Use this tool to examine file contents before making changes.",
+		prompt,
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"filePath": map[string]any{
 					"type":        "string",
-					"description": "Virtual path to the file within the workspace, relative to workspace root. Use '/' as separator. Examples: 'src/main.go', 'README.md', 'internal/config/config.go'.",
+					"description": "The path to the file to read.",
 				},
 				"offset": map[string]any{
 					"type":        "integer",
-					"description": "Starting line number (1-indexed) for partial read. Set to 1 to read from the beginning. Omit or set to 0 to read from the start.",
-					"minimum":     0,
+					"description": "The line number to start reading from (1-based)",
+					"minimum":     1,
 				},
 				"limit": map[string]any{
 					"type":        "integer",
-					"description": "Maximum number of lines to return. Useful for reading a specific section of a large file. Omit or set to 0 to read all lines to the end of the file.",
+					"description": "The number of lines to read (defaults to 2000)",
 					"minimum":     0,
 				},
 			},
@@ -46,18 +63,73 @@ func readTool(fs *vfs.VFS) tool.Tool {
 				return "", fmt.Errorf("read: filePath is required")
 			}
 
-			var result string
-			var err error
-			if params.Offset > 0 || params.Limit > 0 {
-				result, err = fs.ReadRangeCtx(ctx, params.FilePath, params.Offset, params.Limit)
-			} else {
-				result, err = fs.ReadCtx(ctx, params.FilePath)
-			}
+			fi, err := fs.Stat(params.FilePath)
 			if err != nil {
 				return "", fmt.Errorf("read: %w", err)
 			}
 
-			return result, nil
+			if fi.IsDir {
+				result, err := fs.ListRecursiveIgnoreCtx(ctx, params.FilePath, nil)
+				if err != nil {
+					return "", fmt.Errorf("read: %w", err)
+				}
+				return formatListResult(result), nil
+			}
+
+			offset := params.Offset
+			if offset < 1 {
+				offset = 1
+			}
+			limit := params.Limit
+			if limit <= 0 {
+				limit = 2000
+			}
+
+			result, err := fs.ReadRangeCtx(ctx, params.FilePath, offset, limit)
+			if err != nil {
+				return "", fmt.Errorf("read: %w", err)
+			}
+
+			return formatReadOutput(result, offset, limit), nil
 		},
 	).SetPermissionError(isScopeError)
+}
+
+func formatReadOutput(vfsOutput string, offset, limit int) string {
+	lines := strings.Split(vfsOutput, "\n")
+
+	totalLines := 0
+	contentStart := 0
+
+	for i, line := range lines {
+		if idx := strings.Index(line, "Lines: "); idx >= 0 {
+			fmt.Sscanf(line[idx:], "Lines: %d", &totalLines)
+		}
+		if line == "---" {
+			contentStart = i + 1
+			break
+		}
+	}
+
+	contentLines := lines[contentStart:]
+	for len(contentLines) > 0 && contentLines[len(contentLines)-1] == "" {
+		contentLines = contentLines[:len(contentLines)-1]
+	}
+
+	var b strings.Builder
+	b.WriteString("<file>\n")
+
+	for _, line := range contentLines {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	shown := len(contentLines)
+	endLine := offset + shown - 1
+	if totalLines > 0 && endLine < totalLines {
+		b.WriteString(fmt.Sprintf("\n(File has more lines. Use 'offset' parameter to read beyond line %d)\n", endLine))
+	}
+
+	b.WriteString("</file>")
+	return b.String()
 }

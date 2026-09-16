@@ -27,7 +27,7 @@ func newTestFS(t *testing.T) *vfs.VFS {
 
 func TestDeveloperAgentTools(t *testing.T) {
 	fs := newTestFS(t)
-	todo.TodoTools(fs)
+	todo.TodoTools(fs, nil)
 	shell.ShellTools(fs)
 	web.WebTools(fs)
 
@@ -40,7 +40,7 @@ func TestDeveloperAgentTools(t *testing.T) {
 			t.Fatalf("developer missing file tool %q", name)
 		}
 	}
-	for _, name := range []string{"bash", "web-fetch", "web-search", "list-todo", "update-todo"} {
+	for _, name := range []string{"bash", "webfetch", "websearch", "todoread", "todowrite"} {
 		if !slices.Contains(a.ToolNames, name) {
 			t.Fatalf("developer missing tool name %q", name)
 		}
@@ -51,11 +51,11 @@ func TestDeveloperAgentTools(t *testing.T) {
 }
 
 func TestDeveloperPromptRenders(t *testing.T) {
-	sys, err := generateDeveloperPrompt()
+	sys, err := generateDeveloperPrompt("", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"software engineer", ".vesvai/plans", "update-todo", "in_progress", "Report"} {
+	for _, want := range []string{"software engineer", ".vesvai/plans", "todowrite", "in_progress", "Report"} {
 		if !strings.Contains(sys, want) {
 			t.Fatalf("prompt missing %q", want)
 		}

@@ -94,6 +94,7 @@ func (a *App) subscribeChat(bus event.Bus) error {
 		{agent.TopicErrorMessageFinished, a.onErrorMessageFinished},
 		{session.TopicSessionAttached, a.onSessionAttached},
 		{agent.TopicAgentAsk, a.onAgentAsk},
+		{agent.TopicSubAgentNotification, a.onSubAgentNotification},
 	}
 	for _, s := range subs {
 		if err := bus.Subscribe(s.topic, s.fn); err != nil {
@@ -121,6 +122,7 @@ func (a *App) unsubscribeChat(bus event.Bus) {
 		{agent.TopicErrorMessageFinished, a.onErrorMessageFinished},
 		{session.TopicSessionAttached, a.onSessionAttached},
 		{agent.TopicAgentAsk, a.onAgentAsk},
+		{agent.TopicSubAgentNotification, a.onSubAgentNotification},
 	}
 	for _, s := range subs {
 		_ = bus.Unsubscribe(s.topic, s.fn)
@@ -469,9 +471,11 @@ func (a *App) addToolItem(t *agentTranscript, call llm.ToolCall, agentID string)
 	case "write":
 		var p struct {
 			FilePath string `json:"filePath"`
+			Content  string `json:"content"`
 		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.FilePath != "" {
 			it.ToolName = "write:" + p.FilePath
+			it.WriteContent = p.Content
 		}
 	case "bash":
 		var p struct {
@@ -498,9 +502,21 @@ func (a *App) addToolItem(t *agentTranscript, call llm.ToolCall, agentID string)
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.Pattern != "" {
 			it.ToolName = "grep:" + p.Pattern
 		}
-	case "ask":
+	case "askuserquestion":
 		it.ToolArgs = args
-		it.ToolName = "ask"
+		it.ToolName = "askuserquestion"
+	case "todoread":
+		it.ToolName = "todoread"
+	case "todowrite":
+		it.ToolName = "todowrite"
+		var p struct {
+			Todos []struct {
+				ID string `json:"id"`
+			} `json:"todos"`
+		}
+		if err := json.Unmarshal([]byte(args), &p); err == nil && len(p.Todos) > 0 {
+			it.ToolName = fmt.Sprintf("todowrite:%d items", len(p.Todos))
+		}
 	case "webfetch":
 		var p struct {
 			URL string `json:"url"`
@@ -561,28 +577,32 @@ func (a *App) runAgent(input string) {
 }
 
 func (a *App) runAgentWithAttachments(input string, attachments []llm.Attachment) {
+	ctx, cancel, history := a.prepareAgentRun(attachments)
+	defer a.finishAgentRun(cancel)
+
+	handler := func(agent.StreamEvent) error { return nil }
+	var result *agent.RunResult
+	if len(history) > 0 {
+		result, _ = a.agent.ResumeStream(ctx, input, history, handler)
+	} else {
+		result, _ = a.agent.RunStream(ctx, input, handler)
+	}
+	a.completeAgentRun(result)
+}
+
+func (a *App) prepareAgentRun(attachments []llm.Attachment) (context.Context, context.CancelFunc, []llm.Message) {
 	ctx, cancel := context.WithCancel(a.ctx)
 
 	a.chatMu.Lock()
 	a.agentCancel = cancel
-	a.chatMu.Unlock()
-
-	defer func() {
-		a.chatMu.Lock()
-		a.agentCancel = nil
-		a.chatMu.Unlock()
-		cancel()
-	}()
 
 	orch := a.agent
-	a.chatMu.Lock()
 	if orch.Bus == nil {
 		orch.Bus = a.bus
 	}
 	if orch.Provider == nil || orch.Model.ID == "" {
 		if prov, err := a.deps.LLM.Provider(a.model.provider); err == nil {
-			orch.Provider = prov
-			orch.Model = a.model.model
+			orch.SetModelProvider(a.model.model, prov)
 		}
 	}
 	orch.ReasoningEffort = a.reasoningEffort
@@ -596,14 +616,17 @@ func (a *App) runAgentWithAttachments(input string, attachments []llm.Attachment
 	}
 	a.chatMu.Unlock()
 
-	var result *agent.RunResult
-	handler := func(agent.StreamEvent) error { return nil }
-	if len(history) > 0 {
-		result, _ = orch.ResumeStream(ctx, input, history, handler)
-	} else {
-		result, _ = orch.RunStream(ctx, input, handler)
-	}
+	return ctx, cancel, history
+}
 
+func (a *App) finishAgentRun(cancel context.CancelFunc) {
+	a.chatMu.Lock()
+	a.agentCancel = nil
+	a.chatMu.Unlock()
+	cancel()
+}
+
+func (a *App) completeAgentRun(result *agent.RunResult) {
 	a.chatMu.Lock()
 	if result != nil {
 		a.history = result.History
@@ -611,6 +634,38 @@ func (a *App) runAgentWithAttachments(input string, attachments []llm.Attachment
 	a.running = false
 	a.chatMu.Unlock()
 	a.refreshChat()
+
+	if a.agent.HasPendingNotifications() {
+		go a.continueAgent()
+	}
+}
+
+func (a *App) continueAgent() {
+	a.chatMu.Lock()
+	if a.running || a.agentCancel != nil {
+		a.chatMu.Unlock()
+		return
+	}
+	a.chatMu.Unlock()
+
+	ctx, cancel, history := a.prepareAgentRun(nil)
+	defer a.finishAgentRun(cancel)
+
+	result, _ := a.agent.Continue(ctx, history)
+	a.completeAgentRun(result)
+}
+
+func (a *App) onSubAgentNotification(e agent.SubAgentNotification) {
+	if a.agent == nil || e.ParentAgentID != a.agent.ID {
+		return
+	}
+	a.chatMu.Lock()
+	if a.running || a.agentCancel != nil {
+		a.chatMu.Unlock()
+		return
+	}
+	a.chatMu.Unlock()
+	go a.continueAgent()
 }
 
 func (a *App) activateItem(it *components.ChatItem) {
@@ -802,9 +857,11 @@ func enrichToolItem(it *components.ChatItem) {
 	case "write":
 		var p struct {
 			FilePath string `json:"filePath"`
+			Content  string `json:"content"`
 		}
 		if err := json.Unmarshal([]byte(args), &p); err == nil && p.FilePath != "" {
 			it.ToolName = "write:" + p.FilePath
+			it.WriteContent = p.Content
 		}
 	case "bash":
 		var p struct {

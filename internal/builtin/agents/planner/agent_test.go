@@ -52,6 +52,24 @@ func plannerTools(t *testing.T) map[string]tool.Tool {
 	return reg
 }
 
+func TestPlannerStartsInPlanMode(t *testing.T) {
+	fs := newTestFS(t)
+	a, err := newPlannerAgent(fs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := a.StandingReminder()
+	if r == nil {
+		t.Fatal("planner must have a standing plan-mode reminder")
+	}
+	if r.Tag != "plan_mode" {
+		t.Fatalf("tag = %q, want plan_mode", r.Tag)
+	}
+	if !strings.Contains(r.Content, "READ-ONLY") {
+		t.Fatalf("reminder content = %q, want read-only constraint", r.Content)
+	}
+}
+
 func TestPlannerReadsFullCodebase(t *testing.T) {
 	reg := plannerTools(t)
 

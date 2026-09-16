@@ -1,13 +1,21 @@
 package agent
 
-import "github.com/vesvai/vesvai/internal/core/hook"
+import (
+	"github.com/vesvai/vesvai/internal/core/hook"
+	"github.com/vesvai/vesvai/internal/llm"
+)
 
-var messageInputHook = hook.NewHook[string]()
+type MessageInput struct {
+	Text  string
+	Calls []llm.ToolCall
+}
 
-func OnMessageInput(fn func(string) string) {
+var messageInputHook = hook.NewHook[MessageInput]()
+
+func OnMessageInput(fn func(MessageInput) MessageInput) {
 	messageInputHook.Add(fn)
 }
 
-func expandInput(input string) string {
-	return messageInputHook.Apply(input)
+func expandInput(input string) MessageInput {
+	return messageInputHook.Apply(MessageInput{Text: input})
 }

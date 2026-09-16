@@ -41,6 +41,7 @@ Extract text with pdfplumber:
 | `compatibility` | no | Free-form prerequisites |
 | `metadata` | no | Arbitrary key/value pairs |
 | `allowed-tools` | no | Space-separated list of tool names the skill expects to use |
+| `context` | no | `fork` runs the skill in a forked background subagent; anything else (default) loads it into the current conversation |
 
 A `scripts/` subdirectory next to `SKILL.md` is detected automatically and its path
 is included in the expansion, so skills can ship helper scripts.
@@ -66,24 +67,37 @@ There is currently no project-level skill directory.
 
 ## Invoking a skill
 
-Include `/skill-name` anywhere in your message (or in a subagent task) and Vesvai
-expands it before the model sees the input:
+Include `/skill-name` anywhere in your message and Vesvai detects it before the
+model runs, strips the token, and issues a synthetic `loadskill` tool call. The
+loop executes it like any other tool call:
 
-```
-<skill:pdf-tools>
-Description: Extract text from PDF files. Use when handling PDFs.
-Path: /home/user/.vesvai/skills/pdf-tools
-Scripts: /home/user/.vesvai/skills/pdf-tools/scripts
-Allowed tools: Bash(python:*), Read
+- **Default context** — the tool returns the skill as a `<skill:...>` block that
+  becomes a tool result, so the model sees the full skill (description, paths,
+  allowed tools, instructions) in its context:
 
-# PDF Tools
-...
-</skill:pdf-tools>
-```
+  ```
+  <skill:pdf-tools>
+  Description: Extract text from PDF files. Use when handling PDFs.
+  Path: /home/user/.vesvai/skills/pdf-tools
+  Scripts: /home/user/.vesvai/skills/pdf-tools/scripts
+  Allowed tools: Bash(python:*), Read
+
+  # PDF Tools
+  ...
+  </skill:pdf-tools>
+  ```
+
+- **`context: fork`** — the tool spawns a **background subagent** from a forked
+  session containing the skill instructions. The agent can keep working; the system
+  wakes it when the forked subagent completes. See
+  [Subagents](../features/subagents.md).
+
+Notes:
 
 - The match ignores URLs (`https://...`) and file paths (`a/b/c`).
-- Unknown skill names are left untouched.
-- Expansion is idempotent — expanded content is not re-expanded.
+- Unknown skill names are left untouched in the message.
+- Skills can also be loaded by the agent itself with the `loadskill` tool
+  (`name`, optional `arguments` substituted into `$arg_name` placeholders).
 
 In the TUI, type `/` to open the skill picker and select a skill by name. The agent's
 system prompt lists every available skill with its description, so it can also use

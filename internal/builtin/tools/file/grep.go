@@ -3,55 +3,65 @@ package file
 import (
 	"context"
 	"fmt"
-	json "github.com/goccy/go-json"
 	"strings"
 
+	json "github.com/goccy/go-json"
+
+	"github.com/vesvai/vesvai/internal/agent/prompt"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/vfs"
 )
 
+func generateGrepToolPrompt() (string, error) {
+	sys, err := grepToolPromptBuilder().
+		Build(prompt.FormatMarkdown)
+	if err != nil {
+		return "", err
+	}
+	return sys, nil
+}
+
 func grepTool(fs *vfs.VFS) tool.Tool {
+	prompt, err := generateGrepToolPrompt()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate grep tool prompt: %v", err))
+	}
+
 	return tool.NewSpec(
 		"grep",
-		"Search file contents using a regular expression pattern. Supports three output modes: 'content' (default) — returns matching lines with line numbers, 'files_with_matches' — returns only file paths (deduplicated), 'count' — returns match count per file. Use 'include' to restrict search to specific file patterns (e.g. ['*.go', '*.ts']). Use 'headLimit' to cap the number of results. Respects .gitignore/.vesvaignore rules. Skips binary files. Use this tool to find all references to a function, variable, or string across the workspace.",
+		prompt,
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"pattern": map[string]any{
 					"type":        "string",
-					"description": "Regular expression pattern to search for in file contents. Uses Go regexp syntax. Examples: 'func\\s+\\w+', 'TODO|FIXME', 'error.*handl'.",
+					"description": "The regex pattern to search for in file contents.",
 				},
 				"path": map[string]any{
 					"type":        "string",
-					"description": "Directory to search from, relative to workspace root. Omit or set to empty string to search the entire workspace. Example: 'internal', 'src/components'.",
+					"description": "The directory to search in. Defaults to the current working directory.",
 				},
 				"include": map[string]any{
 					"type": "array",
 					"items": map[string]any{
 						"type": "string",
 					},
-					"description": "Glob patterns to filter files by name. Only files matching at least one include pattern will be searched. If empty, all non-ignored files are searched. Examples: ['*.go', '*.ts', '*.{js,jsx}'].",
+					"description": "File pattern to include in the search (e.g. '*.js', '*.{ts,tsx}')",
 				},
 				"mode": map[string]any{
 					"type":        "string",
 					"enum":        []string{"content", "files_with_matches", "count"},
 					"description": "Output mode: 'content' (default) returns matching lines with line numbers, 'files_with_matches' returns only file paths, 'count' returns match count per file.",
 				},
-				"headLimit": map[string]any{
-					"type":        "integer",
-					"description": "Maximum number of results to return. 0 means unlimited. Useful to avoid overwhelming output from a broad search.",
-					"minimum":     0,
-				},
 			},
 			"required": []string{"pattern"},
 		},
 		func(ctx context.Context, args string) (string, error) {
 			var params struct {
-				Pattern   string   `json:"pattern"`
-				Path      string   `json:"path"`
-				Include   []string `json:"include"`
-				Mode      string   `json:"mode"`
-				HeadLimit int      `json:"headLimit"`
+				Pattern string   `json:"pattern"`
+				Path    string   `json:"path"`
+				Include []string `json:"include"`
+				Mode    string   `json:"mode"`
 			}
 			if err := json.Unmarshal([]byte(args), &params); err != nil {
 				return "", fmt.Errorf("grep: invalid arguments: %w", err)
@@ -65,7 +75,7 @@ func grepTool(fs *vfs.VFS) tool.Tool {
 				mode = vfs.GrepModeContent
 			}
 
-			results, err := fs.GrepCtx(ctx, params.Pattern, params.Path, params.Include, mode, params.HeadLimit)
+			results, err := fs.GrepCtx(ctx, params.Pattern, params.Path, params.Include, mode, 100)
 			if err != nil {
 				return "", fmt.Errorf("grep: %w", err)
 			}
@@ -81,11 +91,16 @@ func grepTool(fs *vfs.VFS) tool.Tool {
 
 func formatGrepResults(results []vfs.GrepResult, mode vfs.GrepMode) string {
 	var b strings.Builder
-	limited := false
+	const limit = 100
+	truncated := len(results) > limit
+
 	if mode == vfs.GrepModeFilesWithMatches {
 		fmt.Fprintf(&b, "Matches: %d files\n", len(results))
-		limited = len(results) >= 100
-		for _, r := range results {
+		shown := results
+		if truncated {
+			shown = results[:limit]
+		}
+		for _, r := range shown {
 			fmt.Fprintf(&b, "  %s\n", r.Path)
 		}
 	} else if mode == vfs.GrepModeCount {
@@ -94,18 +109,25 @@ func formatGrepResults(results []vfs.GrepResult, mode vfs.GrepMode) string {
 			total += r.Count
 		}
 		fmt.Fprintf(&b, "Matches: %d files, %d total matches\n", len(results), total)
-		for _, r := range results {
+		shown := results
+		if truncated {
+			shown = results[:limit]
+		}
+		for _, r := range shown {
 			fmt.Fprintf(&b, "  %5d  %s\n", r.Count, r.Path)
 		}
 	} else {
 		fmt.Fprintf(&b, "Matches: %d\n", len(results))
-		limited = len(results) >= 100
-		for _, r := range results {
+		shown := results
+		if truncated {
+			shown = results[:limit]
+		}
+		for _, r := range shown {
 			fmt.Fprintf(&b, "  %s:%d: %s\n", r.Path, r.Line, r.Text)
 		}
 	}
-	if limited {
-		fmt.Fprintf(&b, "... results truncated (limit reached)\n")
+	if truncated {
+		fmt.Fprintf(&b, "\n(Results are truncated. Consider using a more specific path or pattern)\n")
 	}
 	return b.String()
 }

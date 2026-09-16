@@ -22,6 +22,7 @@ type VFS struct {
 	root      string
 	scope     string
 	wscope    string
+	writeOnly string
 	mu        sync.RWMutex
 	snapshots map[string]string
 	ignorer   *Ignorer
@@ -251,6 +252,42 @@ func (v *VFS) ignored(rel string, isDir bool) bool {
 	return v.ignorer.Ignored(rel, isDir)
 }
 
+func (v *VFS) writeIgnored(rel string, isDir bool) bool {
+	if v.scope != "" || v.withinWriteScope(rel) {
+		return false
+	}
+	if wo := v.writeOnlyRel(); wo != "" && rel != wo && !strings.HasPrefix(rel, wo+"/") {
+		return true
+	}
+	if isVesvaiPath(rel) && !isPlansPath(rel) {
+		return true
+	}
+	return v.ignorer.Ignored(rel, isDir)
+}
+
+func (v *VFS) SetWriteOnly(rel string) error {
+	clean, err := prepareScope(rel)
+	if err != nil {
+		return err
+	}
+	v.mu.Lock()
+	v.writeOnly = clean
+	v.mu.Unlock()
+	return nil
+}
+
+func (v *VFS) ClearWriteOnly() {
+	v.mu.Lock()
+	v.writeOnly = ""
+	v.mu.Unlock()
+}
+
+func (v *VFS) writeOnlyRel() string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.writeOnly
+}
+
 func (v *VFS) resolveChecked(vpath string) (string, string, bool, error) {
 	return v.resolveCheckedCtx(nil, vpath)
 }
@@ -298,7 +335,7 @@ func (v *VFS) resolveWriteCheckedCtx(ctx context.Context, op AccessOp, vpath str
 	if !v.within(phys) {
 		return phys, rel, isDir, nil
 	}
-	if v.ignored(rel, isDir) {
+	if v.writeIgnored(rel, isDir) {
 		return "", "", false, ErrIgnored
 	}
 	return phys, rel, isDir, nil

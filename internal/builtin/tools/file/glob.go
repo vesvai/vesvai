@@ -3,27 +3,43 @@ package file
 import (
 	"context"
 	"fmt"
-	json "github.com/goccy/go-json"
 	"strings"
 
+	json "github.com/goccy/go-json"
+
+	"github.com/vesvai/vesvai/internal/agent/prompt"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/vfs"
 )
 
+func generateGlobToolPrompt() (string, error) {
+	sys, err := globToolPromptBuilder().
+		Build(prompt.FormatMarkdown)
+	if err != nil {
+		return "", err
+	}
+	return sys, nil
+}
+
 func globTool(fs *vfs.VFS) tool.Tool {
+	prompt, err := generateGlobToolPrompt()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate glob tool prompt: %v", err))
+	}
+
 	return tool.NewSpec(
 		"glob",
-		"Find files matching a glob pattern. Supports '**' (recursive), '*' (single segment), and '?' (single character) wildcards. Results are sorted by modification time (newest first). If 'path' is omitted, searches from the workspace root. Respects .gitignore/.vesvaignore rules. Use this tool to discover files matching a pattern, such as finding all Go source files ('**/*.go') or all test files ('**/*_test.go').",
+		prompt,
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"pattern": map[string]any{
 					"type":        "string",
-					"description": "Glob pattern to match files. Use '**' for recursive matching, '*' for single-segment matching, '?' for single character. Examples: '**/*.go', 'src/**/*.ts', 'internal/**/*_test.go', '*.md'.",
+					"description": "The glob pattern to match files against.",
 				},
 				"path": map[string]any{
 					"type":        "string",
-					"description": "Directory to search from, relative to workspace root. Omit or set to empty string to search from the workspace root. Example: 'internal', 'src/components'.",
+					"description": "The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter 'undefined' or 'null' - simply omit it for the default behavior. Must be a valid directory path if provided.",
 				},
 			},
 			"required": []string{"pattern"},
@@ -46,14 +62,28 @@ func globTool(fs *vfs.VFS) tool.Tool {
 			}
 
 			if len(results) == 0 {
-				return "No files matched the pattern.\n", nil
+				return "No files found.\n", nil
+			}
+
+			limit := 100
+			truncated := false
+			if len(results) > limit {
+				results = results[:limit]
+				truncated = true
 			}
 
 			var b strings.Builder
-			fmt.Fprintf(&b, "Pattern: %s | Matches: %d\n", params.Pattern, len(results))
-			for _, r := range results {
-				fmt.Fprintf(&b, "  %s\n", r)
+			for i, r := range results {
+				if i > 0 {
+					b.WriteString("\n")
+				}
+				b.WriteString(r)
 			}
+
+			if truncated {
+				b.WriteString("\n\n(Results are truncated. Consider using a more specific path or pattern.)")
+			}
+
 			return b.String(), nil
 		},
 	).SetPermissionError(isScopeError)
