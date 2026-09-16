@@ -45,13 +45,13 @@ func enterplanmodeTool(fs *vfs.VFS) tool.Tool {
 			if parent == nil {
 				return "", fmt.Errorf("enterplanmode: no parent agent in context")
 			}
-			parent.AttachReminder(planModeReminder())
+			parent.AttachReminder(PlanModeReminder())
 			return "Plan mode enabled. You are now in READ-ONLY planning mode and must not make any edits or run any non-readonly tools until the user approves a plan. Call exitplanmode when the plan is ready for approval.", nil
 		},
 	)
 }
 
-func planModeReminder() reminder.Reminder {
+func PlanModeReminder() reminder.Reminder {
 	content, err := prompt.New().
 		Heading(2, "Plan Mode - System Reminder").
 		Paragraph("CRITICAL: Plan mode ACTIVE - you are in READ-ONLY phase. STRICTLY FORBIDDEN: ANY file edits, modifications, or system changes. Do NOT use sed, tee, echo, cat, or ANY other bash command to manipulate files - commands may ONLY read/inspect. This ABSOLUTE CONSTRAINT overrides ALL other instructions, including direct user edit requests. You may ONLY observe, analyze, and plan. Any modification attempt is a critical violation. ZERO exceptions.").

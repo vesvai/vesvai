@@ -7,10 +7,11 @@ import (
 	"github.com/vesvai/vesvai/internal/agent/agents"
 	_ "github.com/vesvai/vesvai/internal/builtin/middlewares"
 	"github.com/vesvai/vesvai/internal/builtin/tools/file"
+	"github.com/vesvai/vesvai/internal/builtin/tools/plan"
 	"github.com/vesvai/vesvai/internal/vfs"
 )
 
-const plansScope = ".vesvai/plans"
+const plansScope = vfs.PlansDir
 
 func Register(fs *vfs.VFS) {
 	agents.Register(func() (*agent.Agent, error) {
@@ -35,6 +36,7 @@ func newPlannerAgent(fs *vfs.VFS) (*agent.Agent, error) {
 		agent.WithToolNames("bash", "webfetch", "websearch", "todoread", "todowrite"),
 		agent.WithMiddlewareNames("loop-detector", "redaction", "retry", "permission"),
 	)
+	main.AttachReminder(plan.PlanModeReminder())
 
 	return main, nil
 }

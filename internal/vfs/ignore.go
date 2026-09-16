@@ -13,7 +13,7 @@ const ignoreFileVesva = ".vesvaignore"
 
 const (
 	vesvaiDir = ".vesvai"
-	plansDir  = vesvaiDir + "/plans"
+	PlansDir  = vesvaiDir + "/plans"
 )
 
 func isVesvaiPath(rel string) bool {
@@ -21,7 +21,7 @@ func isVesvaiPath(rel string) bool {
 }
 
 func isPlansPath(rel string) bool {
-	return rel == plansDir || strings.HasPrefix(rel, plansDir+"/")
+	return rel == PlansDir || strings.HasPrefix(rel, PlansDir+"/")
 }
 
 type pattern struct {
