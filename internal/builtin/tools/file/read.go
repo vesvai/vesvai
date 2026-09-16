@@ -63,6 +63,19 @@ func readTool(fs *vfs.VFS) tool.Tool {
 				return "", fmt.Errorf("read: filePath is required")
 			}
 
+			fi, err := fs.Stat(params.FilePath)
+			if err != nil {
+				return "", fmt.Errorf("read: %w", err)
+			}
+
+			if fi.IsDir {
+				result, err := fs.ListRecursiveIgnoreCtx(ctx, params.FilePath, nil)
+				if err != nil {
+					return "", fmt.Errorf("read: %w", err)
+				}
+				return formatListResult(result), nil
+			}
+
 			offset := params.Offset
 			if offset < 1 {
 				offset = 1
