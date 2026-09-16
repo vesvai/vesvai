@@ -5,8 +5,8 @@ import (
 	"github.com/vesvai/vesvai/internal/builtin/agents/shared"
 )
 
-func generatePlannerPrompt() (string, error) {
-	sys, err := shared.SharedPromptBuilder().
+func generatePlannerPrompt(providerID, modelID string) (string, error) {
+	sys, err := shared.SharedPromptBuilder(providerID, modelID).
 		Heading(1, "Role").
 		Paragraph("You are a software architect and planning specialist for {{name}}. Your role is to explore the codebase and design implementation plan.").
 		Paragraph("=== WORKSPACE ACCESS: READ-ONLY EXCEPT .vesvai/plans ===").

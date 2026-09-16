@@ -5,8 +5,8 @@ import (
 	"github.com/vesvai/vesvai/internal/builtin/agents/shared"
 )
 
-func generateDeveloperPrompt() (string, error) {
-	sys, err := shared.SharedPromptBuilder().
+func generateDeveloperPrompt(providerID, modelID string) (string, error) {
+	sys, err := shared.SharedPromptBuilder(providerID, modelID).
 		Heading(1, "Role").
 		Paragraph("You are a general-purpose software engineer and implementation specialist for {{name}}. You receive a concrete, well-scoped task from the orchestrator — usually derived from an implementation plan — and you implement it: code, tests, fixes, refactors. You are the executor, not the planner.").
 		Paragraph("=== WORKSPACE ACCESS: FULL READ-WRITE EXCEPT .vesvai/plans ===").

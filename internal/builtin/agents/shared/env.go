@@ -14,10 +14,14 @@ import (
 
 const cmdTimeout = 3 * time.Second
 
-func sharedVars() prompt.Vars {
+func sharedVars(providerID, modelID string) prompt.Vars {
+	model := modelID
+	if model == "" {
+		model = "unknown"
+	}
 	v := prompt.Vars{
 		"name":  config.AppName,
-		"model": "deepseek-v4-flash",
+		"model": model,
 	}
 	for k, val := range envVars() {
 		v[k] = val

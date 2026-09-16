@@ -15,13 +15,14 @@ func Register(fs *vfs.VFS) {
 }
 
 func newDeveloperAgent(fs *vfs.VFS) (*agent.Agent, error) {
-	sys, err := generateDeveloperPrompt()
-	if err != nil {
-		return nil, err
-	}
-
 	main := agent.New("developer",
-		agent.WithSystemPrompt(sys),
+		agent.WithSystemPromptFn(func(providerID, modelID string) string {
+			sys, err := generateDeveloperPrompt(providerID, modelID)
+			if err != nil {
+				return ""
+			}
+			return sys
+		}),
 		agent.WithTools(file.Tools(fs)...),
 		agent.WithToolNames("bash", "webfetch", "websearch", "todoread", "todowrite"),
 		agent.WithMiddlewareNames("loop-detector", "redaction", "retry", "permission"),

@@ -99,8 +99,7 @@ func (e *Engine) chat(ctx context.Context, req ChatRequest, handler func(ChatEve
 	if err != nil {
 		return ChatResponse{}, err
 	}
-	orch.Provider = prov
-	orch.Model = mdl
+	orch.SetModelProvider(mdl, prov)
 
 	if req.SystemPrompt != "" {
 		orch.SystemPrompt = req.SystemPrompt

@@ -11,13 +11,14 @@ func Register() {
 }
 
 func newExplorerAgent() (*agent.Agent, error) {
-	sys, err := generateExplorerPrompt()
-	if err != nil {
-		return nil, err
-	}
-
 	main := agent.New("explorer",
-		agent.WithSystemPrompt(sys),
+		agent.WithSystemPromptFn(func(providerID, modelID string) string {
+			sys, err := generateExplorerPrompt(providerID, modelID)
+			if err != nil {
+				return ""
+			}
+			return sys
+		}),
 		agent.WithToolNames("glob", "grep", "list", "read", "bash", "webfetch", "websearch"),
 		agent.WithMiddlewareNames("loop-detector", "redaction", "retry", "permission"),
 	)

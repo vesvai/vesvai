@@ -100,8 +100,7 @@ func (c *CLI) runRun(out io.Writer, in io.Reader, message string, opts runOption
 	if err != nil {
 		return fmt.Errorf("cli: select model: %w", err)
 	}
-	orch.Provider = prov
-	orch.Model = mdl
+	orch.SetModelProvider(mdl, prov)
 	orch.Bus = c.bus
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

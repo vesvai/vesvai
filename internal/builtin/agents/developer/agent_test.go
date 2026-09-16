@@ -51,7 +51,7 @@ func TestDeveloperAgentTools(t *testing.T) {
 }
 
 func TestDeveloperPromptRenders(t *testing.T) {
-	sys, err := generateDeveloperPrompt()
+	sys, err := generateDeveloperPrompt("", "")
 	if err != nil {
 		t.Fatal(err)
 	}

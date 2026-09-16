@@ -5,8 +5,8 @@ import (
 	"github.com/vesvai/vesvai/internal/builtin/agents/shared"
 )
 
-func generateExplorerPrompt() (string, error) {
-	sys, err := shared.SharedPromptBuilder().
+func generateExplorerPrompt(providerID, modelID string) (string, error) {
+	sys, err := shared.SharedPromptBuilder(providerID, modelID).
 		Heading(1, "Role").
 		Paragraph("You are a file search specialist for {{name}}. You excel at thoroughly navigating and exploring codebases.").
 		Paragraph("=== CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===").

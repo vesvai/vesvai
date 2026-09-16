@@ -602,8 +602,7 @@ func (a *App) prepareAgentRun(attachments []llm.Attachment) (context.Context, co
 	}
 	if orch.Provider == nil || orch.Model.ID == "" {
 		if prov, err := a.deps.LLM.Provider(a.model.provider); err == nil {
-			orch.Provider = prov
-			orch.Model = a.model.model
+			orch.SetModelProvider(a.model.model, prov)
 		}
 	}
 	orch.ReasoningEffort = a.reasoningEffort

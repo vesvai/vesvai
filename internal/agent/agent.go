@@ -29,6 +29,7 @@ type Agent struct {
 	Model           llm.Model
 	Provider        llm.Provider
 	SystemPrompt    string
+	SystemPromptFn  func(providerID, modelID string) string
 	Temperature     float64
 	TopP            float64
 	MaxTokens       int
@@ -78,6 +79,7 @@ func (a *Agent) Clone(name string) *Agent {
 		WithModel(a.Model),
 		WithProvider(a.Provider),
 		WithSystemPrompt(a.SystemPrompt),
+		WithSystemPromptFn(a.SystemPromptFn),
 		WithTemperature(a.Temperature),
 		WithTopP(a.TopP),
 		WithMaxTokens(a.MaxTokens),
@@ -107,6 +109,18 @@ func WithProvider(p llm.Provider) Option {
 
 func WithSystemPrompt(prompt string) Option {
 	return func(a *Agent) { a.SystemPrompt = prompt }
+}
+
+func WithSystemPromptFn(fn func(providerID, modelID string) string) Option {
+	return func(a *Agent) { a.SystemPromptFn = fn }
+}
+
+func (a *Agent) SetModelProvider(model llm.Model, provider llm.Provider) {
+	a.Model = model
+	a.Provider = provider
+	if a.SystemPromptFn != nil && provider != nil {
+		a.SystemPrompt = a.SystemPromptFn(provider.Name(), model.ID)
+	}
 }
 
 func WithTemperature(temp float64) Option {

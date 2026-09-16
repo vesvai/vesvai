@@ -142,8 +142,7 @@ func subAgentTool() tool.Tool {
 						store.finish(sa, "", err)
 						return
 					}
-					sub.Provider = parent.Provider
-					sub.Model = parent.Model
+					sub.SetModelProvider(parent.Model, parent.Provider)
 					sub.ParentAgentID = parent.ID
 					sub.DisplayName = sa.Name
 
@@ -210,8 +209,7 @@ func subAgentTool() tool.Tool {
 					store.finish(sa, "", err)
 					return
 				}
-				sub.Provider = parent.Provider
-				sub.Model = parent.Model
+				sub.SetModelProvider(parent.Model, parent.Provider)
 				sub.ParentAgentID = parent.ID
 				sub.DisplayName = sa.Name
 				if parent.Bus != nil {
