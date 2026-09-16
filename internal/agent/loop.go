@@ -26,7 +26,8 @@ func (a *Agent) run(ctx context.Context, input string, stream StreamHandler) (*R
 	if strings.TrimSpace(input) == "" {
 		return nil, a.fail(ctx, ErrEmptyInput)
 	}
-	input = expandInput(input)
+	mi := expandInput(input)
+	input = mi.Text
 	if a.Provider == nil {
 		return nil, a.fail(ctx, ErrNoProvider)
 	}
@@ -69,7 +70,14 @@ func (a *Agent) run(ctx context.Context, input string, stream StreamHandler) (*R
 	if a.SystemPrompt != "" {
 		state.history = append(state.history, llm.SystemMessage(a.SystemPrompt))
 	}
-	state.history = append(state.history, a.userMessage(input))
+	if strings.TrimSpace(input) != "" {
+		state.history = append(state.history, a.userMessage(input))
+	}
+	if len(mi.Calls) > 0 {
+		if err := a.resolveInputCalls(ctx, state, mi.Calls); err != nil {
+			return nil, a.fail(ctx, err)
+		}
+	}
 
 	return a.loop(ctx, state, prov)
 }
@@ -78,7 +86,8 @@ func (a *Agent) resume(ctx context.Context, input string, history []llm.Message,
 	if strings.TrimSpace(input) == "" {
 		return nil, a.fail(ctx, ErrEmptyInput)
 	}
-	input = expandInput(input)
+	mi := expandInput(input)
+	input = mi.Text
 	if a.Provider == nil {
 		return nil, a.fail(ctx, ErrNoProvider)
 	}
@@ -119,7 +128,14 @@ func (a *Agent) resume(ctx context.Context, input string, history []llm.Message,
 	state.provider = prov.Name()
 
 	state.history = append(state.history, history...)
-	state.history = append(state.history, a.userMessage(input))
+	if strings.TrimSpace(input) != "" {
+		state.history = append(state.history, a.userMessage(input))
+	}
+	if len(mi.Calls) > 0 {
+		if err := a.resolveInputCalls(ctx, state, mi.Calls); err != nil {
+			return nil, a.fail(ctx, err)
+		}
+	}
 
 	return a.loop(ctx, state, prov)
 }
@@ -204,6 +220,18 @@ func (a *Agent) userMessage(input string) llm.Message {
 		return llm.UserMessage(input)
 	}
 	return llm.UserMessage(llm.ContentWithAttachments(input, a.Attachments))
+}
+
+func (a *Agent) resolveInputCalls(ctx context.Context, state *runState, calls []llm.ToolCall) error {
+	msg := llm.AssistantMessage("")
+	msg.ToolCalls = calls
+	state.history = append(state.history, msg)
+	for _, call := range calls {
+		if err := a.executeTool(ctx, state, call); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func emptyAssistantMessage(m llm.Message) bool {

@@ -5,6 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	json "github.com/goccy/go-json"
+
+	"github.com/vesvai/vesvai/internal/agent"
 )
 
 func writeSkill(t *testing.T, dir, name, content string) {
@@ -186,31 +190,44 @@ Load the plan, review it, execute tasks.
 		in   string
 		want string
 	}{
-		{"Use the /executing-plans skill", "Executing Plans"},
+		{"Use the /executing-plans skill", "Use the  skill"},
 		{"Unknown /no-such-skill stays", "/no-such-skill"},
 		{"URL https://example.com/foo must survive", "https://example.com/foo"},
 		{"Path a/b/c must survive", "a/b/c"},
 		{"No skills here", "No skills here"},
 	}
 	for _, tc := range cases {
-		got := ExpandMessage(tc.in)
-		if !strings.Contains(got, tc.want) {
-			t.Fatalf("ExpandMessage(%q) = %q, want it to contain %q", tc.in, got, tc.want)
+		got := ExpandMessage(agent.MessageInput{Text: tc.in})
+		if !strings.Contains(got.Text, tc.want) {
+			t.Fatalf("ExpandMessage(%q) = %q, want it to contain %q", tc.in, got.Text, tc.want)
 		}
 	}
 
-	got := ExpandMessage("Use /executing-plans now")
-	if strings.Contains(got, "---\nname:") {
-		t.Fatalf("expanded content must not contain frontmatter:\n%s", got)
+	got := ExpandMessage(agent.MessageInput{Text: "Use /executing-plans now"})
+	if got.Text != "Use  now" {
+		t.Fatalf("token must be stripped: %q", got.Text)
 	}
-	if strings.Contains(got, "Use /executing-plans") {
-		t.Fatalf("token must be replaced:\n%s", got)
+	if len(got.Calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(got.Calls))
 	}
-	if !strings.Contains(got, "<skill:executing-plans>") {
-		t.Fatalf("skill block missing:\n%s", got)
+	call := got.Calls[0]
+	if call.ID == "" || call.Type != "function" {
+		t.Fatalf("call = %+v, want id and type", call)
 	}
-	if got != ExpandMessage(got) {
-		t.Fatalf("expansion must be idempotent")
+	if call.Function.Name != "loadskill" {
+		t.Fatalf("tool name = %q, want loadskill", call.Function.Name)
+	}
+	var args map[string]string
+	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+		t.Fatalf("parse args: %v", err)
+	}
+	if args["name"] != "executing-plans" {
+		t.Fatalf("args = %v, want name executing-plans", args)
+	}
+
+	multi := ExpandMessage(agent.MessageInput{Text: "/executing-plans /executing-plans"})
+	if len(multi.Calls) != 2 {
+		t.Fatalf("calls = %d, want 2 for repeated skill", len(multi.Calls))
 	}
 }
 

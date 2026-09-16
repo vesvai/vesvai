@@ -1238,6 +1238,76 @@ func TestRunReturnsPartialHistoryOnError(t *testing.T) {
 	}
 }
 
+func TestRunResolvesInputToolCalls(t *testing.T) {
+	a, prov := newTestAgent(t)
+	prov.responses = []mockResponse{{content: "done"}}
+	a.Tools.Register(tool.NewSpec("loadskill", "loads a skill", nil, func(_ context.Context, args string) (string, error) {
+		return "skill-content:" + args, nil
+	}))
+
+	OnMessageInput(func(in MessageInput) MessageInput {
+		if !strings.Contains(in.Text, "resolve-input-calls-test") {
+			return in
+		}
+		in.Text = strings.ReplaceAll(in.Text, "/review", "")
+		in.Calls = append(in.Calls, llm.ToolCall{ID: "c-skill", Type: "function", Function: llm.Function{Name: "loadskill", Arguments: `{"name":"review"}`}})
+		return in
+	})
+
+	res, err := a.Run(context.Background(), "resolve-input-calls-test /review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output != "done" {
+		t.Fatalf("output = %q, want done", res.Output)
+	}
+	if len(res.History) != 4 {
+		t.Fatalf("history = %d messages, want 4 (user, tool call, tool result, answer)", len(res.History))
+	}
+	if res.History[0].Role != llm.RoleUser || strings.Contains(llm.MessageText(res.History[0]), "/review") {
+		t.Fatalf("history[0] = %+v, want stripped user message", res.History[0])
+	}
+	msg := res.History[1]
+	if msg.Role != llm.RoleAssistant || len(msg.ToolCalls) != 1 || msg.ToolCalls[0].Function.Name != "loadskill" {
+		t.Fatalf("history[1] = %+v, want synthetic loadskill call", msg)
+	}
+	toolMsg := res.History[2]
+	if toolMsg.Role != llm.RoleTool || !strings.Contains(llm.MessageText(toolMsg), "skill-content") {
+		t.Fatalf("history[2] = %+v, want tool result", toolMsg)
+	}
+}
+
+func TestRunSkipsEmptyUserMessageAfterExpansion(t *testing.T) {
+	a, prov := newTestAgent(t)
+	prov.responses = []mockResponse{{content: "done"}}
+	a.Tools.Register(tool.NewSpec("loadskill", "loads a skill", nil, func(_ context.Context, args string) (string, error) {
+		return "skill-content:" + args, nil
+	}))
+
+	OnMessageInput(func(in MessageInput) MessageInput {
+		if !strings.Contains(in.Text, "only-skill-input-test") {
+			return in
+		}
+		in.Text = ""
+		in.Calls = append(in.Calls, llm.ToolCall{ID: "c-only", Type: "function", Function: llm.Function{Name: "loadskill", Arguments: `{"name":"x"}`}})
+		return in
+	})
+
+	res, err := a.Run(context.Background(), "only-skill-input-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.History) != 3 {
+		t.Fatalf("history = %d messages, want 3 (tool call, tool result, answer)", len(res.History))
+	}
+	if res.History[0].Role != llm.RoleAssistant || len(res.History[0].ToolCalls) != 1 {
+		t.Fatalf("history[0] = %+v, want synthetic tool call without user message", res.History[0])
+	}
+	if res.History[1].Role != llm.RoleTool {
+		t.Fatalf("history[1] = %+v, want tool result", res.History[1])
+	}
+}
+
 type notifyProvider struct {
 	llm.Provider
 	agent *Agent

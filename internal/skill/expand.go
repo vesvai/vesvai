@@ -1,9 +1,14 @@
 package skill
 
 import (
-	"fmt"
+	"encoding/json"
 	"regexp"
 	"strings"
+
+	"github.com/google/uuid"
+
+	"github.com/vesvai/vesvai/internal/agent"
+	"github.com/vesvai/vesvai/internal/llm"
 )
 
 var (
@@ -11,11 +16,11 @@ var (
 	argRefRe   = regexp.MustCompile(`\$([a-zA-Z][a-zA-Z0-9_]*)`)
 )
 
-func ExpandMessage(msg string) string {
-	if !strings.Contains(msg, "/") {
-		return msg
+func ExpandMessage(in agent.MessageInput) agent.MessageInput {
+	if !strings.Contains(in.Text, "/") {
+		return in
 	}
-	return skillRefRe.ReplaceAllStringFunc(msg, func(m string) string {
+	in.Text = skillRefRe.ReplaceAllStringFunc(in.Text, func(m string) string {
 		parts := skillRefRe.FindStringSubmatch(m)
 		if len(parts) != 3 {
 			return m
@@ -25,36 +30,21 @@ func ExpandMessage(msg string) string {
 		if !ok {
 			return m
 		}
-		return prefix + skillBlock(s)
+		args, err := json.Marshal(map[string]string{"name": s.Name})
+		if err != nil {
+			return m
+		}
+		in.Calls = append(in.Calls, llm.ToolCall{
+			ID:   uuid.NewString(),
+			Type: "function",
+			Function: llm.Function{
+				Name:      "loadskill",
+				Arguments: string(args),
+			},
+		})
+		return prefix
 	})
-}
-
-func skillBlock(s *Skill) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "\n<skill:%s>\n", s.Name)
-	if s.Description != "" {
-		fmt.Fprintf(&b, "Description: %s\n", s.Description)
-	}
-	fmt.Fprintf(&b, "Path: %s\n", s.Path)
-	if s.HasScripts {
-		fmt.Fprintf(&b, "Scripts: %s\n", s.ScriptsPath)
-	}
-	if len(s.AllowedTools) > 0 {
-		fmt.Fprintf(&b, "Allowed tools: %s\n", strings.Join(s.AllowedTools, ", "))
-	}
-	if s.WhenToUse != "" {
-		fmt.Fprintf(&b, "When to use: %s\n", s.WhenToUse)
-	}
-	if s.ArgumentHint != "" {
-		fmt.Fprintf(&b, "Arguments: %s\n", s.ArgumentHint)
-	}
-	if len(s.Arguments) > 0 {
-		fmt.Fprintf(&b, "Parameters: %s\n", strings.Join(s.Arguments, ", "))
-	}
-	b.WriteString("\n")
-	b.WriteString(strings.TrimSpace(s.Instructions))
-	fmt.Fprintf(&b, "\n</skill:%s>\n", s.Name)
-	return b.String()
+	return in
 }
 
 func ExpandWithArgs(s *Skill, args map[string]string) string {
