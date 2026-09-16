@@ -12,10 +12,13 @@ prompt, and middleware, and runs **concurrently** with its siblings.
 
 | Agent | Role | Write access | Tools |
 |---|---|---|---|
-| `orchestrator` | Top-level coordinator | Full workspace | All file tools, `askuserquestion`, `bash`, `task`, `taskstatus`, `todoread`, `todowrite`, `webfetch`, `websearch` |
+| `orchestrator` | Top-level coordinator | Full workspace | All file tools, `askuserquestion`, `bash`, `task`, `taskstatus`, `todoread`, `todowrite`, `webfetch`, `websearch`, `loadskill`, `enterplanmode`, `exitplanmode` |
 | `planner` | Architecture and planning | `.vesvai/plans/` only | File tools write-scoped to plans, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `developer` | Implementation | Full workspace except `.vesvai/plans/` | All file tools, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `explorer` | Read-only research | None | `glob`, `grep`, `list`, `read`, `bash`, `webfetch`, `websearch` |
+
+The **planner** always runs in plan mode: the plan-mode system reminder is attached
+automatically and the agent never exits it, reinforcing its read-only role.
 
 All agents share a common system prompt that establishes the interaction style
 (tone, proactiveness, code conventions), injects the working environment, git
@@ -51,6 +54,12 @@ subagent:
 Foreground mode (`background: false`) blocks until the subagent completes or fails,
 then returns its result directly. Background mode returns a confirmation immediately
 and lets the orchestrator continue; results arrive as system reminders.
+
+While a background subagent is running, the orchestrator receives a **standing
+system reminder** on every message telling it the subagent is working in the
+background and that it may continue its own work or finish its turn — the system
+wakes it when the subagent completes. The standing reminder is removed automatically
+once no background subagent of the same run is left running.
 
 To spawn multiple subagents in parallel, issue multiple `task` tool calls in a
 single message.
@@ -119,9 +128,10 @@ Status values: `pending`, `running`, `completed`, `failed`, `interrupted`.
 
 ## Resuming subagents
 
-Subagents persist across sessions. Their state is stored in
-`.vesvai/subagents.json` and they keep their full conversation history. To resume a
-finished subagent, call `task` again with the **same name**:
+Subagents are scoped to the session that spawned them, like todos. Their state is
+stored per session in `.vesvai/subagents/<session-id>.json` and they keep their full
+conversation history. To resume a finished subagent from the **same session**, call
+`task` again with the **same name**:
 
 ```json
 {
@@ -132,18 +142,20 @@ finished subagent, call `task` again with the **same name**:
 ```
 
 The subagent resumes with its complete prior context. Use this to iterate on
-completed work without losing context.
+completed work without losing context. A new session starts with an empty subagent
+list — subagents from other sessions are neither listed nor resumable.
 
 Only spawn a fresh subagent with a new name when no relevant prior subagent exists.
 
 ## Persistence and restart
 
-Subagent state is persisted to `.vesvai/subagents.json` in the project directory.
-If Vesvai restarts while subagents are running, those subagents are marked
+Subagent state is persisted to `.vesvai/subagents/<session-id>.json` in the project
+directory. If Vesvai restarts while subagents are running, those subagents are marked
 `interrupted` (with reason "app restarted"). You can inspect them with
 `taskstatus` and resume one by re-spawning with the same name.
 
-Subagent conversations are also stored as sessions, so their history is durable and
+Subagent conversations are also stored as sessions — titled
+`<parent session title> - <subagent name>` — so their history is durable and
 replayable.
 
 ## `/batch` orchestration

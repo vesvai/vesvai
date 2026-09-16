@@ -4,7 +4,7 @@ icon: lucide/wrench
 
 # Tools
 
-Tools are the functions the model can call. Vesvai ships with 17 built-in tools and
+Tools are the functions the model can call. Vesvai ships with 18 built-in tools and
 registers additional tools from connected [MCP servers](mcp.md). Custom tools can be
 added with the [SDK](../../sdk/extending.md).
 
@@ -176,6 +176,34 @@ performs a partial update. Dependencies are stored and displayed but not enforce
 | `dependsOn` | string[] | no | Todo ids this task depends on |
 | `action` | string | no | Set to `delete` to remove the todo |
 
+## Plan mode
+
+### `enterplanmode`
+
+Enter plan mode: attaches a standing **plan-mode reminder** that is injected into
+every LLM request until `exitplanmode` is called. While active the agent is
+read-only and must only research and plan. The tool call itself requires user
+approval (`ask` by default).
+
+### `exitplanmode`
+
+Leave plan mode: removes the standing plan-mode reminder. Requires user approval
+(`ask` by default).
+
+## Skills
+
+### `loadskill`
+
+Load a skill by name. Returns the skill's `<skill:...>` block as a tool result, or —
+for skills with `context: fork` — spawns a background subagent from a forked session
+and returns a confirmation. See [Skills](skills.md). The same effect is triggered
+automatically when a message contains `/skill-name`.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Skill name |
+| `arguments` | object | no | Values substituted into `$arg_name` placeholders |
+
 ## Subagents
 
 See [Subagents](../features/subagents.md) for the full workflow.
@@ -192,7 +220,7 @@ Registered agent types for `task`: `orchestrator`, `explorer`, `planner`, and
 
 | Agent | Tools |
 |---|---|
-| `orchestrator` | All file tools, `askuserquestion`, `bash`, `task`, `taskstatus`, `todoread`, `todowrite`, `webfetch`, `websearch` |
+| `orchestrator` | All file tools, `askuserquestion`, `bash`, `task`, `taskstatus`, `todoread`, `todowrite`, `webfetch`, `websearch`, `loadskill`, `enterplanmode`, `exitplanmode` |
 | `planner` | File tools write-scoped to `.vesvai/plans`, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `developer` | All file tools, `bash`, `webfetch`, `websearch`, `todoread`, `todowrite` |
 | `explorer` | `glob`, `grep`, `list`, `read`, `bash`, `webfetch`, `websearch` |
@@ -205,11 +233,12 @@ built-in defaults:
 | Tool | Default mode |
 |---|---|
 | `read`, `write`, `edit`, `delete`, `list`, `glob`, `grep` | `semi-ask` |
-| `bash` | `semi-judge` (whitelisted commands run directly) |
+| `bash` | `semi-judge` (whitelisted bare commands run directly) |
 | `todoread`, `todowrite` | `allow` |
 | `task`, `taskstatus` | `allow` |
+| `webfetch`, `websearch`, `loadskill` | `allow` |
+| `enterplanmode`, `exitplanmode` | `ask` |
 | `askuserquestion` | `allow` (never gated) |
-| `websearch`, `webfetch` | `semi-ask` |
 
 Override any tool with the `permission.rules` map in [Config](../config.md#permission).
 MCP tools default to the configured `permission.default`.

@@ -29,8 +29,9 @@ to `ask`.
 | `read`, `write`, `edit`, `delete`, `list`, `glob`, `grep` | `semi-ask` |
 | `bash` | `semi-judge` |
 | `todoread`, `todowrite`, `task`, `taskstatus` | `allow` |
+| `webfetch`, `websearch`, `loadskill` | `allow` |
+| `enterplanmode`, `exitplanmode` | `ask` |
 | `askuserquestion` | `allow` (never gated) |
-| `websearch`, `webfetch` | `semi-ask` |
 
 MCP tools default to `permission.default`. Override any tool with the
 `permission.rules` map:
@@ -53,6 +54,11 @@ root — absolute paths outside the workspace, `..` traversal, symlink escapes �
 with an out-of-bounds error. `.gitignore` and `.vesvaignore` rules hide ignored
 files.
 
+The project's `.vesvai/` directory is readable by all agents (sessions, todos, plan
+files), but only `.vesvai/plans/` is writable; other `.vesvai` paths return an
+ignored error on write. The planner agent is additionally write-scoped to
+`.vesvai/plans/` and the explorer is read-only.
+
 For `semi-ask` / `semi-judge`, the tool runs first: if it succeeds, no prompt or
 judge is involved. Only an out-of-bounds result triggers the gate. After the user or
 judge approves a path, the call is re-run with that specific path permitted. An
@@ -64,13 +70,14 @@ The planner agent is write-scoped to `.vesvai/plans/`; the explorer is read-only
 
 `bash` uses `semi-judge`, but simple, safe commands never reach the judge:
 
-- The command starts with a whitelisted binary — `go`, `npm`, `ls`, `pwd`, `node`,
-  or `git` — **and**
+- The command starts with a **bare** whitelisted binary — `go`, `npm`, `ls`, `pwd`,
+  `node`, or `git` — **and**
 - Contains no shell metacharacters (`;`, `|`, `&`, `>`, `<`, `$`, whitespace
   control chars, `&&`, `||`).
 
-Everything else is gated. Interactive shells or destructive commands therefore
-trigger a judge or prompt, while `git status` and `npm run build` run directly.
+Path-qualified commands (`/bin/ls`, `./tool`) are never allowed. Everything else is
+gated. Interactive shells or destructive commands therefore trigger a judge or
+prompt, while `git status` and `npm run build` run directly.
 
 ## The prompt flow
 
