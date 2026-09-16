@@ -789,6 +789,40 @@ func TestVesvaiReadableButOnlyPlansWritable(t *testing.T) {
 	}
 }
 
+func TestWriteOnlyRestriction(t *testing.T) {
+	root := t.TempDir()
+	fs := newTestVFS(t, root)
+	if _, err := fs.Write("main.go", []byte("package main")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := fs.SetWriteOnly(PlansDir); err != nil {
+		t.Fatalf("SetWriteOnly: %v", err)
+	}
+	if _, err := fs.Write(PlansDir+"/plan.md", []byte("plan")); err != nil {
+		t.Fatalf("write into write-only scope: %v", err)
+	}
+	if _, err := fs.Write("main.go", []byte("x")); !errors.Is(err, ErrIgnored) {
+		t.Fatalf("write outside write-only scope: got %v, want ErrIgnored", err)
+	}
+	if _, err := fs.Edit("main.go", "package", "package2", false); !errors.Is(err, ErrIgnored) {
+		t.Fatalf("edit outside write-only scope: got %v, want ErrIgnored", err)
+	}
+	if err := fs.Delete("main.go"); !errors.Is(err, ErrIgnored) {
+		t.Fatalf("delete outside write-only scope: got %v, want ErrIgnored", err)
+	}
+	if data, err := fs.Read("main.go"); err != nil {
+		t.Fatalf("reads must stay allowed in write-only mode: %v", err)
+	} else if !strings.Contains(data, "package main") {
+		t.Fatalf("read = %q", data)
+	}
+
+	fs.ClearWriteOnly()
+	if _, err := fs.Write("main.go", []byte("package main2")); err != nil {
+		t.Fatalf("write after ClearWriteOnly: %v", err)
+	}
+}
+
 func TestConcurrentAccess(t *testing.T) {
 	root := t.TempDir()
 	fs := newTestVFS(t, root)

@@ -45,6 +45,9 @@ func exitplanmodeTool(fs *vfs.VFS) tool.Tool {
 				return "", fmt.Errorf("exitplanmode: no parent agent in context")
 			}
 			parent.DetachReminder()
+			if fs != nil {
+				fs.ClearWriteOnly()
+			}
 			return "Plan mode disabled. You may now make changes and execute the approved plan.", nil
 		},
 	)

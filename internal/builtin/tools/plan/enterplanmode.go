@@ -46,6 +46,11 @@ func enterplanmodeTool(fs *vfs.VFS) tool.Tool {
 				return "", fmt.Errorf("enterplanmode: no parent agent in context")
 			}
 			parent.AttachReminder(PlanModeReminder())
+			if fs != nil {
+				if err := fs.SetWriteOnly(vfs.PlansDir); err != nil {
+					return "", fmt.Errorf("enterplanmode: restrict writes: %w", err)
+				}
+			}
 			return "Plan mode enabled. You are now in READ-ONLY planning mode and must not make any edits or run any non-readonly tools until the user approves a plan. Call exitplanmode when the plan is ready for approval.", nil
 		},
 	)
