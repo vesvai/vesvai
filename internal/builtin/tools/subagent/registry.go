@@ -425,13 +425,16 @@ func (r *registry) finish(sa *SubAgent, output string, err error) {
 
 	if sa.Background && sa.ParentAgentID != "" {
 		if parent, ok := r.parents[sa.ParentAgentID]; ok {
-			var r reminder.Reminder
+			var rem reminder.Reminder
 			if err != nil {
-				r = reminder.SubAgentFailed(sa.Name, sa.TaskIDs, err.Error())
+				rem = reminder.SubAgentFailed(sa.Name, sa.TaskIDs, err.Error())
 			} else {
-				r = reminder.SubAgentDone(sa.Name, sa.TaskIDs, output)
+				rem = reminder.SubAgentDone(sa.Name, sa.TaskIDs, output)
 			}
-			parent.QueueNotification(r)
+			parent.QueueNotification(rem)
+			if !r.otherBackgroundRunning(sa.ParentAgentID, sa) {
+				parent.DetachReminder()
+			}
 			if parent.Bus != nil {
 				n := agent.SubAgentNotification{
 					ParentAgentID: sa.ParentAgentID,
@@ -449,6 +452,20 @@ func (r *registry) finish(sa *SubAgent, output string, err error) {
 
 	r.mu.Unlock()
 	r.saveFor(sa)
+}
+
+func (r *registry) otherBackgroundRunning(parentID string, except *SubAgent) bool {
+	for _, ss := range r.sessions {
+		for _, sa := range ss.agents {
+			if sa == except || sa.ParentAgentID != parentID || !sa.Background {
+				continue
+			}
+			if !sa.finished {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *registry) get(name string, parent *agent.Agent) (SubAgent, bool) {

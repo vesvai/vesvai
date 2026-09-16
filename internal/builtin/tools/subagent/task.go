@@ -10,10 +10,16 @@ import (
 	"github.com/vesvai/vesvai/internal/agent"
 	"github.com/vesvai/vesvai/internal/agent/agents"
 	"github.com/vesvai/vesvai/internal/agent/prompt"
+	"github.com/vesvai/vesvai/internal/agent/reminder"
 	"github.com/vesvai/vesvai/internal/agent/tool"
 	"github.com/vesvai/vesvai/internal/llm"
 	"github.com/vesvai/vesvai/internal/session"
 )
+
+func backgroundReminder(name string) reminder.Reminder {
+	content := fmt.Sprintf("Subagent %q is working in the background. You may continue your own work or finish your turn; the system will wake you up when the subagent finishes. Do NOT wait for it.", name)
+	return reminder.New("background_subagent", content, "agent", name)
+}
 
 func agentOutput(res *agent.RunResult, runErr error) string {
 	if res != nil && strings.TrimSpace(res.Output) != "" {
@@ -169,6 +175,7 @@ func subAgentTool() tool.Tool {
 				}
 
 				if params.Background {
+					parent.AttachReminder(backgroundReminder(params.Name))
 					go runAgent(context.Background())
 					return fmt.Sprintf("Resumed subagent %q in background with existing context.\n", params.Name), nil
 				}
@@ -220,6 +227,7 @@ func subAgentTool() tool.Tool {
 			}
 
 			if params.Background {
+				parent.AttachReminder(backgroundReminder(params.Name))
 				go runAgent(context.Background())
 				return fmt.Sprintf("Started subagent in background: %s\n", params.Name), nil
 			}

@@ -453,6 +453,66 @@ func TestSubagentSessionFollowsResume(t *testing.T) {
 	}
 }
 
+func TestSubAgentTool_BackgroundAttachesStandingReminder(t *testing.T) {
+	tt, _ := tools.Get("task")
+
+	parent := agent.New("reminder-parent", agent.WithBus(testBus))
+	parent.Provider = stubProvider{}
+	parent.Model = llm.Model{ID: "stub-model"}
+	ctx := agent.WithAgent(context.Background(), parent)
+
+	args := singleArgs(t, spec("bg-rem-1", "sub-agent", "do x", map[string]any{"background": true}))
+	if _, err := tt.Execute(ctx, args); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	r := parent.StandingReminder()
+	if r == nil {
+		t.Fatal("background task must attach a standing reminder")
+	}
+	if r.Tag != "background_subagent" {
+		t.Fatalf("tag = %q, want background_subagent", r.Tag)
+	}
+	if !strings.Contains(r.Content, "bg-rem-1") {
+		t.Fatalf("reminder content missing subagent name: %q", r.Content)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		sa, _ := store.get("bg-rem-1", nil)
+		if sa.Status == StatusCompleted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("background subagent not completed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if r := parent.StandingReminder(); r != nil {
+		t.Fatalf("standing reminder must be detached when the background subagent finishes, got %+v", r)
+	}
+	if !parent.HasPendingNotifications() {
+		t.Fatal("finished notification must be queued for the parent")
+	}
+}
+
+func TestSubAgentTool_ForegroundDoesNotAttachReminder(t *testing.T) {
+	tt, _ := tools.Get("task")
+
+	parent := agent.New("fg-reminder-parent", agent.WithBus(testBus))
+	parent.Provider = stubProvider{}
+	parent.Model = llm.Model{ID: "stub-model"}
+	ctx := agent.WithAgent(context.Background(), parent)
+
+	if _, err := tt.Execute(ctx, singleArgs(t, spec("fg-rem-1", "sub-agent", "do x"))); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if r := parent.StandingReminder(); r != nil {
+		t.Fatalf("foreground task must not attach a standing reminder, got %+v", r)
+	}
+}
+
 func TestIsSubagentSession(t *testing.T) {
 	sa, err := store.spawn("sess-test-global-1", "sub-agent", nil, false, nil)
 	if err != nil {
