@@ -675,7 +675,23 @@ func (c *Chat) toolLines(it *ChatItem, width int) []Line {
 	}
 
 	if it.ToolErr != "" {
-		left := c.toolStatusLine(it, width, '✖', th.Error, " ✖ "+formatDuration(it.Duration))
+		if it.Expanded {
+			left := c.toolStatusLine(it, width, '✖', th.Error, " ✖ "+formatDuration(it.Duration))
+			var lines []Line
+			lines = append(lines, left)
+			bodyStyle := th.Base().Foreground(th.Error).Background(th.Background)
+			wrapped := WrapText(it.ToolErr, bodyStyle, width-4)
+			for _, ln := range wrapped {
+				row := Line{{R: ' ', S: th.Base()}, {R: ' ', S: th.Base()}}
+				row = append(row, ln...)
+				lines = append(lines, row)
+			}
+			lines = append(lines, LineFromSegments([]Segment{
+				{Text: "  [Enter] Collapse", Style: th.Base().Foreground(th.Muted).Background(th.Background)},
+			}, width))
+			return lines
+		}
+		left := c.toolStatusLine(it, width, '✖', th.Error, " ✖ "+formatDuration(it.Duration)+"  [Enter] Expand")
 		return []Line{left}
 	}
 
