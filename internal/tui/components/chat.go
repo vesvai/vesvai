@@ -232,6 +232,7 @@ func (c *Chat) scrollBy(delta int) {
 	}
 	if off < 0 && c.hasMore && c.onLoadMore != nil {
 		c.onLoadMore()
+		return
 	}
 	c.setScroll(off)
 }

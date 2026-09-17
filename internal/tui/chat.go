@@ -741,7 +741,7 @@ func (a *App) loadMore() {
 	items := messagesToItems(older)
 	if len(items) > 0 {
 		a.main.items = append(items, a.main.items...)
-		a.showTranscript(a.main)
+		a.chat.PrependItems(items)
 		a.chat.SetBack(false)
 	}
 }
