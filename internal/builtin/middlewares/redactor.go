@@ -292,12 +292,14 @@ func (r *redactor) redactMessage(m *llm.Message, toolCalls bool) {
 					part["text"] = r.Redact(t)
 				}
 			case "tool_calls":
-				if calls, ok := part["tool_calls"].([]any); ok {
-					for _, tc := range calls {
-						if cm, ok := tc.(map[string]any); ok {
-							if fn, ok := cm["function"].(map[string]any); ok {
-								if args, ok := fn["arguments"].(string); ok {
-									fn["arguments"] = r.Redact(args)
+				if toolCalls {
+					if calls, ok := part["tool_calls"].([]any); ok {
+						for _, tc := range calls {
+							if cm, ok := tc.(map[string]any); ok {
+								if fn, ok := cm["function"].(map[string]any); ok {
+									if args, ok := fn["arguments"].(string); ok {
+										fn["arguments"] = r.Redact(args)
+									}
 								}
 							}
 						}

@@ -221,3 +221,37 @@ func TestRedactMessageToolCallsFlag(t *testing.T) {
 		t.Errorf("tool calls must be redacted when toolCalls=true")
 	}
 }
+
+func TestRedactMessageToolCallsInContentFlag(t *testing.T) {
+	r := newRedactor()
+	args := `{"url":"postgres://admin:s3cret@db.example.com:5432/myapp"}`
+	m := llm.Message{Content: []any{
+		map[string]any{"type": "text", "text": "connecting"},
+		map[string]any{"type": "tool_calls", "tool_calls": []any{
+			map[string]any{
+				"type": "function",
+				"id":   "call_1",
+				"function": map[string]any{
+					"name":      "db_connect",
+					"arguments": args,
+				},
+			},
+		}},
+	}}
+
+	r.redactMessage(&m, false)
+	parts := m.Content.([]any)
+	tcPart := parts[1].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
+	fnArgs := tcPart["function"].(map[string]any)["arguments"].(string)
+	if !strings.Contains(fnArgs, "s3cret") {
+		t.Errorf("tool_calls in content must NOT be redacted when toolCalls=false, got: %s", fnArgs)
+	}
+
+	r.redactMessage(&m, true)
+	parts = m.Content.([]any)
+	tcPart = parts[1].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
+	fnArgs = tcPart["function"].(map[string]any)["arguments"].(string)
+	if strings.Contains(fnArgs, "s3cret") {
+		t.Errorf("tool_calls in content must be redacted when toolCalls=true")
+	}
+}
