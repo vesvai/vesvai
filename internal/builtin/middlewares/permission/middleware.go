@@ -32,27 +32,8 @@ var validModes = map[Mode]bool{
 	ModeJudge:     true,
 }
 
-var builtinDefaults = map[string]Mode{
-	"read":   ModeSemiAsk,
-	"write":  ModeSemiAsk,
-	"edit":   ModeSemiAsk,
-	"delete": ModeSemiAsk,
-	"list":   ModeSemiAsk,
-	"glob":   ModeSemiAsk,
-	"grep":   ModeSemiAsk,
-
-	"bash": ModeSemiJudge,
-
-	"todo":       ModeAllow,
-	"todoread":   ModeAllow,
-	"todowrite":  ModeAllow,
-	"webfetch":   ModeAllow,
-	"websearch":  ModeAllow,
-	"task":       ModeAllow,
-	"taskstatus": ModeAllow,
-
-	"enterplanmode": ModeAsk,
-	"exitplanmode":  ModeAsk,
+func AllModes() []Mode {
+	return []Mode{ModeAllow, ModeSemiAsk, ModeAsk, ModeSemiJudge, ModeJudge}
 }
 
 const defaultMode = ModeSemiAsk
@@ -85,6 +66,10 @@ func New(deps Deps) *Middleware {
 	return m
 }
 
+func (m *Middleware) UpdateConfig(cfg *config.PermissionConfig) {
+	m.cfg = cfg
+}
+
 func (m *Middleware) judge() *agent.Agent {
 	if m.judgeAgent != nil {
 		return m.judgeAgent
@@ -101,17 +86,11 @@ func (m *Middleware) judge() *agent.Agent {
 }
 
 func (m *Middleware) modeFor(name string) Mode {
-	if name == "askuserquestion" {
-		return ModeAllow
-	}
 	if m.cfg != nil {
 		if r, ok := m.cfg.Rules[name]; ok {
 			return parseMode(r)
 		}
 		return parseMode(m.cfg.Default)
-	}
-	if mode, ok := builtinDefaults[name]; ok {
-		return mode
 	}
 	return defaultMode
 }

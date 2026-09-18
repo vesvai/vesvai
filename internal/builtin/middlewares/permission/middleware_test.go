@@ -69,7 +69,10 @@ func respondToAsks(bus event.Bus, agentID string, decision, reason map[string]st
 }
 
 func TestModeResolution(t *testing.T) {
-	m := testMiddleware(t, Deps{})
+	m := testMiddleware(t, Deps{Config: &config.PermissionConfig{
+		Default: "semi-ask",
+		Rules:   config.DefaultConfig().Permission.Rules,
+	}})
 	if got := m.modeFor("read"); got != ModeSemiAsk {
 		t.Errorf("read = %v, want semi-ask", got)
 	}
@@ -88,8 +91,8 @@ func TestModeResolution(t *testing.T) {
 	if got := m.modeFor("exitplanmode"); got != ModeAsk {
 		t.Errorf("exitplanmode = %v, want ask", got)
 	}
-	if got := m.modeFor("unknown-tool"); got != defaultMode {
-		t.Errorf("unknown tool = %v, want %v", got, defaultMode)
+	if got := m.modeFor("unknown-tool"); got != ModeSemiAsk {
+		t.Errorf("unknown tool = %v, want semi-ask (default)", got)
 	}
 
 	mc := New(Deps{Config: &config.PermissionConfig{
@@ -156,7 +159,10 @@ func TestPlanModeToolsAskByDefault(t *testing.T) {
 	ctx := agent.WithAgent(context.Background(), a)
 	respondToAsks(bus, a.ID, map[string]string{"decision": "Allow"}, nil, nil)
 
-	m := testMiddleware(t, Deps{})
+	m := testMiddleware(t, Deps{Config: &config.PermissionConfig{
+		Default: "semi-ask",
+		Rules:   config.DefaultConfig().Permission.Rules,
+	}})
 	var runs int
 	_, err := m.InvokeTool(ctx, llm.ToolCall{Function: llm.Function{Name: "enterplanmode", Arguments: "{}"}}, func(ctx context.Context, call llm.ToolCall) (string, error) {
 		runs++
@@ -174,7 +180,10 @@ func TestPlanModeToolsDeniedWithoutApproval(t *testing.T) {
 	a, _ := testAgent(t)
 	ctx := agent.WithAgent(context.Background(), a)
 
-	m := testMiddleware(t, Deps{})
+	m := testMiddleware(t, Deps{Config: &config.PermissionConfig{
+		Default: "semi-ask",
+		Rules:   config.DefaultConfig().Permission.Rules,
+	}})
 	var runs int
 	_, err := m.InvokeTool(ctx, llm.ToolCall{Function: llm.Function{Name: "exitplanmode", Arguments: "{}"}}, func(ctx context.Context, call llm.ToolCall) (string, error) {
 		runs++
@@ -277,7 +286,10 @@ func TestSemiAskPermissionErrorAsksAndReruns(t *testing.T) {
 	ctx := agent.WithAgent(context.Background(), a)
 	respondToAsks(bus, a.ID, map[string]string{"decision": "Allow"}, nil, nil)
 
-	m := testMiddleware(t, Deps{})
+	m := testMiddleware(t, Deps{Config: &config.PermissionConfig{
+		Default: "semi-ask",
+		Rules:   config.DefaultConfig().Permission.Rules,
+	}})
 	fs.OnAccessCheck(m.AccessChecker)
 	var runs int
 	output, err := m.InvokeTool(ctx, llm.ToolCall{Function: llm.Function{Name: "read", Arguments: `{"filePath": "` + outside + `"}`}}, func(ctx context.Context, call llm.ToolCall) (string, error) {
@@ -303,7 +315,10 @@ func TestSemiAskNonPermissionErrorPassesThrough(t *testing.T) {
 	asks := 0
 	respondToAsks(bus, a.ID, map[string]string{"decision": "Allow"}, nil, &asks)
 
-	m := testMiddleware(t, Deps{})
+	m := testMiddleware(t, Deps{Config: &config.PermissionConfig{
+		Default: "semi-ask",
+		Rules:   config.DefaultConfig().Permission.Rules,
+	}})
 	_, err := m.InvokeTool(ctx, llm.ToolCall{Function: llm.Function{Name: "read", Arguments: `{"filePath": "missing.txt"}`}}, func(ctx context.Context, call llm.ToolCall) (string, error) {
 		return "", vfs.ErrNotFound
 	})

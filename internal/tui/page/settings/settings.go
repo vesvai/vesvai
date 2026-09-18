@@ -22,9 +22,10 @@ const (
 	tabSkills
 	tabRules
 	tabPlugins
+	tabPermissions
 )
 
-var tabNames = []string{"General", "Session", "MCP", "Skills", "Rules", "Plugins"}
+var tabNames = []string{"General", "Session", "MCP", "Skills", "Rules", "Plugins", "Permissions"}
 
 type selectedModel struct {
 	provider string
@@ -44,14 +45,15 @@ type SessionInfo struct {
 type Settings struct {
 	deps Deps
 
-	tab     tabKind
-	tabs    *components.Tabs
-	general *generalTab
-	mcp     *mcpTab
-	skills  *skillsTab
-	rules   *rulesTab
-	session *sessionTab
-	plugins *pluginsTab
+	tab         tabKind
+	tabs        *components.Tabs
+	general     *generalTab
+	mcp         *mcpTab
+	skills      *skillsTab
+	rules       *rulesTab
+	session     *sessionTab
+	plugins     *pluginsTab
+	permissions *permissionsTab
 
 	active *SessionInfo
 
@@ -77,6 +79,7 @@ func New(deps Deps) *Settings {
 	s.rules = newRules(s)
 	s.session = newSessionTab(s)
 	s.plugins = newPlugins(s)
+	s.permissions = newPermissions(s)
 	return s
 }
 
@@ -196,6 +199,26 @@ func (s *Settings) HandleKey(ev *tcell.EventKey) bool {
 			s.onClose()
 		}
 		return true
+	}
+
+	if s.tab == tabPermissions {
+		if s.permissions.HandleKey(ev) {
+			return true
+		}
+		switch ev.Key() {
+		case tcell.KeyTab, tcell.KeyRight:
+			s.nextTab()
+			s.permissions.focusOnPresets()
+			return true
+		case tcell.KeyLeft:
+			s.prevTab()
+			s.permissions.focusOnPresets()
+			return true
+		}
+		return false
+	}
+
+	switch ev.Key() {
 	case tcell.KeyTab, tcell.KeyRight:
 		s.nextTab()
 		return true
@@ -203,6 +226,7 @@ func (s *Settings) HandleKey(ev *tcell.EventKey) bool {
 		s.prevTab()
 		return true
 	}
+
 	switch s.tab {
 	case tabGeneral:
 		return s.general.HandleKey(ev)
@@ -255,11 +279,26 @@ func (s *Settings) Draw(screen tcell.Screen, bounds layout.Region, focused bool)
 		s.rules.Draw(screen, content, focused)
 	case tabPlugins:
 		s.plugins.Draw(screen, content, focused)
+	case tabPermissions:
+		s.permissions.Draw(screen, content, focused)
 	}
 
 	if s.errMsg != "" {
 		components.DrawText(screen, inner.Left+1, content.Bottom(), components.TruncateTo(s.errMsg, inner.Width-2),
 			th.Base().Foreground(tcell.ColorRed).Background(th.InputBg))
 	}
-	components.DrawFooter(screen, inner, "Tab / ← → switch tab  Esc close")
+	if s.tab == tabPermissions {
+		focusHint := ""
+		switch s.permissions.focus {
+		case permFocusTabs:
+			focusHint = "←/→ switch tab  ↓ presets"
+		case permFocusPresets:
+			focusHint = "←/→ preset  ↓ tools  ↑ tabs"
+		case permFocusTools:
+			focusHint = "←/→ mode  ↑ presets  Esc close"
+		}
+		components.DrawFooter(screen, inner, focusHint)
+	} else {
+		components.DrawFooter(screen, inner, "Tab / ← → switch tab  Esc close")
+	}
 }
