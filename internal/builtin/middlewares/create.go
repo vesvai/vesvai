@@ -17,19 +17,16 @@ func Create(fs *vfs.VFS, deps Deps) {
 	middlewares.Register("loop-detector", NewLoopDetector())
 	middlewares.Register("redaction", NewRedaction())
 	middlewares.Register("retry", NewRetry())
+	var permCfg *config.PermissionConfig
+	if deps.Config != nil {
+		permCfg = deps.Config.Permission
+	}
 	perm := permission.New(permission.Deps{
-		Config: permissionConfig(deps.Config),
+		Config: permCfg,
 		LLM:    deps.LLM,
 	})
 	middlewares.Register("permission", perm)
 	if fs != nil {
 		fs.OnAccessCheck(perm.AccessChecker)
 	}
-}
-
-func permissionConfig(cfg *config.Config) *config.PermissionConfig {
-	if cfg == nil {
-		return nil
-	}
-	return cfg.Permission
 }

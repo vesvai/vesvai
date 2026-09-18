@@ -100,6 +100,29 @@ func DefaultConfig() *Config {
 			Port: 8080,
 		},
 		Theme: "dark",
+		Permission: &PermissionConfig{
+			Default: "semi-ask",
+			Rules: map[string]string{
+				"read":            "semi-ask",
+				"write":           "semi-ask",
+				"edit":            "semi-ask",
+				"delete":          "semi-ask",
+				"list":            "semi-ask",
+				"glob":            "semi-ask",
+				"grep":            "semi-ask",
+				"bash":            "semi-judge",
+				"todo":            "allow",
+				"todoread":        "allow",
+				"todowrite":       "allow",
+				"webfetch":        "allow",
+				"websearch":       "allow",
+				"task":            "allow",
+				"taskstatus":      "allow",
+				"askuserquestion": "allow",
+				"enterplanmode":   "ask",
+				"exitplanmode":    "ask",
+			},
+		},
 		Plugins: PluginConfig{
 			Enabled: true,
 		},
@@ -284,6 +307,15 @@ func SaveTheme(theme string) error {
 	}
 	cfg.Theme = theme
 	return Save(cfg)
+}
+
+func UpsertPermission(cfg *PermissionConfig) error {
+	c, err := Load()
+	if err != nil {
+		return err
+	}
+	c.Permission = cfg
+	return Save(c)
 }
 
 func TogglePlugin(name string) (bool, error) {

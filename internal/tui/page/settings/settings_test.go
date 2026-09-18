@@ -63,12 +63,18 @@ func TestSettingsTabs(t *testing.T) {
 		t.Errorf("after Right tab = %v, want Plugins", s.tab)
 	}
 	s.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0))
+	if s.tab != tabPermissions {
+		t.Errorf("after Right tab = %v, want Permissions", s.tab)
+	}
+	s.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, 0))
+	s.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, 0))
+	s.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0))
 	if s.tab != tabGeneral {
 		t.Errorf("after wrap tab = %v, want General", s.tab)
 	}
 	s.HandleKey(tcell.NewEventKey(tcell.KeyLeft, 0, 0))
-	if s.tab != tabPlugins {
-		t.Errorf("after Left tab = %v, want Plugins", s.tab)
+	if s.tab != tabPermissions {
+		t.Errorf("after Left tab = %v, want Permissions", s.tab)
 	}
 }
 
