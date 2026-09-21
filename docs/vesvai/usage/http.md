@@ -159,6 +159,9 @@ event: agent
 data: {"type":"tool_result","tool_name":"read","tool_output":"Path: README.md ..."}
 
 event: agent
+data: {"type":"compaction","strategy":"sliding-window","messages":30,"tokens":8120}
+
+event: agent
 data: {"type":"done","done":true,"usage":{"prompt_tokens":812,"completion_tokens":96,"total_tokens":908}}
 
 event: done
@@ -167,7 +170,7 @@ data: {"type":"done","done":true,"usage":{"prompt_tokens":812,"completion_tokens
 
 | Event name | Meaning |
 |---|---|
-| `agent` | A stream event (`token`, `tool_call`, `tool_result`, or the internal `done`) |
+| `agent` | A stream event (`token`, `tool_call`, `tool_result`, `compaction`, or the internal `done`) |
 | `error` | `{"error": "..."}` — the run failed |
 | `done` | Final event with usage |
 
@@ -185,9 +188,16 @@ Each event's `data` payload has these fields (empty fields omitted):
   "tool_output": "…",
   "error": "…",
   "usage": { "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0 },
+  "strategy": "…",
+  "messages": 0,
+  "tokens": 0,
   "done": false
 }
 ```
+
+When the context is compacted mid-run, an event with `"type":"compaction"` is
+emitted carrying the `strategy` used, the number of messages the model now sees
+(`messages`), and the prompt token count at compaction time (`tokens`).
 
 !!! note
 

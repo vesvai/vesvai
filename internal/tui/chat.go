@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/vesvai/vesvai/internal/agent"
+	"github.com/vesvai/vesvai/internal/builtin/middlewares/compaction"
 	"github.com/vesvai/vesvai/internal/core/event"
 	"github.com/vesvai/vesvai/internal/llm"
 	"github.com/vesvai/vesvai/internal/session"
@@ -93,8 +94,10 @@ func (a *App) subscribeChat(bus event.Bus) error {
 		{agent.TopicErrorMessage, a.onErrorMessage},
 		{agent.TopicErrorMessageFinished, a.onErrorMessageFinished},
 		{session.TopicSessionAttached, a.onSessionAttached},
+		{session.TopicSessionCompacted, a.onSessionCompacted},
 		{agent.TopicAgentAsk, a.onAgentAsk},
 		{agent.TopicSubAgentNotification, a.onSubAgentNotification},
+		{compaction.TopicCompactionFinished, a.onCompactionFinished},
 	}
 	for _, s := range subs {
 		if err := bus.Subscribe(s.topic, s.fn); err != nil {
@@ -121,8 +124,10 @@ func (a *App) unsubscribeChat(bus event.Bus) {
 		{agent.TopicErrorMessage, a.onErrorMessage},
 		{agent.TopicErrorMessageFinished, a.onErrorMessageFinished},
 		{session.TopicSessionAttached, a.onSessionAttached},
+		{session.TopicSessionCompacted, a.onSessionCompacted},
 		{agent.TopicAgentAsk, a.onAgentAsk},
 		{agent.TopicSubAgentNotification, a.onSubAgentNotification},
+		{compaction.TopicCompactionFinished, a.onCompactionFinished},
 	}
 	for _, s := range subs {
 		_ = bus.Unsubscribe(s.topic, s.fn)
@@ -380,6 +385,16 @@ func (a *App) onErrorMessageFinished(e agent.ErrorMessageFinished) {
 	a.requestRedraw()
 }
 
+func (a *App) onCompactionFinished(e compaction.Event) {
+	a.chatMu.Lock()
+	defer a.chatMu.Unlock()
+	t := a.transcriptFor(e.AgentID, e.AgentName)
+	text := fmt.Sprintf("↻ Context compacted (%s) — %d messages, %d tokens", e.Strategy, e.Messages, e.Tokens)
+	it := &components.ChatItem{Kind: components.ItemCompaction, ID: e.AgentID, Text: text}
+	a.appendItem(t, it)
+	a.refreshChat()
+}
+
 func (a *App) onAgentAsk(e agent.AgentAsk) {
 	qs := make([]components.AskQuestion, len(e.Questions))
 	for i, q := range e.Questions {
@@ -432,9 +447,23 @@ func (a *App) onSessionAttached(e session.SessionAttached) {
 		return
 	}
 	if a.session == nil {
-		a.session = &activeSession{info: settings.SessionInfo{ID: e.SessionID}}
+		a.session = &activeSession{info: settings.SessionInfo{ID: e.SessionID}, viewID: e.SessionID}
 		a.refreshHomeLocked()
 	}
+}
+
+func (a *App) onSessionCompacted(e session.SessionCompacted) {
+	a.chatMu.Lock()
+	defer a.chatMu.Unlock()
+	if a.session == nil || a.session.info.ID != e.ParentSessionID {
+		return
+	}
+	a.session.info.ID = e.SessionID
+	a.session.info.CompactionParentID = e.ParentSessionID
+	if a.session.viewID == e.ParentSessionID {
+		a.session.viewID = e.SessionID
+	}
+	a.requestRedraw()
 }
 
 func (a *App) addToolItem(t *agentTranscript, call llm.ToolCall, agentID string) {
@@ -715,7 +744,11 @@ func (a *App) loadMore() {
 	if !a.chat.HasMore() || a.session == nil || a.deps.Sessions == nil || a.viewID != mainID {
 		return
 	}
-	msgs, err := a.deps.Sessions.Messages(a.session.info.ID)
+	viewID := a.session.viewID
+	if viewID == "" {
+		viewID = a.session.info.ID
+	}
+	msgs, err := a.deps.Sessions.Messages(viewID)
 	if err != nil {
 		a.chat.SetHasMore(false)
 		return
@@ -727,7 +760,7 @@ func (a *App) loadMore() {
 		}
 	}
 	if len(older) == 0 {
-		a.chat.SetHasMore(false)
+		a.loadParentSessionLocked()
 		return
 	}
 	sort.Slice(older, func(i, j int) bool { return older[i].Seq < older[j].Seq })
@@ -737,13 +770,51 @@ func (a *App) loadMore() {
 		older = older[len(older)-batch:]
 	}
 	a.loadedFloor = older[0].Seq
-	a.chat.SetHasMore(moreBelow)
+	a.chat.SetHasMore(moreBelow || a.session.info.CompactionParentID != "")
 	items := messagesToItems(older)
 	if len(items) > 0 {
 		a.main.items = append(items, a.main.items...)
 		a.chat.PrependItems(items)
 		a.chat.SetBack(false)
 	}
+}
+
+func (a *App) loadParentSessionLocked() {
+	parentID := a.session.info.CompactionParentID
+	if parentID == "" {
+		a.chat.SetHasMore(false)
+		return
+	}
+	parent, err := a.deps.Sessions.Get(parentID)
+	if err != nil {
+		a.chat.SetHasMore(false)
+		return
+	}
+	msgs, err := a.deps.Sessions.Messages(parentID)
+	if err != nil {
+		a.chat.SetHasMore(false)
+		return
+	}
+	const batch = 50
+	moreBelow := len(msgs) > batch
+	if moreBelow {
+		msgs = msgs[len(msgs)-batch:]
+	}
+	if len(msgs) == 0 {
+		a.session.info.CompactionParentID = parent.CompactionParentID
+		a.session.viewID = parentID
+		a.loadParentSessionLocked()
+		return
+	}
+	a.loadedFloor = msgs[0].Seq
+	divider := &components.ChatItem{Kind: components.ItemCompactionDivider, Text: "context compacted"}
+	items := append([]*components.ChatItem{divider}, messagesToItems(msgs)...)
+	a.main.items = append(items, a.main.items...)
+	a.chat.PrependItems(items)
+	a.chat.SetHasMore(moreBelow || parent.CompactionParentID != "")
+	a.chat.SetBack(false)
+	a.session.viewID = parentID
+	a.session.info.CompactionParentID = parent.CompactionParentID
 }
 
 func messagesToItems(msgs []session.Message) []*components.ChatItem {

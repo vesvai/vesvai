@@ -182,6 +182,28 @@ func TestSSEEventWithUsage(t *testing.T) {
 	}
 }
 
+func TestSSEEventWithCompaction(t *testing.T) {
+	event := SSEEvent{
+		Type:     "compaction",
+		Strategy: "sliding-window",
+		Messages: 30,
+		Tokens:   8000,
+	}
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	var decoded SSEEvent
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if decoded.Type != "compaction" || decoded.Strategy != "sliding-window" || decoded.Messages != 30 || decoded.Tokens != 8000 {
+		t.Fatalf("decoded = %+v", decoded)
+	}
+}
+
 func TestSSEEventEmptyFields(t *testing.T) {
 	event := SSEEvent{}
 	data, err := json.Marshal(event)

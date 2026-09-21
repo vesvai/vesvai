@@ -56,8 +56,7 @@ var allModes = []string{"allow", "semi-ask", "ask", "semi-judge", "judge"}
 type permFocus int
 
 const (
-	permFocusTabs permFocus = iota
-	permFocusPresets
+	permFocusPresets permFocus = iota
 	permFocusTools
 )
 
@@ -77,11 +76,7 @@ type permissionsTab struct {
 }
 
 func newPermissions(s *Settings) *permissionsTab {
-	return &permissionsTab{settings: s, focus: permFocusTools}
-}
-
-func (t *permissionsTab) focusOnPresets() {
-	t.focus = permFocusPresets
+	return &permissionsTab{settings: s, focus: permFocusPresets}
 }
 
 func (t *permissionsTab) loadIfNeeded() {
@@ -107,16 +102,12 @@ func (t *permissionsTab) HandleKey(ev *tcell.EventKey) bool {
 				t.focus = permFocusPresets
 			}
 		} else if t.focus == permFocusPresets {
-			t.focus = permFocusTabs
-		} else {
 			return false
 		}
 		return true
 
 	case tcell.KeyDown:
-		if t.focus == permFocusTabs {
-			t.focus = permFocusPresets
-		} else if t.focus == permFocusPresets {
+		if t.focus == permFocusPresets {
 			t.focus = permFocusTools
 		} else {
 			if t.toolIdx < len(t.tools)-1 {
@@ -126,9 +117,6 @@ func (t *permissionsTab) HandleKey(ev *tcell.EventKey) bool {
 		return true
 
 	case tcell.KeyLeft:
-		if t.focus == permFocusTabs {
-			return false
-		}
 		if t.focus == permFocusPresets {
 			t.presetIdx = (t.presetIdx - 1 + len(presetNames)) % len(presetNames)
 			t.applyPreset(permPreset(t.presetIdx))
@@ -140,9 +128,6 @@ func (t *permissionsTab) HandleKey(ev *tcell.EventKey) bool {
 		return true
 
 	case tcell.KeyRight:
-		if t.focus == permFocusTabs {
-			return false
-		}
 		if t.focus == permFocusPresets {
 			t.presetIdx = (t.presetIdx + 1) % len(presetNames)
 			t.applyPreset(permPreset(t.presetIdx))
@@ -154,10 +139,7 @@ func (t *permissionsTab) HandleKey(ev *tcell.EventKey) bool {
 		return true
 
 	case tcell.KeyTab:
-		if t.focus == permFocusTabs {
-			return false
-		}
-		return true
+		return false
 
 	case tcell.KeyPgUp:
 		t.toolIdx -= 10
@@ -186,7 +168,7 @@ func (t *permissionsTab) HandleKey(ev *tcell.EventKey) bool {
 			if t.focus == permFocusPresets {
 				t.presetIdx = (t.presetIdx - 1 + len(presetNames)) % len(presetNames)
 				t.applyPreset(permPreset(t.presetIdx))
-			} else if t.focus == permFocusTools && t.toolIdx >= 0 && t.toolIdx < len(t.tools) {
+			} else if t.toolIdx >= 0 && t.toolIdx < len(t.tools) {
 				t.cycleMode(t.toolIdx)
 			}
 			return true
@@ -194,7 +176,7 @@ func (t *permissionsTab) HandleKey(ev *tcell.EventKey) bool {
 			if t.focus == permFocusPresets {
 				t.presetIdx = (t.presetIdx + 1) % len(presetNames)
 				t.applyPreset(permPreset(t.presetIdx))
-			} else if t.focus == permFocusTools && t.toolIdx >= 0 && t.toolIdx < len(t.tools) {
+			} else if t.toolIdx >= 0 && t.toolIdx < len(t.tools) {
 				t.cycleModeRev(t.toolIdx)
 			}
 			return true

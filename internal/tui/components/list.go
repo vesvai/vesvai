@@ -129,9 +129,15 @@ func (l *List) End() {
 func (l *List) HandleKey(ev *tcell.EventKey) bool {
 	switch ev.Key() {
 	case tcell.KeyUp:
+		if l.index == 0 {
+			return false
+		}
 		l.MoveUp()
 		return true
 	case tcell.KeyDown:
+		if len(l.filtered) == 0 || l.index >= len(l.filtered)-1 {
+			return false
+		}
 		l.MoveDown()
 		return true
 	case tcell.KeyPgUp:

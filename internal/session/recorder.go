@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/vesvai/vesvai/internal/agent"
+	"github.com/vesvai/vesvai/internal/builtin/middlewares/compaction"
 	"github.com/vesvai/vesvai/internal/core/event"
 	"github.com/vesvai/vesvai/internal/core/logger"
 	"github.com/vesvai/vesvai/internal/llm"
@@ -61,6 +62,7 @@ func (r *Recorder) Start(bus event.Bus) error {
 		{agent.TopicAgentFinished, r.handleFinished},
 		{agent.TopicAgentError, r.handleError},
 		{TopicSessionResume, r.handleResume},
+		{compaction.TopicCompactionFinished, r.handleCompaction},
 	}
 	for _, s := range subs {
 		if err := bus.Subscribe(s.topic, s.fn); err != nil {
@@ -83,6 +85,7 @@ func (r *Recorder) Stop(bus event.Bus) error {
 		{agent.TopicAgentFinished, r.handleFinished},
 		{agent.TopicAgentError, r.handleError},
 		{TopicSessionResume, r.handleResume},
+		{compaction.TopicCompactionFinished, r.handleCompaction},
 	}
 	var firstErr error
 	for _, s := range subs {
@@ -378,4 +381,26 @@ func (r *Recorder) handleFinished(e agent.AgentFinished) {
 			r.log.Fdebug("session recorder: accumulate usage: %v", err)
 		}
 	}
+}
+
+func (r *Recorder) handleCompaction(e compaction.Event) {
+	r.mu.Lock()
+	info, ok := r.sessions[e.AgentID]
+	r.mu.Unlock()
+	if !ok {
+		return
+	}
+	oldID := info.sessionID
+
+	newSess, err := r.mgr.CompactSession(oldID, e.CompactedMessages, e.Strategy)
+	if err != nil {
+		r.log.Fdebug("session recorder: compact session: %v", err)
+		return
+	}
+
+	r.mu.Lock()
+	info.sessionID = newSess.ID
+	r.mu.Unlock()
+
+	r.log.Fdebug("session recorder: compacted session %s -> %s (%s)", oldID, newSess.ID, e.Strategy)
 }

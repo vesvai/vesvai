@@ -149,6 +149,10 @@ func (s *Server) handleRunStream(w http.ResponseWriter, ctx context.Context, orc
 					sseEvent.ToolName = ev.ToolCall.Function.Name
 				}
 				sseEvent.ToolOutput = ev.ToolOutput
+			case agent.StreamCompaction:
+				sseEvent.Strategy = ev.Strategy
+				sseEvent.Messages = ev.Messages
+				sseEvent.Tokens = ev.Tokens
 			case agent.StreamDone:
 				sseEvent.Done = true
 				if ev.Usage != nil {
@@ -310,6 +314,9 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	q := query.Query{
 		Page: query.Page{Number: page, Size: size},
 		Sort: []query.Sort{{Column: "updated_at", Dir: query.Desc}},
+		Filters: []query.Filter{
+			{Column: "compaction_parent_id", Operator: query.OpEqual, Value: ""},
+		},
 	}
 
 	sessions, total, err := s.sessions.List(q)

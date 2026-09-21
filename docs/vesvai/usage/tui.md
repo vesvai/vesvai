@@ -158,16 +158,19 @@ transcript. Press ++esc++ or click the back header to return. See
 
 ## Settings
 
-Open with ++ctrl+p++. The overlay has five tabs; switch with ++tab++, ++left++, or
-++right++.
+Open with ++ctrl+p++. The overlay has seven tabs; switch with ++left++/++right++ when
+the tab bar is focused. Press ++down++ to enter the tab content, ++up++ to return to
+the tab bar.
 
 | Tab | Contents |
 |---|---|
 | **General** | Provider (add or reconfigure), Model (searchable list), Theme, Reasoning effort |
-| **Session** | Load session, New session, Delete session, Change title |
+| **Session** | Load/New/Delete session, Change title, Compaction settings |
 | **MCP** | Connected MCP servers and their tools |
 | **Skills** | Loaded skills with descriptions |
 | **Rules** | Global and project rule files |
+| **Plugins** | Installed plugins with enable/disable toggle |
+| **Permissions** | Preset selector and per-tool permission modes |
 
 - **Provider** — configure an existing provider again or add a new one by pasting an
   API key into a masked field.
@@ -179,6 +182,53 @@ Open with ++ctrl+p++. The overlay has five tabs; switch with ++tab++, ++left++, 
 - **Session → Delete** — asks for confirmation before permanently removing the
   session.
 - **Session → Change title** — edit the generated session title.
+- **Session → Compaction** — configure context compaction (see below).
+
+### Compaction settings
+
+Below the session management rows, the Session tab includes compaction configuration.
+Navigate to a row with ++up++/++down++. Toggle switches (Enabled and the strategy
+checkboxes) with ++enter++ or ++left++/++right++; adjust numeric values with
+++left++/++right++:
+
+| Setting | Values | Description |
+|---|---|---|
+| **Enabled** | on / off | Master toggle for compaction (Enter or arrows) |
+| **`[x] tool-clearing`** | checkbox | Truncate oversized tool outputs (multiple strategies can be active) |
+| **`[x] sliding-window`** | checkbox | Drop older messages past the threshold |
+| **`[ ] summarization`** | checkbox | Summarize history with a dedicated LLM call |
+| **Threshold** | 10%–100% (step 5) | Context usage % that triggers compaction |
+| **Max messages** | 5–200 (step 5) | Messages kept in sliding-window mode |
+| **Max tool output** | 500–20000 chars (step 500) | Truncation limit for tool output |
+
+Strategies are independent checkboxes: any combination is allowed, including none
+(compaction then does nothing until a strategy is re-enabled).
+
+Changes save immediately to `~/.vesvai/vesvai.json`.
+
+### Compaction persistence
+
+Compaction does not destroy your history. When the context is compacted, the
+compacted messages are saved to a **new session linked to the current one**, forming
+a chain. The original session keeps every message it had; the newest session in the
+chain holds the compacted view plus everything said afterwards.
+
+- Loading a session always opens the **newest session in its chain** — you see the
+  latest compacted conversation first.
+- Scrolling to the top of the transcript loads the earlier (pre-compaction)
+  conversation, marked with an `─ context compacted ─` divider, and keeps
+  walking back through the chain as you continue scrolling.
+- Resuming a session re-applies compaction to the loaded history (sliding-window
+  and tool-clearing), so resumed conversations stay within the context budget.
+- While chatting, a compacted run shows a `↻ Context compacted (...)` item in the
+  transcript.
+
+### Permissions tab
+
+The Permissions tab has its own internal navigation. When focused on the tab bar,
+++left++/++right++ switches tabs. Press ++down++ to enter the presets, ++down++ again
+to reach the tool list. In the tool list, ++left++/++right++ cycles the permission
+mode for the selected tool. ++up++ from presets returns to the tab bar.
 
 ## Themes
 

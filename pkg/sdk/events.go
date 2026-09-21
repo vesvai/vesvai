@@ -43,3 +43,7 @@ func (e *Engine) OnAgentFinished(fn func(AgentFinished)) (func(), error) {
 func (e *Engine) OnAgentError(fn func(AgentError)) (func(), error) {
 	return e.Subscribe(TopicAgentError, fn)
 }
+
+func (e *Engine) OnCompaction(fn func(CompactionEvent)) (func(), error) {
+	return e.Subscribe(TopicCompactionFinished, fn)
+}

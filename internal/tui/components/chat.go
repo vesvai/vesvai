@@ -22,6 +22,8 @@ const (
 	ItemSubagent
 	ItemFinished
 	ItemError
+	ItemCompaction
+	ItemCompactionDivider
 )
 
 type ChatItem struct {
@@ -508,6 +510,16 @@ func (c *Chat) itemLines(it *ChatItem, width int) []Line {
 		th := styles.Current()
 		return []Line{LineFromSegments([]Segment{
 			{Text: "✖ error: " + it.Text, Style: th.Base().Foreground(th.Error).Bold(true).Background(th.Background)},
+		}, width)}
+	case ItemCompaction:
+		th := styles.Current()
+		return []Line{LineFromSegments([]Segment{
+			{Text: "  " + it.Text, Style: th.Base().Foreground(th.Muted).Background(th.Background)},
+		}, width)}
+	case ItemCompactionDivider:
+		th := styles.Current()
+		return []Line{LineFromSegments([]Segment{
+			{Text: "─ " + it.Text + " ─", Style: th.Base().Foreground(th.Muted).Background(th.Background)},
 		}, width)}
 	}
 	return nil

@@ -98,6 +98,41 @@ Controls when tools may run. See [Permissions](features/permissions.md).
 | `judge_provider` | string | — | Provider used by the judge LLM. Falls back to the preferred model |
 | `judge_model` | string | — | Model used by the judge LLM |
 
+### `compaction`
+
+Controls how Vesvai manages context window pressure. Configurable from the
+TUI in Settings → Session → Compaction.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | `true` | Master toggle for compaction |
+| `strategy` | string[] | `["tool-clearing", "sliding-window"]` | Ordered list of strategies to try. Options: `tool-clearing`, `sliding-window`, `summarization` |
+| `threshold` | float | `80` | Percentage of the model's context window that triggers compaction |
+| `max_messages` | int | `50` | Maximum recent messages to keep in sliding-window mode |
+| `max_tool_output_chars` | int | `4000` | Character limit for tool outputs; longer outputs are truncated |
+| `summarizer_provider` | string | — | Provider for the summarization strategy. Falls back to the agent's provider |
+| `summarizer_model` | string | — | Model for the summarization strategy. Falls back to the agent's model |
+
+**Strategies:**
+
+- **tool-clearing** — truncates individual tool output messages exceeding
+  `max_tool_output_chars`. Applied passively on every LLM call.
+- **sliding-window** — when the threshold is reached, keeps only the most recent N
+  messages (calculated from token budget, falling back to `max_messages`).
+- **summarization** — when the threshold is reached, uses a dedicated LLM agent to
+  compress the conversation history into a summary. Falls back to sliding-window on
+  failure.
+
+**Persistence:** When a compaction runs, Vesvai does not overwrite the original
+conversation. Instead, the compacted messages are stored in a **new session linked
+to the previous one** (a linked-list chain of sessions). The original session keeps
+its full history; the newest session in the chain holds the compacted messages and
+everything that follows. Loading a session always opens the newest session in its
+chain first — the compacted view — and scrolling up walks back through earlier
+(pre-compaction) conversations. When a session is resumed, compaction thresholds are
+re-checked against the loaded history, so sliding-window and tool-clearing also apply
+to resumed sessions.
+
 ### `mcp_servers`
 
 Map of server name to [MCP server config](configurations/mcp.md).
@@ -159,6 +194,13 @@ Map of server name to [language server config](configurations/lsp.md).
     "judge_provider": "openai",
     "judge_model": "gpt-4o-mini",
     "rules": { "bash": "ask", "write": "allow" }
+  },
+  "compaction": {
+    "enabled": true,
+    "strategy": ["tool-clearing", "sliding-window"],
+    "threshold": 80,
+    "max_messages": 50,
+    "max_tool_output_chars": 4000
   },
   "mcp_servers": {
     "db": {

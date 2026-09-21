@@ -13,6 +13,7 @@ import (
 	"github.com/vesvai/vesvai/internal/agent/agents"
 	"github.com/vesvai/vesvai/internal/builtin/agents/orchestrator"
 	"github.com/vesvai/vesvai/internal/builtin/middlewares"
+	"github.com/vesvai/vesvai/internal/builtin/middlewares/compaction"
 	"github.com/vesvai/vesvai/internal/builtin/tools/ask"
 	"github.com/vesvai/vesvai/internal/builtin/tools/loadskill"
 	"github.com/vesvai/vesvai/internal/builtin/tools/plan"
@@ -139,6 +140,31 @@ func TestRunRendererHidesSubagent(t *testing.T) {
 	for _, hidden := range []string{"explorer result", "tool glob", "result glob", `"pattern"`} {
 		if strings.Contains(out, hidden) {
 			t.Fatalf("subagent %q must be hidden without --show-subagent: %q", hidden, out)
+		}
+	}
+}
+
+func TestRunRendererShowsCompaction(t *testing.T) {
+	bus := event.New()
+	var buf bytes.Buffer
+	r := newRunRenderer(&buf, nil, "main-1", false, false)
+	if err := r.subscribe(bus); err != nil {
+		t.Fatal(err)
+	}
+	defer r.unsubscribe(bus)
+
+	bus.Publish(compaction.TopicCompactionFinished, compaction.Event{
+		AgentID:   "main-1",
+		AgentName: "orchestrator",
+		Strategy:  "sliding-window",
+		Messages:  30,
+		Tokens:    8000,
+	})
+
+	out := buf.String()
+	for _, want := range []string{"Context compacted", "sliding-window", "30 messages", "8000 tokens"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q: %q", want, out)
 		}
 	}
 }

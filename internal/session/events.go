@@ -11,6 +11,7 @@ const (
 	TopicSessionCurrentChanged = "session.current.changed"
 	TopicSessionResume         = "session.resume"
 	TopicSessionAttached       = "session.attached"
+	TopicSessionCompacted      = "session.compacted"
 )
 
 type SessionResume struct {
@@ -59,4 +60,11 @@ type SessionRestored struct {
 
 type SessionCurrentChanged struct {
 	SessionID string
+}
+
+type SessionCompacted struct {
+	SessionID       string
+	ParentSessionID string
+	Strategy        string
+	MessageCount    int
 }

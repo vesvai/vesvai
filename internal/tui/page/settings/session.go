@@ -1,12 +1,14 @@
 package settings
 
 import (
+	"fmt"
 	"os"
 	"sort"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
 
+	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/session"
 	"github.com/vesvai/vesvai/internal/tui/components"
 	"github.com/vesvai/vesvai/internal/tui/layout"
@@ -14,14 +16,61 @@ import (
 	"github.com/vesvai/vesvai/internal/utils/query"
 )
 
+func newSessionTab(s *Settings) *sessionTab { return &sessionTab{settings: s} }
+
 type sessionTab struct {
 	settings *Settings
 	index    int
+
+	compEnabled    bool
+	compStrategyOn []bool
+	compThresh     int
+	compMaxMsg     int
+	compMaxTool    int
+	compLoaded     bool
 }
 
-func newSessionTab(s *Settings) *sessionTab { return &sessionTab{settings: s} }
+var compStrategies = []string{"tool-clearing", "sliding-window", "summarization"}
 
 const sessionRowCount = 4
+const compSectionStart = sessionRowCount + 2
+const compStrategyCount = 3
+const compRowCount = 1 + compStrategyCount + 3
+
+func (t *sessionTab) loadCompaction() {
+	if t.compLoaded {
+		return
+	}
+	t.compLoaded = true
+	t.compStrategyOn = make([]bool, compStrategyCount)
+	cfg := t.settings.deps.Config
+	if cfg != nil && cfg.Compaction != nil {
+		c := cfg.Compaction
+		t.compEnabled = c.Enabled
+		t.compThresh = int(c.Threshold)
+		t.compMaxMsg = c.MaxMessages
+		t.compMaxTool = c.MaxToolOutputChars
+		for i, s := range compStrategies {
+			for _, cs := range c.Strategy {
+				if s == cs {
+					t.compStrategyOn[i] = true
+					break
+				}
+			}
+		}
+	} else {
+		t.compEnabled = true
+		t.compStrategyOn[0] = true
+		t.compStrategyOn[1] = true
+		t.compThresh = 80
+		t.compMaxMsg = 50
+		t.compMaxTool = 4000
+	}
+}
+
+func (t *sessionTab) totalRows() int {
+	return compSectionStart + compRowCount
+}
 
 func (t *sessionTab) rowEnabled(i int) bool {
 	if i == 2 || i == 3 {
@@ -31,38 +80,139 @@ func (t *sessionTab) rowEnabled(i int) bool {
 }
 
 func (t *sessionTab) HandleKey(ev *tcell.EventKey) bool {
+	t.loadCompaction()
 	switch ev.Key() {
 	case tcell.KeyUp:
 		if t.index > 0 {
 			t.index--
-		}
-		return true
-	case tcell.KeyDown:
-		if t.index < sessionRowCount-1 {
-			t.index++
-		}
-		return true
-	case tcell.KeyEnter:
-		if !t.rowEnabled(t.index) {
 			return true
 		}
-		switch t.index {
-		case 0:
-			t.settings.openSessionList()
-		case 1:
-			t.settings.newSession()
-		case 2:
-			t.settings.openDeleteConfirm()
-		case 3:
-			t.settings.openTitle()
+		return false
+	case tcell.KeyDown:
+		if t.index < t.totalRows()-1 {
+			t.index++
+			return true
 		}
-		return true
+		return false
+	case tcell.KeyLeft:
+		if t.index >= compSectionStart {
+			t.adjustComp(false)
+			return true
+		}
+	case tcell.KeyRight:
+		if t.index >= compSectionStart {
+			t.adjustComp(true)
+			return true
+		}
+	case tcell.KeyEnter:
+		if t.index < sessionRowCount {
+			if !t.rowEnabled(t.index) {
+				return true
+			}
+			switch t.index {
+			case 0:
+				t.settings.openSessionList()
+			case 1:
+				t.settings.newSession()
+			case 2:
+				t.settings.openDeleteConfirm()
+			case 3:
+				t.settings.openTitle()
+			}
+			return true
+		}
+		if t.index >= compSectionStart {
+			t.toggleCompRow()
+			return true
+		}
 	}
 	return false
 }
 
+func (t *sessionTab) adjustComp(right bool) {
+	switch t.index {
+	case compSectionStart:
+		t.compEnabled = !t.compEnabled
+	case compSectionStart + 1, compSectionStart + 2, compSectionStart + 3:
+		i := t.index - compSectionStart - 1
+		t.compStrategyOn[i] = !t.compStrategyOn[i]
+	case compSectionStart + 4:
+		dir := 1
+		if !right {
+			dir = -1
+		}
+		t.compThresh += dir * 5
+		if t.compThresh < 10 {
+			t.compThresh = 10
+		}
+		if t.compThresh > 100 {
+			t.compThresh = 100
+		}
+	case compSectionStart + 5:
+		dir := 1
+		if !right {
+			dir = -1
+		}
+		t.compMaxMsg += dir * 5
+		if t.compMaxMsg < 5 {
+			t.compMaxMsg = 5
+		}
+		if t.compMaxMsg > 200 {
+			t.compMaxMsg = 200
+		}
+	case compSectionStart + 6:
+		dir := 1
+		if !right {
+			dir = -1
+		}
+		t.compMaxTool += dir * 500
+		if t.compMaxTool < 500 {
+			t.compMaxTool = 500
+		}
+		if t.compMaxTool > 20000 {
+			t.compMaxTool = 20000
+		}
+	}
+	t.saveCompaction()
+}
+
+func (t *sessionTab) toggleCompRow() {
+	switch t.index {
+	case compSectionStart:
+		t.compEnabled = !t.compEnabled
+	case compSectionStart + 1, compSectionStart + 2, compSectionStart + 3:
+		i := t.index - compSectionStart - 1
+		t.compStrategyOn[i] = !t.compStrategyOn[i]
+	default:
+		return
+	}
+	t.saveCompaction()
+}
+
+func (t *sessionTab) saveCompaction() {
+	strategy := []string{}
+	for i, on := range t.compStrategyOn {
+		if on {
+			strategy = append(strategy, compStrategies[i])
+		}
+	}
+	cfg := &config.CompactionConfig{
+		Enabled:            t.compEnabled,
+		Strategy:           strategy,
+		Threshold:          float64(t.compThresh),
+		MaxMessages:        t.compMaxMsg,
+		MaxToolOutputChars: t.compMaxTool,
+	}
+	_ = config.UpsertCompaction(cfg)
+	if t.settings.deps.Config != nil {
+		t.settings.deps.Config.Compaction = cfg
+	}
+}
+
 func (t *sessionTab) Draw(screen tcell.Screen, bounds layout.Region, _ bool) {
+	t.loadCompaction()
 	th := styles.Current()
+
 	rows := []struct {
 		label, value string
 	}{
@@ -72,6 +222,7 @@ func (t *sessionTab) Draw(screen tcell.Screen, bounds layout.Region, _ bool) {
 		{"Change title", ""},
 	}
 	for i, r := range rows {
+		y := bounds.Top + i
 		style := th.Base().Background(th.InputBg)
 		marker := "  "
 		enabled := t.rowEnabled(i)
@@ -85,11 +236,63 @@ func (t *sessionTab) Draw(screen tcell.Screen, bounds layout.Region, _ bool) {
 		if !enabled {
 			label += " (no active session)"
 		}
-		components.DrawText(screen, bounds.Left+1, bounds.Top+i, marker+label, style)
+		components.DrawText(screen, bounds.Left+1, y, marker+label, style)
 		if r.value != "" {
-			components.DrawText(screen, bounds.Right()-len(r.value)-3, bounds.Top+i, r.value, style)
+			components.DrawText(screen, bounds.Right()-len(r.value)-3, y, r.value, style)
 		}
 	}
+
+	sepY := bounds.Top + sessionRowCount + 1
+	sepStyle := th.Base().Foreground(th.Muted).Background(th.InputBg)
+	components.DrawText(screen, bounds.Left+1, sepY, "── Compaction ──────────────────────────", sepStyle)
+
+	compRows := []struct {
+		label string
+		value string
+	}{
+		{"Enabled", t.enabledLabel()},
+	}
+	for i, name := range compStrategies {
+		cb := "[ ]"
+		if t.compStrategyOn[i] {
+			cb = "[x]"
+		}
+		compRows = append(compRows, struct {
+			label string
+			value string
+		}{label: cb + " " + name})
+	}
+	compRows = append(compRows,
+		[]struct {
+			label string
+			value string
+		}{
+			{"Threshold", fmt.Sprintf("%d%%", t.compThresh)},
+			{"Max messages", fmt.Sprintf("%d", t.compMaxMsg)},
+			{"Max tool output", fmt.Sprintf("%d chars", t.compMaxTool)},
+		}...,
+	)
+	for i, r := range compRows {
+		y := bounds.Top + compSectionStart + i
+		rowIdx := compSectionStart + i
+		style := th.Base().Background(th.InputBg)
+		marker := "  "
+		if rowIdx == t.index {
+			style = th.Base().Foreground(th.InputText).Background(th.Selection)
+			marker = "> "
+		}
+		components.DrawText(screen, bounds.Left+1, y, marker+r.label, style)
+		if r.value != "" {
+			components.DrawText(screen, bounds.Right()-len(r.value)-3, y, r.value, style)
+		}
+	}
+}
+
+func (t *sessionTab) enabledLabel() string {
+	if t.compEnabled {
+		return "on"
+	}
+	return "off"
 }
 
 func (t *sessionTab) activeValue() string {
@@ -112,6 +315,9 @@ func (s *Settings) openSessionList() {
 	sessions, _, err := s.deps.Sessions.List(query.Query{
 		Page: query.Page{Number: 1, Size: 200},
 		Sort: []query.Sort{{Column: "updated_at", Dir: query.Desc}},
+		Filters: []query.Filter{
+			{Column: "compaction_parent_id", Operator: query.OpEqual, Value: ""},
+		},
 	})
 	if err == nil {
 		if dir, werr := os.Getwd(); werr == nil {
@@ -153,26 +359,31 @@ func (s *Settings) loadSession(id string) {
 		s.back()
 		return
 	}
-	sess, err := s.deps.Sessions.Get(id)
+	latest, err := s.deps.Sessions.LatestInChain(id)
 	if err != nil {
-		s.errMsg = "failed to load session: " + err.Error()
-		s.back()
-		return
+		latest, err = s.deps.Sessions.Get(id)
+		if err != nil {
+			s.errMsg = "failed to load session: " + err.Error()
+			s.back()
+			return
+		}
 	}
-	msgs, err := s.deps.Sessions.Messages(id)
+	sess := latest
+	msgs, err := s.deps.Sessions.Messages(sess.ID)
 	if err != nil {
 		s.errMsg = "failed to load messages: " + err.Error()
 		s.back()
 		return
 	}
 	info := SessionInfo{
-		ID:              sess.ID,
-		Title:           sess.Title,
-		Provider:        sess.Provider,
-		Model:           sess.Model,
-		ReasoningEffort: sess.ReasoningEffort,
-		Messages:        msgs,
-		Usage:           sess.Usage,
+		ID:                 sess.ID,
+		Title:              sess.Title,
+		Provider:           sess.Provider,
+		Model:              sess.Model,
+		ReasoningEffort:    sess.ReasoningEffort,
+		CompactionParentID: sess.CompactionParentID,
+		Messages:           msgs,
+		Usage:              sess.Usage,
 	}
 	s.active = &info
 	s.errMsg = ""

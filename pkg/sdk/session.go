@@ -69,6 +69,9 @@ func (e *Engine) ListSessions(page, size int) ([]Session, int, error) {
 	return e.sessions.List(query.Query{
 		Page: query.Page{Number: page, Size: size},
 		Sort: []query.Sort{{Column: "updated_at", Dir: query.Desc}},
+		Filters: []query.Filter{
+			{Column: "compaction_parent_id", Operator: query.OpEqual, Value: ""},
+		},
 	})
 }
 
@@ -91,10 +94,12 @@ func sessionListQuery(projectDir string) query.Query {
 		Page: query.Page{Number: 1, Size: 20},
 		Sort: []query.Sort{{Column: "updated_at", Dir: query.Desc}},
 	}
-	if projectDir != "" {
-		q.Filters = []query.Filter{
-			{Column: "project_dir", Operator: query.OpEqual, Value: projectDir},
-		}
+	filters := []query.Filter{
+		{Column: "compaction_parent_id", Operator: query.OpEqual, Value: ""},
 	}
+	if projectDir != "" {
+		filters = append(filters, query.Filter{Column: "project_dir", Operator: query.OpEqual, Value: projectDir})
+	}
+	q.Filters = filters
 	return q
 }

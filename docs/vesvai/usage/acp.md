@@ -174,6 +174,10 @@ The server pushes `session/update` notifications:
 | `tool_call_update` | A tool call completes (`toolCallId`, `status: "completed"`) |
 | `usage_update` | After a run with token usage (`used`, `size`, `cost`) |
 
+When the context is compacted mid-run, an `agent_message_chunk` notification is
+emitted with the text `[Context compacted (<strategy>) — <messages> messages,
+<tokens> tokens]`.
+
 The `usage_update` payload uses a fixed `size` of `200000` and a USD cost object.
 
 ## Transports

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
+	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/core/event"
 	"github.com/vesvai/vesvai/internal/core/logger"
 	"github.com/vesvai/vesvai/internal/llm"
@@ -174,15 +175,15 @@ func TestSessionTabNavigation(t *testing.T) {
 	if st.index != 1 {
 		t.Errorf("after Down index = %d, want 1", st.index)
 	}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 20; i++ {
 		st.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, 0))
 	}
-	if st.index != sessionRowCount-1 {
-		t.Errorf("index should clamp at %d, got %d", sessionRowCount-1, st.index)
+	if st.index != st.totalRows()-1 {
+		t.Errorf("index should clamp at %d, got %d", st.totalRows()-1, st.index)
 	}
 	st.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, 0))
-	if st.index != sessionRowCount-2 {
-		t.Errorf("after Up index = %d, want %d", st.index, sessionRowCount-2)
+	if st.index != st.totalRows()-2 {
+		t.Errorf("after Up index = %d, want %d", st.totalRows()-2, st.index)
 	}
 }
 
@@ -226,5 +227,94 @@ func TestSessionTabNewClosesModal(t *testing.T) {
 	}
 	if s.active != nil {
 		t.Error("active session should be cleared")
+	}
+}
+
+func TestSessionTabCompactionCheckboxes(t *testing.T) {
+	s := New(Deps{})
+	st := s.session
+	st.loadCompaction()
+
+	// Defaults: enabled, tool-clearing + sliding-window on.
+	if !st.compEnabled {
+		t.Error("compaction should default to enabled")
+	}
+	if !st.compStrategyOn[0] || !st.compStrategyOn[1] || st.compStrategyOn[2] {
+		t.Errorf("default strategies = %+v, want [true true false]", st.compStrategyOn)
+	}
+
+	// Navigate to the first strategy row (Enabled row index 6, then +1).
+	st.index = compSectionStart + 1
+	st.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0))
+	if st.compStrategyOn[0] {
+		t.Error("Right on tool-clearing should toggle it off")
+	}
+	st.HandleKey(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+	if !st.compStrategyOn[0] {
+		t.Error("Enter on tool-clearing should toggle it back on")
+	}
+
+	// Selecting "none" is allowed: turn all off.
+	for i := 0; i < compStrategyCount; i++ {
+		if st.compStrategyOn[i] {
+			st.index = compSectionStart + 1 + i
+			st.HandleKey(tcell.NewEventKey(tcell.KeyLeft, 0, 0))
+		}
+	}
+	for i, on := range st.compStrategyOn {
+		if on {
+			t.Errorf("strategy %d should be off after clearing all", i)
+		}
+	}
+}
+
+func TestSessionTabCompactionEnabledArrows(t *testing.T) {
+	s := New(Deps{})
+	st := s.session
+	st.loadCompaction()
+
+	st.index = compSectionStart
+	start := st.compEnabled
+
+	st.HandleKey(tcell.NewEventKey(tcell.KeyLeft, 0, 0))
+	if st.compEnabled == start {
+		t.Error("Left on Enabled should toggle compaction")
+	}
+	st.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0))
+	if st.compEnabled != start {
+		t.Error("Right on Enabled should toggle back")
+	}
+}
+
+func TestSessionTabCompactionSaveMultiStrategy(t *testing.T) {
+	s := New(Deps{Config: config.DefaultConfig()})
+	st := s.session
+	st.loadCompaction()
+
+	// Toggle: keep tool-clearing, add summarization, drop sliding-window.
+	st.index = compSectionStart + 2
+	st.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0)) // sliding-window off
+	st.index = compSectionStart + 3
+	st.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0)) // summarization on
+
+	cfg := s.deps.Config
+	if cfg == nil || cfg.Compaction == nil {
+		t.Fatal("compaction config not persisted")
+	}
+	got := cfg.Compaction
+	if got.Enabled != true {
+		t.Errorf("enabled = %v, want true", got.Enabled)
+	}
+	want := []string{"tool-clearing", "summarization"}
+	if len(got.Strategy) != len(want) {
+		t.Fatalf("strategy = %v, want %v", got.Strategy, want)
+	}
+	for i, w := range want {
+		if got.Strategy[i] != w {
+			t.Errorf("strategy[%d] = %q, want %q", i, got.Strategy[i], w)
+		}
+	}
+	if got.Threshold != float64(st.compThresh) || got.MaxMessages != st.compMaxMsg || got.MaxToolOutputChars != st.compMaxTool {
+		t.Errorf("numeric settings not saved: %+v", got)
 	}
 }

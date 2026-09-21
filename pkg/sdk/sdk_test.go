@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vesvai/vesvai/internal/agent"
 	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/llm"
 )
@@ -185,5 +186,25 @@ func TestChatAfterClose(t *testing.T) {
 	}
 	if _, err := eng.Chat(context.Background(), ChatRequest{Input: "hello"}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("Chat after close err = %v, want ErrClosed", err)
+	}
+}
+
+func TestMapStreamEventCompaction(t *testing.T) {
+	ev := mapStreamEvent(agent.StreamEvent{
+		Type:      agent.StreamCompaction,
+		AgentID:   "a1",
+		AgentName: "orchestrator",
+		Strategy:  "sliding-window",
+		Messages:  30,
+		Tokens:    8000,
+	})
+	if ev.Type != EventCompaction {
+		t.Fatalf("type = %q, want %q", ev.Type, EventCompaction)
+	}
+	if ev.Strategy != "sliding-window" || ev.Messages != 30 || ev.Tokens != 8000 {
+		t.Fatalf("event = %+v", ev)
+	}
+	if ev.AgentID != "a1" || ev.AgentName != "orchestrator" {
+		t.Fatalf("event = %+v", ev)
 	}
 }

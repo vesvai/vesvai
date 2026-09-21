@@ -70,6 +70,16 @@ type PluginConfig struct {
 	Exclude []string `json:"exclude,omitempty"`
 }
 
+type CompactionConfig struct {
+	Enabled            bool     `json:"enabled"`
+	Strategy           []string `json:"strategy"`
+	Threshold          float64  `json:"threshold"`
+	MaxMessages        int      `json:"max_messages"`
+	MaxToolOutputChars int      `json:"max_tool_output_chars"`
+	SummarizerProvider string   `json:"summarizer_provider,omitempty"`
+	SummarizerModel    string   `json:"summarizer_model,omitempty"`
+}
+
 type Config struct {
 	Providers       []LLMConfig                     `json:"providers"`
 	Logger          LoggerConfig                    `json:"logger"`
@@ -78,6 +88,7 @@ type Config struct {
 	Server          ServerConfig                    `json:"server,omitempty"`
 	Theme           string                          `json:"theme,omitempty"`
 	Permission      *PermissionConfig               `json:"permission,omitempty"`
+	Compaction      *CompactionConfig               `json:"compaction,omitempty"`
 	Plugins         PluginConfig                    `json:"plugins,omitempty"`
 	MCPServers      map[string]MCPServerConfig      `json:"mcp_servers,omitempty"`
 	LanguageServers map[string]LanguageServerConfig `json:"language_servers,omitempty"`
@@ -125,6 +136,13 @@ func DefaultConfig() *Config {
 		},
 		Plugins: PluginConfig{
 			Enabled: true,
+		},
+		Compaction: &CompactionConfig{
+			Enabled:            true,
+			Strategy:           []string{"tool-clearing", "sliding-window"},
+			Threshold:          80,
+			MaxMessages:        50,
+			MaxToolOutputChars: 4000,
 		},
 		MCPServers:      make(map[string]MCPServerConfig),
 		LanguageServers: make(map[string]LanguageServerConfig),
@@ -315,6 +333,15 @@ func UpsertPermission(cfg *PermissionConfig) error {
 		return err
 	}
 	c.Permission = cfg
+	return Save(c)
+}
+
+func UpsertCompaction(cfg *CompactionConfig) error {
+	c, err := Load()
+	if err != nil {
+		return err
+	}
+	c.Compaction = cfg
 	return Save(c)
 }
 

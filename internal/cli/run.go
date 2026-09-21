@@ -22,6 +22,7 @@ import (
 
 	"github.com/vesvai/vesvai/internal/agent"
 	"github.com/vesvai/vesvai/internal/agent/agents"
+	"github.com/vesvai/vesvai/internal/builtin/middlewares/compaction"
 	"github.com/vesvai/vesvai/internal/core/event"
 	"github.com/vesvai/vesvai/internal/llm"
 	"github.com/vesvai/vesvai/internal/session"
@@ -162,11 +163,7 @@ func (c *CLI) runRun(out io.Writer, in io.Reader, message string, opts runOption
 
 func (c *CLI) resolveSession(opts runOptions) (*session.Session, error) {
 	if opts.session != "" {
-		s, err := c.sessions.Get(opts.session)
-		if err != nil {
-			return nil, fmt.Errorf("cli: get session: %w", err)
-		}
-		return s, nil
+		return c.resolveChainHead(opts.session)
 	}
 	if !opts.selectSession {
 		return nil, nil
@@ -175,11 +172,15 @@ func (c *CLI) resolveSession(opts runOptions) (*session.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	s, err := c.sessions.Get(id)
+	return c.resolveChainHead(id)
+}
+
+func (c *CLI) resolveChainHead(id string) (*session.Session, error) {
+	latest, err := c.sessions.LatestInChain(id)
 	if err != nil {
 		return nil, fmt.Errorf("cli: get session: %w", err)
 	}
-	return s, nil
+	return latest, nil
 }
 
 func (c *CLI) selectSession() (string, error) {
@@ -190,8 +191,9 @@ func (c *CLI) selectSession() (string, error) {
 	page, size := 1, 10
 	for {
 		q := query.Query{
-			Page:    query.Page{Number: page, Size: size},
-			Filters: []query.Filter{{Column: "project_dir", Operator: query.OpEqual, Value: dir}},
+			Page: query.Page{Number: page, Size: size},
+			Filters: []query.Filter{{Column: "project_dir", Operator: query.OpEqual, Value: dir},
+				{Column: "compaction_parent_id", Operator: query.OpEqual, Value: ""}},
 		}
 		sessions, total, err := c.sessions.List(q)
 		if err != nil {
@@ -651,6 +653,7 @@ func (r *runRenderer) subscribe(bus event.Bus) error {
 		{agent.TopicAgentFinished, r.onFinished},
 		{agent.TopicAgentError, r.onError},
 		{agent.TopicAgentAsk, r.onAsk},
+		{compaction.TopicCompactionFinished, r.onCompaction},
 	}
 	for _, s := range subs {
 		if err := bus.Subscribe(s.topic, s.fn); err != nil {
@@ -674,6 +677,7 @@ func (r *runRenderer) unsubscribe(bus event.Bus) {
 		{agent.TopicAgentFinished, r.onFinished},
 		{agent.TopicAgentError, r.onError},
 		{agent.TopicAgentAsk, r.onAsk},
+		{compaction.TopicCompactionFinished, r.onCompaction},
 	}
 	for _, s := range subs {
 		_ = bus.Unsubscribe(s.topic, s.fn)
@@ -1052,6 +1056,11 @@ func (r *runRenderer) readLine() (string, bool) {
 	case <-r.ctx.Done():
 		return "", false
 	}
+}
+
+func (r *runRenderer) onCompaction(e compaction.Event) {
+	r.write("\n%s Context compacted (%s) — %d messages, %d tokens\n",
+		r.green("↻"), e.Strategy, e.Messages, e.Tokens)
 }
 
 func (r *runRenderer) onAsk(e agent.AgentAsk) {

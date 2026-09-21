@@ -14,6 +14,7 @@ const (
 	StreamReasoning  StreamEventType = "reasoning"
 	StreamToolCall   StreamEventType = "tool_call"
 	StreamToolResult StreamEventType = "tool_result"
+	StreamCompaction StreamEventType = "compaction"
 	StreamDone       StreamEventType = "done"
 )
 
@@ -28,6 +29,9 @@ type StreamEvent struct {
 	ToolOutput string
 	ToolErr    error
 	Usage      *llm.Usage
+	Strategy   string
+	Messages   int
+	Tokens     int
 }
 
 type StreamHandler func(StreamEvent) error

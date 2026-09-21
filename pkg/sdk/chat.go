@@ -53,6 +53,9 @@ type ChatEvent struct {
 	ToolOutput string
 	ToolErr    error
 	Usage      *Usage
+	Strategy   string
+	Messages   int
+	Tokens     int
 }
 
 type ChatEventType string
@@ -62,6 +65,7 @@ const (
 	EventReasoning  ChatEventType = "reasoning"
 	EventToolCall   ChatEventType = "tool_call"
 	EventToolResult ChatEventType = "tool_result"
+	EventCompaction ChatEventType = "compaction"
 	EventDone       ChatEventType = "done"
 )
 
@@ -197,6 +201,9 @@ func mapStreamEvent(ev agent.StreamEvent) ChatEvent {
 		ToolOutput: ev.ToolOutput,
 		ToolErr:    ev.ToolErr,
 		Usage:      ev.Usage,
+		Strategy:   ev.Strategy,
+		Messages:   ev.Messages,
+		Tokens:     ev.Tokens,
 	}
 	if ev.ToolCall != nil {
 		tc := *ev.ToolCall
