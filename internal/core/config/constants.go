@@ -2,7 +2,7 @@ package config
 
 const (
 	AppName    = "vesvai"
-	AppVersion = "0.1.0"
+	AppVersion = "0.1.2"
 	AppUrl     = "https://github.com/vesvai/vesvai"
 
 	GlobalConfigDirName  = ".vesvai"
