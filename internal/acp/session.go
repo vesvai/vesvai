@@ -239,6 +239,9 @@ func (s *Server) handleSessionList(ctx context.Context, params json.RawMessage) 
 	q := query.Query{
 		Page: query.Page{Number: 1, Size: 50},
 		Sort: []query.Sort{{Column: "updated_at", Dir: query.Desc}},
+		Filters: []query.Filter{
+			{Column: "compaction_parent_id", Operator: query.OpEqual, Value: ""},
+		},
 	}
 
 	sessions, total, err := s.sessions.List(q)

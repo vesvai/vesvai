@@ -82,6 +82,12 @@ func (m *mockStore) GetSnapshot(id string) (*session.Snapshot, error) {
 func (m *mockStore) RestoreSnapshot(sessionID string, messages []session.Message) error {
 	return nil
 }
+func (m *mockStore) CompactionChildren(sessionID string) ([]session.Session, error) {
+	return nil, nil
+}
+func (m *mockStore) LatestInChain(sessionID string) (*session.Session, error) {
+	return m.Get(sessionID)
+}
 func (m *mockStore) Close() error { return nil }
 
 func newTestServer(t *testing.T) *Server {

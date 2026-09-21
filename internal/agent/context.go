@@ -35,3 +35,24 @@ func HistoryFrom(ctx context.Context) []llm.Message {
 	}
 	return nil
 }
+
+func HistoryRefFrom(ctx context.Context) *[]llm.Message {
+	if h, ok := ctx.Value(historyCtxKey{}).(*[]llm.Message); ok {
+		return h
+	}
+	return nil
+}
+
+type streamCtxKey struct{}
+
+func WithStream(ctx context.Context, handler StreamHandler) context.Context {
+	if handler == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, streamCtxKey{}, handler)
+}
+
+func StreamFrom(ctx context.Context) StreamHandler {
+	h, _ := ctx.Value(streamCtxKey{}).(StreamHandler)
+	return h
+}

@@ -54,6 +54,15 @@ func (m *Manager) List(q query.Query) ([]Session, int, error) {
 }
 
 func (m *Manager) Delete(id string) error {
+	children, err := m.store.CompactionChildren(id)
+	if err != nil {
+		return err
+	}
+	for _, c := range children {
+		if err := m.Delete(c.ID); err != nil {
+			return err
+		}
+	}
 	if err := m.store.Delete(id); err != nil {
 		return err
 	}
@@ -260,6 +269,59 @@ func (m *Manager) Snapshots(sessionID string) ([]Snapshot, error) {
 
 func (m *Manager) Messages(sessionID string) ([]Message, error) {
 	return m.store.Messages(sessionID)
+}
+
+func (m *Manager) CompactionChildren(sessionID string) ([]Session, error) {
+	return m.store.CompactionChildren(sessionID)
+}
+
+func (m *Manager) LatestInChain(sessionID string) (*Session, error) {
+	return m.store.LatestInChain(sessionID)
+}
+
+func (m *Manager) CompactSession(sourceID string, compactedMessages []llm.Message, strategy string) (*Session, error) {
+	src, err := m.store.Get(sourceID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	newSess := *src
+	newSess.ID = uuid.NewString()
+	newSess.CompactionParentID = src.ID
+	newSess.Title = src.Title + " (compacted)"
+	newSess.CreatedAt = now
+	newSess.UpdatedAt = now
+	newSess.Usage = llm.Usage{}
+	if err := m.store.Create(newSess); err != nil {
+		return nil, err
+	}
+
+	for i, msg := range compactedMessages {
+		rec := Message{
+			ID:         uuid.NewString(),
+			SessionID:  newSess.ID,
+			Seq:        i + 1,
+			Role:       msg.Role,
+			Content:    msg.Content,
+			Reasoning:  msg.Reasoning,
+			Name:       msg.Name,
+			ToolCallID: msg.ToolCallID,
+			ToolCalls:  msg.ToolCalls,
+			CreatedAt:  now,
+		}
+		if err := m.store.InsertMessage(rec); err != nil {
+			return nil, err
+		}
+	}
+
+	m.publish(TopicSessionCompacted, SessionCompacted{
+		SessionID:       newSess.ID,
+		ParentSessionID: src.ID,
+		Strategy:        strategy,
+		MessageCount:    len(compactedMessages),
+	})
+	return &newSess, nil
 }
 
 func (m *Manager) Bus() event.Bus {

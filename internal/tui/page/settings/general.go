@@ -35,13 +35,15 @@ func (g *generalTab) HandleKey(ev *tcell.EventKey) bool {
 	case tcell.KeyUp:
 		if g.index > 0 {
 			g.index--
+			return true
 		}
-		return true
+		return false
 	case tcell.KeyDown:
 		if g.index < generalRowCount-1 {
 			g.index++
+			return true
 		}
-		return true
+		return false
 	case tcell.KeyEnter:
 		if !g.rowEnabled(g.index) {
 			return true

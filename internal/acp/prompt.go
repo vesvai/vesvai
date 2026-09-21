@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	"fmt"
 
 	json "github.com/goccy/go-json"
 
@@ -70,6 +71,14 @@ func (s *Server) handleSessionPrompt(ctx context.Context, params json.RawMessage
 						Status:        string(ToolCallCompleted),
 					})
 				}
+			case agent.StreamCompaction:
+				s.notify(string(req.SessionId), SessionUpdate{
+					SessionUpdate: "agent_message_chunk",
+					MessageID:     uuid.NewString(),
+					Content: &ContentBlock{Type: "text",
+						Text: fmt.Sprintf("[Context compacted (%s) — %d messages, %d tokens]",
+							ev.Strategy, ev.Messages, ev.Tokens)},
+				})
 			}
 		}
 	}()

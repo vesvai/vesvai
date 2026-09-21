@@ -86,6 +86,8 @@ type selectedModel struct {
 
 type activeSession struct {
 	info settings.SessionInfo
+
+	viewID string
 }
 
 func (a *App) modelDisplay() string {
@@ -488,7 +490,7 @@ func (a *App) openSettings() {
 	s.SetOnSessionChange(func(info settings.SessionInfo) {
 		a.chatMu.Lock()
 		changed := a.session == nil || a.session.info.ID != info.ID
-		a.session = &activeSession{info: info}
+		a.session = &activeSession{info: info, viewID: info.ID}
 		if changed && a.agent != nil {
 			a.agent.DetachReminder()
 		}
@@ -602,7 +604,11 @@ func (a *App) loadSessionIntoChatLocked() {
 	items := messagesToItems(msgs)
 	a.main.items = items
 	a.loadedFloor = seqFloor(msgs)
-	a.chat.SetHasMore(len(a.session.info.Messages) > len(msgs))
+	hasMore := len(a.session.info.Messages) > len(msgs)
+	if a.session.info.CompactionParentID != "" {
+		hasMore = true
+	}
+	a.chat.SetHasMore(hasMore)
 	mainID := ""
 	if a.agent != nil {
 		mainID = a.agent.ID

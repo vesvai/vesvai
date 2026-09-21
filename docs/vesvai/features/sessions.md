@@ -89,6 +89,27 @@ the same session rather than creating a new one.
 
     `session/list` returns id, title, and timestamps for the most recent sessions.
 
+Listings only show **original** sessions: compacted follow-up sessions (see below)
+are internal views of the same conversation and never appear in session lists.
+
+## Compaction and session chains
+
+When [context compaction](../config.md#compaction) triggers, the compacted messages
+are stored in a **new session linked to the current one**, forming a chain. The
+original session keeps its full history; the newest session in the chain holds the
+compacted view plus everything said afterwards.
+
+- Resuming an original session opens the **newest session in its chain** — you see
+  the latest compacted conversation first.
+- In the TUI, scrolling to the top walks back through the chain: an
+  `─ context compacted ─` divider marks each earlier conversation, ending with the
+  original one.
+- In the CLI, HTTP (SSE), and ACP, a compaction mid-run is surfaced as a
+  `compaction` stream event / `↻ Context compacted (...)` line.
+- Resuming re-applies compaction to the loaded history (sliding-window and
+  tool-clearing), so resumed conversations stay within the context budget.
+- Deleting an original session deletes its whole compaction chain.
+
 ## Managing sessions
 
 | Action | CLI | TUI | HTTP | ACP |

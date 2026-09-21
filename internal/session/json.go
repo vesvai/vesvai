@@ -270,13 +270,76 @@ func (s *JSONStore) RestoreSnapshot(sessionID string, messages []Message) error 
 	return s.persist(f)
 }
 
+func (s *JSONStore) CompactionChildren(sessionID string) ([]Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	var children []Session
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		f, err := s.load(strings.TrimSuffix(e.Name(), ".json"))
+		if err != nil {
+			continue
+		}
+		if f.Session.CompactionParentID == sessionID {
+			children = append(children, f.Session)
+		}
+	}
+	sort.Slice(children, func(i, j int) bool {
+		return children[i].CreatedAt.Before(children[j].CreatedAt)
+	})
+	return children, nil
+}
+
+func (s *JSONStore) LatestInChain(sessionID string) (*Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	f, err := s.load(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	current := f.Session
+
+	for {
+		entries, err := os.ReadDir(s.dir)
+		if err != nil {
+			return nil, err
+		}
+		var latest *Session
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			cf, err := s.load(strings.TrimSuffix(e.Name(), ".json"))
+			if err != nil {
+				continue
+			}
+			if cf.Session.CompactionParentID == current.ID {
+				if latest == nil || cf.Session.CreatedAt.After(latest.CreatedAt) {
+					s := cf.Session
+					latest = &s
+				}
+			}
+		}
+		if latest == nil {
+			return &current, nil
+		}
+		current = *latest
+	}
+}
+
 func (s *JSONStore) Close() error {
 	return nil
 }
 
 var allowedColumns = map[string]struct{}{
 	"id": {}, "title": {}, "provider": {}, "model": {},
-	"project_dir": {}, "parent_id": {}, "created_at": {}, "updated_at": {},
+	"project_dir": {}, "parent_id": {}, "compaction_parent_id": {}, "created_at": {}, "updated_at": {},
 }
 
 func filterSessions(all []Session, q query.Query) ([]Session, error) {
@@ -370,6 +433,8 @@ func columnValue(s Session, col string) (any, bool) {
 		return s.ProjectDir, true
 	case "parent_id":
 		return s.ParentID, true
+	case "compaction_parent_id":
+		return s.CompactionParentID, true
 	case "created_at":
 		return s.CreatedAt, true
 	case "updated_at":

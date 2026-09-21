@@ -7,6 +7,7 @@ import (
 	"github.com/vesvai/vesvai/internal/agent/agents"
 	"github.com/vesvai/vesvai/internal/agent/middleware"
 	"github.com/vesvai/vesvai/internal/agent/tool"
+	"github.com/vesvai/vesvai/internal/builtin/middlewares/compaction"
 	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/core/logger"
 	"github.com/vesvai/vesvai/internal/llm"
@@ -101,7 +102,12 @@ const (
 	TopicAgentError      = agent.TopicAgentError
 	TopicAgentAsk        = agent.TopicAgentAsk
 	TopicAgentAskAnswer  = agent.TopicAgentAskAnswer
+
+	TopicCompactionStarted  = compaction.TopicCompactionStarted
+	TopicCompactionFinished = compaction.TopicCompactionFinished
 )
+
+type CompactionEvent = compaction.Event
 
 const (
 	TopicSessionCreated        = session.TopicSessionCreated

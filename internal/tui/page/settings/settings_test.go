@@ -119,12 +119,13 @@ func TestSettingsGeneralRowSelection(t *testing.T) {
 	if g.index != 0 {
 		t.Fatalf("initial index = %d", g.index)
 	}
-	g.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, 0))
+	s.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, 0))
+	s.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, 0))
 	if g.index != 1 {
 		t.Errorf("after Down index = %d, want 1", g.index)
 	}
-	g.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, 0))
-	g.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, 0))
+	s.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, 0))
+	s.HandleKey(tcell.NewEventKey(tcell.KeyDown, 0, 0))
 	if g.index != 3 {
 		t.Errorf("index should clamp at 3, got %d", g.index)
 	}

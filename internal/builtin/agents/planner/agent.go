@@ -35,7 +35,7 @@ func newPlannerAgent(fs *vfs.VFS) (*agent.Agent, error) {
 		}),
 		agent.WithTools(file.Tools(plans)...),
 		agent.WithToolNames("bash", "webfetch", "websearch", "todoread", "todowrite"),
-		agent.WithMiddlewareNames("loop-detector", "redaction", "retry", "permission"),
+		agent.WithMiddlewareNames("loop-detector", "redaction", "retry", "permission", "compaction"),
 	)
 	main.AttachReminder(plan.PlanModeReminder())
 

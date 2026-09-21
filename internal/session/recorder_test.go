@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vesvai/vesvai/internal/agent"
+	"github.com/vesvai/vesvai/internal/builtin/middlewares/compaction"
 	"github.com/vesvai/vesvai/internal/core/event"
 	"github.com/vesvai/vesvai/internal/core/logger"
 	"github.com/vesvai/vesvai/internal/llm"
@@ -605,5 +606,78 @@ func TestRecorderGeneratesTitleOnlyOnFirstMessage(t *testing.T) {
 	}
 	if s, err := mgr.Get(sessID); err != nil || s.Title != "Session title" {
 		t.Fatalf("title changed on follow-up message: %+v, err=%v", s, err)
+	}
+}
+
+func TestRecorderCompactionCreatesLinkedSession(t *testing.T) {
+	mgr, _, bus := newTestRecorder(t)
+
+	publishStarted(bus, "a1", "agent-one", "groq", "llama-3.3")
+	bus.Publish(agent.TopicAgentInput, agent.AgentInput{AgentID: "a1", Input: "hello"})
+	bus.Publish(agent.TopicAgentMessage, agent.AgentMessage{
+		AgentID: "a1", AgentName: "agent-one",
+		Message: llm.AssistantMessage("hi there"),
+	})
+
+	sessions, _, err := mgr.List(query.Query{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %+v, want 1 before compaction", sessions)
+	}
+	origID := sessions[0].ID
+
+	compacted := []llm.Message{
+		llm.SystemMessage("sys"),
+		llm.SystemMessage("[Context compacted: older messages removed]"),
+		llm.UserMessage("hello"),
+		llm.AssistantMessage("hi there"),
+	}
+	bus.Publish(compaction.TopicCompactionFinished, compaction.Event{
+		AgentID:           "a1",
+		AgentName:         "agent-one",
+		Strategy:          "sliding-window",
+		Messages:          len(compacted),
+		Tokens:            1200,
+		CompactedMessages: compacted,
+	})
+
+	latest, err := mgr.LatestInChain(origID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.ID == origID {
+		t.Fatal("compaction must create a new session")
+	}
+	if latest.CompactionParentID != origID {
+		t.Fatalf("compaction parent = %q, want %q", latest.CompactionParentID, origID)
+	}
+	got, err := mgr.Messages(latest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(compacted) {
+		t.Fatalf("compacted messages = %d, want %d", len(got), len(compacted))
+	}
+
+	orig, err := mgr.Messages(origID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orig) != 2 {
+		t.Fatalf("original messages = %d, want 2", len(orig))
+	}
+
+	bus.Publish(agent.TopicAgentMessage, agent.AgentMessage{
+		AgentID: "a1", AgentName: "agent-one",
+		Message: llm.AssistantMessage("after compaction"),
+	})
+	after, err := mgr.Messages(latest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(compacted)+1 {
+		t.Fatalf("messages after follow-up = %d, want %d", len(after), len(compacted)+1)
 	}
 }

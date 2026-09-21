@@ -70,6 +70,7 @@ _, err := eng.ChatStream(ctx, req, func(ev sdk.ChatEvent) error {
 	//   sdk.EventReasoning   -> ev.Reasoning
 	//   sdk.EventToolCall    -> ev.ToolCall
 	//   sdk.EventToolResult  -> ev.ToolOutput or ev.ToolErr
+	//   sdk.EventCompaction  -> ev.Strategy, ev.Messages, ev.Tokens
 	//   sdk.EventDone        -> ev.Content + ev.Usage
 	return nil
 })
@@ -77,6 +78,14 @@ _, err := eng.ChatStream(ctx, req, func(ev sdk.ChatEvent) error {
 
 Events arrive in order: reasoning/token, tool call, tool result, then `done`. A
 `nil` handler degrades to a plain non-streaming `Chat`.
+
+When the context is compacted mid-run, an `sdk.EventCompaction` event is emitted
+with `ev.Strategy` (e.g. `sliding-window`), `ev.Messages` (messages the model now
+sees) and `ev.Tokens` (prompt tokens at compaction time).
+
+Compaction can also be observed bus-style with
+`eng.OnCompaction(func(ev sdk.CompactionEvent) { ... })`; the returned function
+unsubscribes.
 
 ## Completions
 

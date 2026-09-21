@@ -47,6 +47,9 @@ func (c *CLI) newSessionListCommand() *cobra.Command {
 func (c *CLI) runSessionList(out io.Writer, search string, all bool, page, size int) error {
 	q := query.Query{
 		Page: query.Page{Number: page, Size: size},
+		Filters: []query.Filter{
+			{Column: "compaction_parent_id", Operator: query.OpEqual, Value: ""},
+		},
 	}
 	if search != "" {
 		q.Search = search

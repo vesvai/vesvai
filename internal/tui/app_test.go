@@ -123,6 +123,7 @@ func TestAppSettingsModelPickUpdatesApp(t *testing.T) {
 	ov := a.getOverlay().(*settings.Settings)
 
 	ov.HandleKey(newKey(tcell.KeyDown))
+	ov.HandleKey(newKey(tcell.KeyDown))
 	ov.HandleKey(newKey(tcell.KeyEnter))
 	if !ov.HasSub() {
 		t.Fatal("model picker should be open")

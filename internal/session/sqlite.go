@@ -30,6 +30,7 @@ var createTableSQL = "CREATE TABLE IF NOT EXISTS sessions (" +
 	"reasoning_effort TEXT NOT NULL DEFAULT ''," +
 	"project_dir TEXT NOT NULL DEFAULT ''," +
 	"parent_id TEXT NOT NULL DEFAULT ''," +
+	"compaction_parent_id TEXT NOT NULL DEFAULT ''," +
 	"created_at DATETIME NOT NULL," +
 	"updated_at DATETIME NOT NULL," +
 	"usage TEXT NOT NULL DEFAULT '{}');" +
@@ -97,25 +98,25 @@ func newSQLiteStore(db *sql.DB) (*SQLiteStore, error) {
 		db: db,
 		builder: query.NewBuilder("sessions",
 			"id", "title", "provider", "model", "reasoning_effort", "project_dir",
-			"parent_id", "created_at", "updated_at",
+			"parent_id", "compaction_parent_id", "created_at", "updated_at",
 		).DefaultSort("created_at", query.Desc),
 	}, nil
 }
 
 func (s *SQLiteStore) Create(sess Session) error {
 	_, err := s.db.Exec(
-		"INSERT INTO sessions (id, title, provider, model, reasoning_effort, project_dir, parent_id, created_at, updated_at, usage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO sessions (id, title, provider, model, reasoning_effort, project_dir, parent_id, compaction_parent_id, created_at, updated_at, usage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		sess.ID, sess.Title, sess.Provider, sess.Model, sess.ReasoningEffort, sess.ProjectDir,
-		sess.ParentID, sess.CreatedAt, sess.UpdatedAt, marshalJSON(sess.Usage),
+		sess.ParentID, sess.CompactionParentID, sess.CreatedAt, sess.UpdatedAt, marshalJSON(sess.Usage),
 	)
 	return err
 }
 
 func (s *SQLiteStore) Update(sess Session) error {
 	res, err := s.db.Exec(
-		"UPDATE sessions SET title = ?, provider = ?, model = ?, reasoning_effort = ?, project_dir = ?, parent_id = ?, created_at = ?, updated_at = ?, usage = ? WHERE id = ?",
+		"UPDATE sessions SET title = ?, provider = ?, model = ?, reasoning_effort = ?, project_dir = ?, parent_id = ?, compaction_parent_id = ?, created_at = ?, updated_at = ?, usage = ? WHERE id = ?",
 		sess.Title, sess.Provider, sess.Model, sess.ReasoningEffort, sess.ProjectDir,
-		sess.ParentID, sess.CreatedAt, sess.UpdatedAt, marshalJSON(sess.Usage), sess.ID,
+		sess.ParentID, sess.CompactionParentID, sess.CreatedAt, sess.UpdatedAt, marshalJSON(sess.Usage), sess.ID,
 	)
 	if err != nil {
 		return err
@@ -128,13 +129,13 @@ func (s *SQLiteStore) Update(sess Session) error {
 
 func (s *SQLiteStore) Get(id string) (*Session, error) {
 	row := s.db.QueryRow(
-		"SELECT id, title, provider, model, reasoning_effort, project_dir, parent_id, created_at, updated_at, usage FROM sessions WHERE id = ?", id,
+		"SELECT id, title, provider, model, reasoning_effort, project_dir, parent_id, compaction_parent_id, created_at, updated_at, usage FROM sessions WHERE id = ?", id,
 	)
 	var sess Session
 	var usage string
 	if err := row.Scan(
 		&sess.ID, &sess.Title, &sess.Provider, &sess.Model, &sess.ReasoningEffort, &sess.ProjectDir,
-		&sess.ParentID, &sess.CreatedAt, &sess.UpdatedAt, &usage,
+		&sess.ParentID, &sess.CompactionParentID, &sess.CreatedAt, &sess.UpdatedAt, &usage,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
@@ -181,7 +182,7 @@ func (s *SQLiteStore) List(q query.Query) ([]Session, int, error) {
 		var usage string
 		if err := rows.Scan(
 			&sess.ID, &sess.Title, &sess.Provider, &sess.Model, &sess.ReasoningEffort, &sess.ProjectDir,
-			&sess.ParentID, &sess.CreatedAt, &sess.UpdatedAt, &usage,
+			&sess.ParentID, &sess.CompactionParentID, &sess.CreatedAt, &sess.UpdatedAt, &usage,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -379,6 +380,55 @@ func (s *SQLiteStore) RestoreSnapshot(sessionID string, messages []Message) erro
 
 func (s *SQLiteStore) Close() error {
 	return s.db.Close()
+}
+
+func (s *SQLiteStore) CompactionChildren(sessionID string) ([]Session, error) {
+	rows, err := s.db.Query(
+		"SELECT id, title, provider, model, reasoning_effort, project_dir, parent_id, compaction_parent_id, created_at, updated_at, usage FROM sessions WHERE compaction_parent_id = ? ORDER BY created_at ASC",
+		sessionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []Session
+	for rows.Next() {
+		var sess Session
+		var usage string
+		if err := rows.Scan(
+			&sess.ID, &sess.Title, &sess.Provider, &sess.Model, &sess.ReasoningEffort, &sess.ProjectDir,
+			&sess.ParentID, &sess.CompactionParentID, &sess.CreatedAt, &sess.UpdatedAt, &usage,
+		); err != nil {
+			return nil, err
+		}
+		if err := unmarshalJSON(usage, &sess.Usage); err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, sess)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
+func (s *SQLiteStore) LatestInChain(sessionID string) (*Session, error) {
+	current, err := s.Get(sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	for {
+		children, err := s.CompactionChildren(current.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(children) == 0 {
+			return current, nil
+		}
+		current = &children[len(children)-1]
+	}
 }
 
 func marshalJSON(v any) string {

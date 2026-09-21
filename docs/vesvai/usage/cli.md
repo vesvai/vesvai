@@ -67,6 +67,8 @@ The build is driven by a small Makefile...
 - `--show-thinking` prints the model's raw reasoning; otherwise a `Thinking...`
   spinner is shown on a TTY.
 - `--show-subagent` prints subagent content instead of a `Subagent <name>` line.
+- When the context is compacted mid-run, a line like
+  `↻ Context compacted (sliding-window) — 30 messages, 8000 tokens` is printed.
 
 ### Chat mode
 

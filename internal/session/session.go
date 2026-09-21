@@ -28,16 +28,17 @@ var (
 )
 
 type Session struct {
-	ID              string
-	Title           string
-	Provider        string
-	Model           string
-	ReasoningEffort string
-	ProjectDir      string
-	ParentID        string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	Usage           llm.Usage
+	ID                 string
+	Title              string
+	Provider           string
+	Model              string
+	ReasoningEffort    string
+	ProjectDir         string
+	ParentID           string
+	CompactionParentID string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	Usage              llm.Usage
 }
 
 type Message struct {
@@ -76,6 +77,9 @@ type Store interface {
 	Snapshots(sessionID string) ([]Snapshot, error)
 	GetSnapshot(id string) (*Snapshot, error)
 	RestoreSnapshot(sessionID string, messages []Message) error
+
+	CompactionChildren(sessionID string) ([]Session, error)
+	LatestInChain(sessionID string) (*Session, error)
 
 	Close() error
 }

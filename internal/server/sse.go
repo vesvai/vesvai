@@ -67,5 +67,8 @@ type SSEEvent struct {
 	ToolOutput string `json:"tool_output,omitempty"`
 	Error      string `json:"error,omitempty"`
 	Usage      any    `json:"usage,omitempty"`
+	Strategy   string `json:"strategy,omitempty"`
+	Messages   int    `json:"messages,omitempty"`
+	Tokens     int    `json:"tokens,omitempty"`
 	Done       bool   `json:"done,omitempty"`
 }
