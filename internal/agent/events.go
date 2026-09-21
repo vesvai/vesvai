@@ -35,6 +35,7 @@ type AgentStarted struct {
 	Model           llm.Model
 	Provider        llm.Provider
 	ReasoningEffort string
+	Agent           *Agent
 }
 
 type AgentMessage struct {

@@ -306,6 +306,7 @@ func (a *Agent) Continue(ctx context.Context, history []llm.Message) (*RunResult
 		Model:           a.Model,
 		Provider:        a.Provider,
 		ReasoningEffort: a.ReasoningEffort,
+		Agent:           a,
 	})
 
 	if err := a.chain.BeforeRun(ctx, a.Name, ""); err != nil {

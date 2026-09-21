@@ -108,7 +108,7 @@ func Run(args []string) error {
 	if err := skill.SkillModule(); err != nil {
 		return fmt.Errorf("bootstrap: init skills: %w", err)
 	}
-	if err := builtin.Create(fs, sess, builtin.Options{LLM: mgr, Config: cfg}); err != nil {
+	if err := builtin.Create(fs, sess, builtin.Options{LLM: mgr, Config: cfg, Bus: bus}); err != nil {
 		return fmt.Errorf("bootstrap: builtin: %w", err)
 	}
 	log.Finfo("vfs: workspace mounted at %s", fs.Root())

@@ -51,6 +51,7 @@ func (a *Agent) run(ctx context.Context, input string, stream StreamHandler) (*R
 		Model:           a.Model,
 		Provider:        a.Provider,
 		ReasoningEffort: a.ReasoningEffort,
+		Agent:           a,
 	})
 	a.publish(TopicAgentInput, AgentInput{
 		AgentID:     a.ID,
@@ -112,6 +113,7 @@ func (a *Agent) resume(ctx context.Context, input string, history []llm.Message,
 		Model:           a.Model,
 		Provider:        a.Provider,
 		ReasoningEffort: a.ReasoningEffort,
+		Agent:           a,
 	})
 	a.publish(TopicAgentInput, AgentInput{
 		AgentID:     a.ID,
