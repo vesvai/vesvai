@@ -60,11 +60,42 @@ Token usage: 25.0K/100.0K; 75.0K remaining
 This helps the agent keep its working context in mind — for instance, wrapping up
 or delegating remaining work before the window fills.
 
+## TodoWrite reminder
+
+The todowrite reminder nudges the agent when it has been doing work for a while
+without maintaining its todo list:
+
+| Trigger | Cadence |
+|---|---|
+| **Stream events** | Every **30** stream events without a `todowrite` tool call |
+
+Stream events are the agent's activity steps — tool calls and tool results.
+Thinking and content generation (streamed tokens) do **not** count. Using the
+`todowrite` tool resets the counter.
+
+The reminder text:
+
+```xml
+<system-reminders>
+<system-reminder tag="todowrite">
+  The TodoWrite tool hasn't been used recently. If you're working on tasks that
+  would benefit from tracking progress, consider using the TodoWrite tool to track
+  progress. Also consider cleaning up the todo list if it has become stale and no
+  longer matches what you are working on. Only use it if it's relevant to the
+  current work. This is just a gentle reminder - ignore if not applicable.
+</system-reminder>
+</system-reminders>
+```
+
+The reminder repeats every 30 stream events as long as the agent keeps working
+without calling `todowrite`.
+
 ## Built-in reminders
 
 | Tag | Reminder | When |
 |---|---|---|
 | `usage` | Token usage status | Every 20 agent messages and every 20% of the context window |
+| `todowrite` | TodoWrite nudge | Every 30 stream events without a `todowrite` call |
 | `subagent` | Background subagent result | When a background subagent finishes or fails (see [Subagents](subagents.md)) |
 | `background_subagent` | Standing note | While any background subagent is still running |
 
