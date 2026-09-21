@@ -90,12 +90,43 @@ The reminder text:
 The reminder repeats every 30 stream events as long as the agent keeps working
 without calling `todowrite`.
 
+## Task tools reminder
+
+The task tools reminder nudges the agent when it has been working for a while
+without delegating or checking on subagent tasks:
+
+| Trigger | Cadence |
+|---|---|
+| **Stream events** | Every **30** stream events without a `task` or `taskstatus` tool call |
+
+Stream events are the agent's activity steps — tool calls and tool results.
+Thinking and content generation (streamed tokens) do **not** count. Using the
+`task` or `taskstatus` tool resets the counter.
+
+The reminder text:
+
+```xml
+<system-reminders>
+<system-reminder tag="task_tools">
+  The task tools haven't been used recently. If you're working on tasks that
+  would benefit from tracking progress, consider using task to add new tasks and
+  taskstatus to check on their status. Also consider cleaning up the task list
+  if it has become stale. Only use these if relevant to the current work. This
+  is just a gentle reminder - ignore if not applicable.
+</system-reminder>
+</system-reminders>
+```
+
+The reminder repeats every 30 stream events as long as the agent keeps working
+without using the task tools.
+
 ## Built-in reminders
 
 | Tag | Reminder | When |
 |---|---|---|
 | `usage` | Token usage status | Every 20 agent messages and every 20% of the context window |
 | `todowrite` | TodoWrite nudge | Every 30 stream events without a `todowrite` call |
+| `task_tools` | Task tools nudge | Every 30 stream events without a `task`/`taskstatus` call |
 | `subagent` | Background subagent result | When a background subagent finishes or fails (see [Subagents](subagents.md)) |
 | `background_subagent` | Standing note | While any background subagent is still running |
 

@@ -3,6 +3,7 @@ package builtin
 import (
 	"github.com/vesvai/vesvai/internal/builtin/agents"
 	"github.com/vesvai/vesvai/internal/builtin/middlewares"
+	"github.com/vesvai/vesvai/internal/builtin/reminders/tasks"
 	"github.com/vesvai/vesvai/internal/builtin/reminders/todowrite"
 	"github.com/vesvai/vesvai/internal/builtin/reminders/usage"
 	"github.com/vesvai/vesvai/internal/builtin/tools"
@@ -32,6 +33,9 @@ func Create(fs *vfs.VFS, sess *session.Manager, opts Options) error {
 			return err
 		}
 		if err := todowrite.New().Start(opts.Bus); err != nil {
+			return err
+		}
+		if err := tasks.New().Start(opts.Bus); err != nil {
 			return err
 		}
 	}
