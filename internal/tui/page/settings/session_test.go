@@ -235,7 +235,6 @@ func TestSessionTabCompactionCheckboxes(t *testing.T) {
 	st := s.session
 	st.loadCompaction()
 
-	// Defaults: enabled, tool-clearing + sliding-window on.
 	if !st.compEnabled {
 		t.Error("compaction should default to enabled")
 	}
@@ -243,7 +242,6 @@ func TestSessionTabCompactionCheckboxes(t *testing.T) {
 		t.Errorf("default strategies = %+v, want [true true false]", st.compStrategyOn)
 	}
 
-	// Navigate to the first strategy row (Enabled row index 6, then +1).
 	st.index = compSectionStart + 1
 	st.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0))
 	if st.compStrategyOn[0] {
@@ -254,7 +252,6 @@ func TestSessionTabCompactionCheckboxes(t *testing.T) {
 		t.Error("Enter on tool-clearing should toggle it back on")
 	}
 
-	// Selecting "none" is allowed: turn all off.
 	for i := 0; i < compStrategyCount; i++ {
 		if st.compStrategyOn[i] {
 			st.index = compSectionStart + 1 + i
@@ -291,11 +288,10 @@ func TestSessionTabCompactionSaveMultiStrategy(t *testing.T) {
 	st := s.session
 	st.loadCompaction()
 
-	// Toggle: keep tool-clearing, add summarization, drop sliding-window.
 	st.index = compSectionStart + 2
-	st.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0)) // sliding-window off
+	st.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0))
 	st.index = compSectionStart + 3
-	st.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0)) // summarization on
+	st.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0))
 
 	cfg := s.deps.Config
 	if cfg == nil || cfg.Compaction == nil {

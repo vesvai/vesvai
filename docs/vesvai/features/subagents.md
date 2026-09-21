@@ -53,7 +53,8 @@ subagent:
 
 Foreground mode (`background: false`) blocks until the subagent completes or fails,
 then returns its result directly. Background mode returns a confirmation immediately
-and lets the orchestrator continue; results arrive as system reminders.
+and lets the orchestrator continue; results arrive as system reminders. See
+[Reminders](reminders.md) for the reminder system overview.
 
 While a background subagent is running, the orchestrator receives a **standing
 system reminder** on every message telling it the subagent is working in the

@@ -38,6 +38,11 @@ language servers — all inside a sandboxed workspace.
     The orchestrator delegates to explorer, planner, and developer subagents, which
     run concurrently, persist their state, and can be resumed with follow-up messages.
 
+- [:lucide-bell:{ .lg } **Reminders**](features/reminders.md)
+
+    System reminders keep every agent informed mid-turn: usage and context-window
+    status, background subagent results, and more — injected automatically.
+
 - [:lucide-puzzle:{ .lg } **Extensible**](configurations/skills.md)
 
     Skills, rules, MCP servers, LSP servers, custom tools, middlewares, providers,
