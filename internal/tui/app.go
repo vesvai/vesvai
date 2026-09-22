@@ -288,19 +288,19 @@ func (a *App) checkForUpdates() {
 	}
 
 	modal := NewUpdateModal(rel.Version,
-		func() {
-			a.setOverlay(nil)
-			if err := update.UpdateToLatest(ctx); err != nil {
-				a.showError("Update failed: " + err.Error())
-				return
-			}
-			os.Exit(0)
+		func() error {
+			return update.UpdateToLatest(context.Background())
 		},
 		func() {
 			update.SetDismissedVersion(a.deps.Cache, rel.Version)
 			a.setOverlay(nil)
 		},
 	)
+	modal.SetRedraw(func() { a.requestRedraw() })
+	modal.SetQuit(func() {
+		a.screen.Fini()
+		os.Exit(0)
+	})
 
 	a.setOverlay(modal)
 	a.requestRedraw()

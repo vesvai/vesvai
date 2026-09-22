@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/creativeprojects/go-selfupdate"
 
 	"github.com/vesvai/vesvai/internal/core/config"
@@ -29,11 +30,15 @@ func DetectLatest(ctx context.Context) (*Release, bool, error) {
 }
 
 func IsNewerThan(current, latest string) bool {
-	latestRelease, found, err := selfupdate.DetectVersion(context.Background(), selfupdate.ParseSlug(repoSlug), latest)
-	if err != nil || !found {
+	cur, err := semver.NewVersion(current)
+	if err != nil {
 		return false
 	}
-	return latestRelease.GreaterThan(current)
+	lat, err := semver.NewVersion(latest)
+	if err != nil {
+		return false
+	}
+	return lat.GreaterThan(cur)
 }
 
 func UpdateToLatest(ctx context.Context) error {
