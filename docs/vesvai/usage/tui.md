@@ -158,7 +158,7 @@ transcript. Press ++esc++ or click the back header to return. See
 
 ## Settings
 
-Open with ++ctrl+p++. The overlay has seven tabs; switch with ++left++/++right++ when
+Open with ++ctrl+p++. The overlay has eight tabs; switch with ++left++/++right++ when
 the tab bar is focused. Press ++down++ to enter the tab content, ++up++ to return to
 the tab bar.
 
@@ -171,6 +171,7 @@ the tab bar.
 | **Rules** | Global and project rule files |
 | **Plugins** | Installed plugins with enable/disable toggle |
 | **Permissions** | Preset selector and per-tool permission modes |
+| **System** | App name, version, OS, architecture, and manual update check |
 
 - **Provider** — configure an existing provider again or add a new one by pasting an
   API key into a masked field.
@@ -229,6 +230,14 @@ The Permissions tab has its own internal navigation. When focused on the tab bar
 ++left++/++right++ switches tabs. Press ++down++ to enter the presets, ++down++ again
 to reach the tool list. In the tool list, ++left++/++right++ cycles the permission
 mode for the selected tool. ++up++ from presets returns to the tab bar.
+
+### System tab
+
+The System tab displays application information (name, version, OS, architecture) and
+a **Check for updates** button. Navigate to the button with ++down++ and press
+++enter++ to check for a newer version. Status messages appear below the button:
+"Checking...", "Already up to date", or an error. If an update is available, the
+update modal opens automatically.
 
 ## Themes
 
