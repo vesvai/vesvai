@@ -3,9 +3,10 @@ package tui
 import (
 	"context"
 	"fmt"
-	json "github.com/goccy/go-json"
 	"sort"
 	"strings"
+
+	json "github.com/goccy/go-json"
 
 	"github.com/vesvai/vesvai/internal/agent"
 	"github.com/vesvai/vesvai/internal/builtin/middlewares/compaction"
@@ -73,7 +74,7 @@ func (a *App) showMain() {
 }
 
 func (a *App) refreshChat() {
-	a.chat.Invalidate()
+	a.chat.MarkLastDirty()
 	a.requestRedraw()
 }
 
@@ -143,9 +144,14 @@ func (a *App) onAgentInput(e agent.AgentInput) {
 	if e.AgentID != a.agent.ID {
 		if sub := a.subItemByID[e.AgentID]; sub != nil {
 			sub.SubagentTask = e.Input
+			if a.viewID == a.agent.ID {
+				a.chat.InvalidateItemPtr(sub)
+			}
 		}
 	}
-	a.refreshChat()
+	if a.viewID == t.id {
+		a.requestRedraw()
+	}
 }
 
 func (a *App) onAgentStarted(e agent.AgentStarted) {
@@ -156,6 +162,7 @@ func (a *App) onAgentStarted(e agent.AgentStarted) {
 	if e.AgentID == a.agent.ID {
 		a.running = true
 		a.refreshHomeLocked()
+		a.requestRedraw()
 		return
 	}
 	if a.main == nil {
@@ -170,7 +177,9 @@ func (a *App) onAgentStarted(e agent.AgentStarted) {
 	}
 	a.subItemByID[e.AgentID] = sub
 	a.appendItem(a.main, sub)
-	a.refreshChat()
+	if a.viewID == a.agent.ID {
+		a.requestRedraw()
+	}
 }
 
 func (a *App) onAgentToken(e agent.AgentToken) {
@@ -191,7 +200,9 @@ func (a *App) onAgentToken(e agent.AgentToken) {
 		}
 		t.assistant.Text += e.Content
 	}
-	a.refreshChat()
+	if a.viewID == t.id {
+		a.refreshChat()
+	}
 }
 
 func (a *App) onAgentMessage(e agent.AgentMessage) {
@@ -204,6 +215,10 @@ func (a *App) onAgentMessage(e agent.AgentMessage) {
 
 	if t.assistant != nil {
 		t.assistant = nil
+		if a.viewID == t.id {
+			a.chat.Invalidate()
+			a.requestRedraw()
+		}
 		return
 	}
 
@@ -211,7 +226,10 @@ func (a *App) onAgentMessage(e agent.AgentMessage) {
 		it := &components.ChatItem{Kind: components.ItemAssistant, ID: e.AgentID, Text: text}
 		a.appendItem(t, it)
 	}
-	a.refreshChat()
+	if a.viewID == t.id {
+		a.chat.Invalidate()
+		a.requestRedraw()
+	}
 }
 
 func (a *App) onAgentToolCall(e agent.AgentToolCall) {
@@ -222,9 +240,14 @@ func (a *App) onAgentToolCall(e agent.AgentToolCall) {
 	if e.AgentID != a.agent.ID {
 		if sub := a.subItemByID[e.AgentID]; sub != nil {
 			sub.SubagentActivity = formatActivity(e.Call)
+			if a.viewID == a.agent.ID {
+				a.chat.InvalidateItemPtr(sub)
+			}
 		}
 	}
-	a.refreshChat()
+	if a.viewID == t.id {
+		a.requestRedraw()
+	}
 }
 
 func formatActivity(call llm.ToolCall) string {
@@ -314,7 +337,10 @@ func (a *App) onAgentToolResult(e agent.AgentToolResult) {
 	} else {
 		it.ToolOutput = e.Output
 	}
-	a.refreshChat()
+	if a.viewID == t.id {
+		a.chat.InvalidateItemPtr(it)
+		a.requestRedraw()
+	}
 }
 
 func (a *App) onAgentFinished(e agent.AgentFinished) {
@@ -329,6 +355,10 @@ func (a *App) onAgentFinished(e agent.AgentFinished) {
 		a.clearEscHint()
 		a.refreshHomeLocked()
 		a.appendItem(t, &components.ChatItem{Kind: components.ItemFinished, ID: e.AgentID})
+		if a.viewID == t.id {
+			a.chat.Invalidate()
+			a.requestRedraw()
+		}
 		return
 	}
 	if sub := a.subItemByID[e.AgentID]; sub != nil {
@@ -336,9 +366,15 @@ func (a *App) onAgentFinished(e agent.AgentFinished) {
 		sub.SubagentOutput = e.Output
 		sub.SubagentActivity = ""
 		sub.SubagentUsage = e.Usage
+		if a.viewID == a.agent.ID {
+			a.chat.InvalidateItemPtr(sub)
+		}
 	}
 	a.appendItem(t, &components.ChatItem{Kind: components.ItemFinished, ID: e.AgentID})
-	a.refreshChat()
+	if a.viewID == t.id {
+		a.chat.Invalidate()
+		a.requestRedraw()
+	}
 }
 
 func (a *App) onAgentError(e agent.AgentError) {
@@ -354,15 +390,25 @@ func (a *App) onAgentError(e agent.AgentError) {
 		a.clearEscHint()
 		a.refreshHomeLocked()
 		a.appendItem(t, &components.ChatItem{Kind: components.ItemError, Text: e.Err.Error()})
+		if a.viewID == t.id {
+			a.chat.Invalidate()
+			a.requestRedraw()
+		}
 		return
 	}
 	if sub := a.subItemByID[e.AgentID]; sub != nil {
 		sub.SubagentStatus = "error"
 		sub.SubagentActivity = ""
 		sub.SubagentOutput = e.Err.Error()
+		if a.viewID == a.agent.ID {
+			a.chat.InvalidateItemPtr(sub)
+		}
 	}
 	a.appendItem(t, &components.ChatItem{Kind: components.ItemError, Text: e.Err.Error()})
-	a.refreshChat()
+	if a.viewID == t.id {
+		a.chat.Invalidate()
+		a.requestRedraw()
+	}
 }
 
 func (a *App) onErrorMessage(e agent.ErrorMessage) {
@@ -392,7 +438,9 @@ func (a *App) onCompactionFinished(e compaction.Event) {
 	text := fmt.Sprintf("↻ Context compacted (%s) — %d messages, %d tokens", e.Strategy, e.Messages, e.Tokens)
 	it := &components.ChatItem{Kind: components.ItemCompaction, ID: e.AgentID, Text: text}
 	a.appendItem(t, it)
-	a.refreshChat()
+	if a.viewID == t.id {
+		a.requestRedraw()
+	}
 }
 
 func (a *App) onAgentAsk(e agent.AgentAsk) {
@@ -432,11 +480,15 @@ func (a *App) onAgentUsage(e agent.AgentUsage) {
 		a.usage.TotalTokens = e.Usage.TotalTokens
 		a.usage.Cost = e.Usage.Cost
 		a.refreshHomeLocked()
+		a.requestRedraw()
 		return
 	}
 	if sub := a.subItemByID[e.AgentID]; sub != nil {
 		sub.SubagentUsage = e.Usage
-		a.refreshChat()
+		if a.viewID == a.agent.ID {
+			a.chat.InvalidateItemPtr(sub)
+			a.requestRedraw()
+		}
 	}
 }
 
@@ -661,8 +713,9 @@ func (a *App) completeAgentRun(result *agent.RunResult) {
 		a.history = result.History
 	}
 	a.running = false
+	a.refreshHomeLocked()
 	a.chatMu.Unlock()
-	a.refreshChat()
+	a.requestRedraw()
 
 	if a.agent.HasPendingNotifications() {
 		go a.continueAgent()
@@ -703,7 +756,8 @@ func (a *App) activateItem(it *components.ChatItem) {
 	switch it.Kind {
 	case components.ItemThinking, components.ItemTool:
 		it.Expanded = !it.Expanded
-		a.refreshChat()
+		a.chat.InvalidateItemPtr(it)
+		a.requestRedraw()
 	case components.ItemSubagent:
 		if it.SubagentStatus == "running" {
 			if t := a.subs[it.AgentID]; t != nil {
@@ -712,7 +766,8 @@ func (a *App) activateItem(it *components.ChatItem) {
 			}
 		} else {
 			it.Expanded = !it.Expanded
-			a.refreshChat()
+			a.chat.InvalidateItemPtr(it)
+			a.requestRedraw()
 		}
 	}
 }

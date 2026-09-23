@@ -2,9 +2,10 @@ package components
 
 import (
 	"fmt"
-	json "github.com/goccy/go-json"
 	"strings"
 	"time"
+
+	json "github.com/goccy/go-json"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/vesvai/vesvai/internal/llm"
@@ -89,6 +90,10 @@ type Chat struct {
 
 	lastWidth   int
 	lastVisible int
+
+	cache      [][]Line
+	cacheWidth int
+	dirty      bool
 }
 
 func NewChat() *Chat {
@@ -97,11 +102,13 @@ func NewChat() *Chat {
 
 func (c *Chat) SetItems(items []*ChatItem) {
 	c.items = items
+	c.cache = make([][]Line, len(items))
 	c.sel()
 	c.autoScroll = true
 	c.follow = true
 	c.lastWidth = -1
 	c.flatRev = -1
+	c.dirty = true
 	c.itemCursor = -1
 }
 
@@ -111,12 +118,12 @@ func (c *Chat) sel() int {
 
 func (c *Chat) AppendItem(it *ChatItem) {
 	c.items = append(c.items, it)
+	c.cache = append(c.cache, nil)
 	if c.wasAtBottom {
 		c.autoScroll = true
 		c.follow = true
 	}
-	c.lastWidth = -1
-	c.flatRev = -1
+	c.dirty = true
 }
 
 func (c *Chat) PrependItems(items []*ChatItem) {
@@ -127,21 +134,25 @@ func (c *Chat) PrependItems(items []*ChatItem) {
 	for _, it := range items {
 		added += len(c.itemLines(it, c.lastWidth))
 	}
+	c.ensureCache()
 	c.items = append(items, c.items...)
+	c.cache = append(make([][]Line, len(items)), c.cache...)
 	c.scroll += added
 	c.autoScroll = false
 	c.follow = false
-	c.lastWidth = -1
-	c.flatRev = -1
+	c.dirty = true
 }
 
 func (c *Chat) Clear() {
 	c.items = nil
+	c.cache = nil
+	c.cacheWidth = 0
 	c.scroll = 0
 	c.autoScroll = true
 	c.follow = true
 	c.lastWidth = -1
 	c.flatRev = -1
+	c.dirty = true
 	c.itemCursor = -1
 	c.flat = nil
 	c.flatItems = nil
@@ -166,7 +177,46 @@ func (c *Chat) SetOnBack(fn func()) { c.onBack = fn }
 func (c *Chat) SetOnLoadMore(fn func())              { c.onLoadMore = fn }
 func (c *Chat) SetOnSubagentHistory(fn func(string)) { c.onSubagentHistory = fn }
 
-func (c *Chat) Invalidate() { c.lastWidth = -1; c.flatRev = -1 }
+func (c *Chat) Invalidate() {
+	c.cache = nil
+	c.cacheWidth = 0
+	c.dirty = true
+	c.lastWidth = -1
+	c.flatRev = -1
+}
+
+func (c *Chat) ensureCache() {
+	if c.cache == nil || len(c.cache) != len(c.items) {
+		c.cache = make([][]Line, len(c.items))
+	}
+}
+
+func (c *Chat) MarkLastDirty() {
+	if len(c.items) == 0 {
+		return
+	}
+	c.ensureCache()
+	c.cache[len(c.items)-1] = nil
+	c.dirty = true
+}
+
+func (c *Chat) InvalidateItem(idx int) {
+	if idx < 0 || idx >= len(c.items) {
+		return
+	}
+	c.ensureCache()
+	c.cache[idx] = nil
+	c.dirty = true
+}
+
+func (c *Chat) InvalidateItemPtr(it *ChatItem) {
+	for i, x := range c.items {
+		if x == it {
+			c.InvalidateItem(i)
+			return
+		}
+	}
+}
 
 func (c *Chat) HandleKey(ev *tcell.EventKey) bool {
 	switch ev.Key() {
@@ -326,7 +376,7 @@ func (c *Chat) Draw(s tcell.Screen, bounds layout.Region, focused bool) {
 	c.lastWidth = innerW
 	c.lastVisible = bounds.Height
 
-	if c.flatRev != c.lastWidth || c.flat == nil {
+	if c.dirty || c.flatRev != c.lastWidth || c.flat == nil {
 		c.rebuildFlat(innerW)
 	}
 
@@ -460,12 +510,25 @@ func (c *Chat) activateCursor() {
 }
 
 func (c *Chat) rebuildFlat(width int) {
+	if c.cache == nil || len(c.cache) != len(c.items) || c.cacheWidth != width {
+		c.cache = make([][]Line, len(c.items))
+		c.cacheWidth = width
+	}
 	c.flat = nil
 	c.flatItems = nil
 	c.historyButtons = nil
 	total := 0
 	for i, it := range c.items {
-		lines := c.itemLines(it, width)
+		live := c.isLiveItem(it)
+		var lines []Line
+		if cached := c.cache[i]; cached != nil && !live {
+			lines = cached
+		} else {
+			lines = c.itemLines(it, width)
+			if !live {
+				c.cache[i] = lines
+			}
+		}
 		if len(lines) > 0 {
 			c.flatItems = append(c.flatItems, flatItem{
 				ItemIdx: i,
@@ -484,9 +547,22 @@ func (c *Chat) rebuildFlat(width int) {
 		total += len(lines) + 1
 	}
 	c.flatRev = width
+	c.dirty = false
 	if c.itemCursor >= len(c.flatItems) {
 		c.itemCursor = -1
 	}
+}
+
+func (c *Chat) isLiveItem(it *ChatItem) bool {
+	switch it.Kind {
+	case ItemTool:
+		return it.ToolErr == "" && it.ToolOutput == ""
+	case ItemSubagent:
+		return it.SubagentStatus == "" || it.SubagentStatus == "running"
+	case ItemThinking:
+		return c.isActiveThinking(it)
+	}
+	return false
 }
 
 func (c *Chat) itemLines(it *ChatItem, width int) []Line {

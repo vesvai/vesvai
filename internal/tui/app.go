@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -30,10 +31,9 @@ import (
 
 const (
 	blinkInterval   = 450 * time.Millisecond
+	renderInterval  = 16 * time.Millisecond
 	doubleEscWindow = 2 * time.Second
 )
-
-type redrawRequest struct{ tcell.EventTime }
 
 type App struct {
 	bus     event.Bus
@@ -77,6 +77,8 @@ type App struct {
 
 	pasteActive bool
 	pasteBuffer strings.Builder
+
+	redrawPending atomic.Bool
 }
 
 type selectedModel struct {
@@ -131,12 +133,7 @@ func (a *App) getOverlay() components.Component {
 }
 
 func (a *App) requestRedraw() {
-	if a.screen == nil {
-		return
-	}
-	ev := &redrawRequest{}
-	ev.SetEventNow()
-	_ = a.screen.PostEvent(ev)
+	a.redrawPending.Store(true)
 }
 
 func Run(bus event.Bus, deps settings.Deps) error {
@@ -307,7 +304,7 @@ func (a *App) checkForUpdates() {
 }
 
 func (a *App) loop() error {
-	ticker := time.NewTicker(blinkInterval)
+	ticker := time.NewTicker(renderInterval)
 	defer ticker.Stop()
 
 	stopTick := make(chan struct{})
@@ -324,6 +321,8 @@ func (a *App) loop() error {
 			}
 		}
 	}()
+
+	lastBlink := time.Now()
 
 	for {
 		ev := a.screen.PollEvent()
@@ -359,13 +358,18 @@ func (a *App) loop() error {
 				a.draw()
 			}
 		case *tcell.EventTime:
-			a.blink = !a.blink
-			if t, ok := a.root.(components.Ticker); ok {
-				t.OnTick(a.blink)
+			now := time.Now()
+			if now.Sub(lastBlink) >= blinkInterval {
+				a.blink = !a.blink
+				if t, ok := a.root.(components.Ticker); ok {
+					t.OnTick(a.blink)
+				}
+				lastBlink = now
+				a.redrawPending.Store(true)
 			}
-			a.draw()
-		case *redrawRequest:
-			a.draw()
+			if a.redrawPending.Swap(false) {
+				a.draw()
+			}
 		case *tcell.EventMouse:
 			x, y := e.Position()
 			switch e.Buttons() {
