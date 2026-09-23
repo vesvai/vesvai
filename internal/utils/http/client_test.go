@@ -2,12 +2,14 @@ package http
 
 import (
 	"context"
-	json "github.com/goccy/go-json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	json "github.com/goccy/go-json"
 )
 
 func TestNewClient(t *testing.T) {
@@ -20,6 +22,63 @@ func TestNewClient(t *testing.T) {
 	}
 	if client.headers == nil {
 		t.Error("headers should be initialized")
+	}
+	if client.streamClient == nil {
+		t.Error("streamClient should be initialized")
+	}
+	if client.streamClient.Timeout != 0 {
+		t.Errorf("streamClient.Timeout = %v, want 0 (no total deadline for streams)", client.streamClient.Timeout)
+	}
+}
+
+func TestDoStream_NoTotalTimeout(t *testing.T) {
+	const thinkDelay = 200 * time.Millisecond
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		time.Sleep(thinkDelay)
+		fmt.Fprintf(w, "data: first\n\n")
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, WithTimeout(50*time.Millisecond))
+	var got []string
+	err := client.DoStream(context.Background(), "/stream", map[string]string{"q": "x"}, func(line []byte) error {
+		got = append(got, string(line))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("DoStream() error = %v, want stream to survive past client timeout", err)
+	}
+	if len(got) == 0 || !strings.Contains(got[0], "first") {
+		t.Errorf("streamed lines = %v, want first line", got)
+	}
+}
+
+func TestDoStream_ContextCancelStopsStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		for {
+			if _, err := fmt.Fprintf(w, "data: x\n\n"); err != nil {
+				return
+			}
+			w.(http.Flusher).Flush()
+			time.Sleep(10 * time.Millisecond)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err := client.DoStream(ctx, "/stream", nil, func(line []byte) error { return nil })
+	if err == nil {
+		t.Fatal("DoStream() should return error when ctx is canceled")
 	}
 }
 

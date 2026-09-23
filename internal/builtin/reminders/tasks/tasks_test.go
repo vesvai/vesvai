@@ -144,7 +144,6 @@ func TestOtherToolsStillCount(t *testing.T) {
 
 	a := startAgent(t, bus, "test-agent")
 
-	// todowrite and todoread are not task tools; they count toward the interval
 	for i := 0; i < 30; i++ {
 		bus.Publish(agent.TopicAgentToolCall, toolCallEvent(a.ID, "todowrite"))
 	}
