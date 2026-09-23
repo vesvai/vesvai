@@ -66,6 +66,10 @@ func TestSettingsTabs(t *testing.T) {
 	if s.tab != tabPermissions {
 		t.Errorf("after Right tab = %v, want Permissions", s.tab)
 	}
+	s.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0))
+	if s.tab != tabSystem {
+		t.Errorf("after Right tab = %v, want System", s.tab)
+	}
 	s.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, 0))
 	s.HandleKey(tcell.NewEventKey(tcell.KeyUp, 0, 0))
 	s.HandleKey(tcell.NewEventKey(tcell.KeyRight, 0, 0))
@@ -73,8 +77,8 @@ func TestSettingsTabs(t *testing.T) {
 		t.Errorf("after wrap tab = %v, want General", s.tab)
 	}
 	s.HandleKey(tcell.NewEventKey(tcell.KeyLeft, 0, 0))
-	if s.tab != tabPermissions {
-		t.Errorf("after Left tab = %v, want Permissions", s.tab)
+	if s.tab != tabSystem {
+		t.Errorf("after Left tab = %v, want System", s.tab)
 	}
 }
 
