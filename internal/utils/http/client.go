@@ -4,15 +4,17 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	json "github.com/goccy/go-json"
 	"io"
 	"net/http"
 	"net/url"
 	"time"
+
+	json "github.com/goccy/go-json"
 )
 
 type Client struct {
 	httpClient   *http.Client
+	streamClient *http.Client
 	headers      map[string]string
 	baseURL      string
 	timeout      time.Duration
@@ -25,7 +27,6 @@ type Option func(*Client)
 
 func NewClient(baseURL string, opts ...Option) *Client {
 	c := &Client{
-		httpClient:   &http.Client{},
 		headers:      make(map[string]string),
 		baseURL:      baseURL,
 		timeout:      60 * time.Second,
@@ -36,7 +37,8 @@ func NewClient(baseURL string, opts ...Option) *Client {
 		opt(c)
 	}
 
-	c.httpClient.Timeout = c.timeout
+	c.httpClient = &http.Client{Timeout: c.timeout}
+	c.streamClient = &http.Client{Timeout: 0}
 
 	return c
 }
@@ -156,7 +158,7 @@ func (c *Client) DoStream(ctx context.Context, path string, body any, handler fu
 
 	req.Header.Set("Accept", "text/event-stream")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.streamClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
