@@ -67,7 +67,6 @@ func TestDoesNotFireWithoutTools(t *testing.T) {
 
 	a := startAgent(t, bus, "test-agent")
 
-	// Content and reasoning tokens do not count toward the interval
 	for i := 0; i < 100; i++ {
 		bus.Publish(agent.TopicAgentToken, agent.AgentToken{
 			AgentID: a.ID,
@@ -89,7 +88,6 @@ func TestTodoWriteResetsCounter(t *testing.T) {
 
 	a := startAgent(t, bus, "test-agent")
 
-	// 29 events, then a todowrite call resets
 	for i := 0; i < 29; i++ {
 		bus.Publish(agent.TopicAgentToolCall, toolCallEvent(a.ID, "bash"))
 	}
@@ -98,7 +96,6 @@ func TestTodoWriteResetsCounter(t *testing.T) {
 		t.Fatal("todowrite usage should not queue a reminder")
 	}
 
-	// 29 more events: still below 30 since the counter was reset
 	for i := 0; i < 29; i++ {
 		bus.Publish(agent.TopicAgentToolResult, toolResultEvent(a.ID, "bash"))
 	}
@@ -170,7 +167,6 @@ func TestFiresAgainAfterReminder(t *testing.T) {
 		t.Fatal("should fire at 30 events")
 	}
 
-	// Counter resets after firing; next fire needs another 30
 	for i := 0; i < 29; i++ {
 		bus.Publish(agent.TopicAgentToolCall, toolCallEvent(a.ID, "bash"))
 	}
