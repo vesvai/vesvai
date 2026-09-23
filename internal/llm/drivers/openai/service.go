@@ -3,8 +3,9 @@ package openai
 import (
 	"context"
 	"fmt"
-	json "github.com/goccy/go-json"
 	"time"
+
+	json "github.com/goccy/go-json"
 
 	"github.com/vesvai/vesvai/internal/core/config"
 	"github.com/vesvai/vesvai/internal/llm"
@@ -23,6 +24,7 @@ type ServiceConfig struct {
 	Headers            map[string]string
 	Timeout            time.Duration
 	ModifyRequest      func(body map[string]any)
+	ForceStream        bool
 	IncludeStreamUsage *bool
 	PathFor            func(endpoint, model string) string
 }
@@ -75,6 +77,10 @@ func (s *Service) modelsPath() string {
 }
 
 func (s *Service) Chat(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+	if s.cfg.ForceStream {
+		return s.chatAccumulated(ctx, req)
+	}
+
 	body, err := s.buildBody(req, false)
 	if err != nil {
 		return nil, err
@@ -85,6 +91,91 @@ func (s *Service) Chat(ctx context.Context, req *llm.Request) (*llm.Response, er
 		return nil, mapError(err)
 	}
 	return s.toLLMResponse(resp), nil
+}
+
+func (s *Service) chatAccumulated(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+	acc := newStreamAccumulator()
+	if err := s.ChatStream(ctx, req, func(chunk llm.StreamChunk) error {
+		acc.append(chunk)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	resp := &llm.Response{}
+	msg := llm.AssistantMessage(acc.content)
+	if acc.reasoning != "" {
+		msg.Reasoning = acc.reasoning
+	}
+	if len(acc.order) > 0 {
+		calls := make([]llm.ToolCall, 0, len(acc.order))
+		for _, idx := range acc.order {
+			c := acc.calls[idx]
+			calls = append(calls, llm.ToolCall{
+				ID:   c.id,
+				Type: c.typ,
+				Function: llm.Function{
+					Name:      c.name,
+					Arguments: c.arguments,
+				},
+			})
+		}
+		msg.ToolCalls = calls
+	}
+	resp.Choices = []llm.Choice{{Message: &msg, FinishReason: &acc.finish}}
+	if acc.usage != nil {
+		resp.Usage = *acc.usage
+	}
+	return resp, nil
+}
+
+type accToolCall struct {
+	id        string
+	name      string
+	typ       string
+	arguments string
+}
+
+type streamAccumulator struct {
+	content   string
+	reasoning string
+	calls     map[int]*accToolCall
+	order     []int
+	finish    llm.FinishReason
+	usage     *llm.Usage
+}
+
+func newStreamAccumulator() *streamAccumulator {
+	return &streamAccumulator{calls: make(map[int]*accToolCall)}
+}
+
+func (a *streamAccumulator) append(chunk llm.StreamChunk) {
+	a.content += chunk.Content
+	a.reasoning += chunk.Reasoning
+	for _, tc := range chunk.ToolCalls {
+		acc, ok := a.calls[tc.Index]
+		if !ok {
+			acc = &accToolCall{id: tc.ID, typ: tc.Type}
+			a.calls[tc.Index] = acc
+			a.order = append(a.order, tc.Index)
+		}
+		if tc.ID != "" {
+			acc.id = tc.ID
+		}
+		if tc.Type != "" {
+			acc.typ = tc.Type
+		}
+		if tc.Function.Name != "" {
+			acc.name = tc.Function.Name
+		}
+		acc.arguments += tc.Function.Arguments
+	}
+	if chunk.FinishReason != "" {
+		a.finish = chunk.FinishReason
+	}
+	if chunk.Usage != nil {
+		a.usage = chunk.Usage
+	}
 }
 
 func (s *Service) ChatStream(ctx context.Context, req *llm.Request, handler llm.StreamHandler) error {
