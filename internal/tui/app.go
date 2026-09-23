@@ -537,6 +537,29 @@ func (a *App) openSettings() {
 			go config.SaveTheme(styles.Name())
 		}
 	})
+	s.SetOnRequestUpdate(func() {
+		a.setOverlay(nil)
+		rel, found, err := update.DetectLatest(context.Background())
+		if err != nil || !found {
+			return
+		}
+		modal := NewUpdateModal(rel.Version,
+			func() error {
+				return update.UpdateToLatest(context.Background())
+			},
+			func() {
+				a.setOverlay(nil)
+			},
+		)
+		modal.SetRedraw(func() { a.requestRedraw() })
+		modal.SetQuit(func() {
+			a.screen.Fini()
+			os.Exit(0)
+		})
+		a.setOverlay(modal)
+		a.requestRedraw()
+	})
+	s.SetRequestRedraw(func() { a.requestRedraw() })
 	a.setOverlay(s)
 }
 

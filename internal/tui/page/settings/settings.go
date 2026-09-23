@@ -23,9 +23,10 @@ const (
 	tabRules
 	tabPlugins
 	tabPermissions
+	tabSystem
 )
 
-var tabNames = []string{"General", "Session", "MCP", "Skills", "Rules", "Plugins", "Permissions"}
+var tabNames = []string{"General", "Session", "MCP", "Skills", "Rules", "Plugins", "Permissions", "System"}
 
 type settingsFocus int
 
@@ -63,6 +64,7 @@ type Settings struct {
 	session     *sessionTab
 	plugins     *pluginsTab
 	permissions *permissionsTab
+	system      *systemTab
 
 	active *SessionInfo
 
@@ -71,6 +73,9 @@ type Settings struct {
 	errMsg string
 
 	reasoningEffort string
+
+	onRequestUpdate func()
+	requestRedraw   func()
 
 	onClose                 func()
 	onModelChange           func(provider string, model llm.Model)
@@ -90,6 +95,7 @@ func New(deps Deps) *Settings {
 	s.session = newSessionTab(s)
 	s.plugins = newPlugins(s)
 	s.permissions = newPermissions(s)
+	s.system = newSystem(s)
 	return s
 }
 
@@ -166,6 +172,10 @@ func (s *Settings) SetOnSessionChange(fn func(info SessionInfo)) {
 func (s *Settings) SetOnSessionClear(fn func()) { s.onSessionClear = fn }
 
 func (s *Settings) SetOnThemeChange(fn func()) { s.onThemeChange = fn }
+
+func (s *Settings) SetOnRequestUpdate(fn func()) { s.onRequestUpdate = fn }
+
+func (s *Settings) SetRequestRedraw(fn func()) { s.requestRedraw = fn }
 
 func (s *Settings) CloseRequested() bool { return false }
 
@@ -245,6 +255,8 @@ func (s *Settings) HandleKey(ev *tcell.EventKey) bool {
 		handled = s.plugins.HandleKey(ev)
 	case tabPermissions:
 		handled = s.permissions.HandleKey(ev)
+	case tabSystem:
+		handled = s.system.HandleKey(ev)
 	}
 
 	if !handled && ev.Key() == tcell.KeyUp && s.focus == settingsFocusContent {
@@ -294,6 +306,8 @@ func (s *Settings) Draw(screen tcell.Screen, bounds layout.Region, focused bool)
 		s.plugins.Draw(screen, content, contentFocused)
 	case tabPermissions:
 		s.permissions.Draw(screen, content, contentFocused)
+	case tabSystem:
+		s.system.Draw(screen, content, contentFocused)
 	}
 
 	if s.errMsg != "" {
