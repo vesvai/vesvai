@@ -116,3 +116,22 @@ func TestGrepToolInclude(t *testing.T) {
 		t.Errorf("expected output NOT to contain 'b.ts', got:\n%s", out)
 	}
 }
+
+func TestGrepToolIncludeString(t *testing.T) {
+	fs := setupTestVFS(t, map[string]string{
+		"a.go": "package a\nvar x = 1\n",
+		"b.ts": "let x = 1\n",
+	})
+	tool := grepTool(fs)
+
+	out, err := tool.Execute(t.Context(), `{"pattern": "x", "include": "*.go"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(t, out, "a.go") {
+		t.Errorf("expected output to contain 'a.go', got:\n%s", out)
+	}
+	if contains(t, out, "b.ts") {
+		t.Errorf("expected output NOT to contain 'b.ts', got:\n%s", out)
+	}
+}

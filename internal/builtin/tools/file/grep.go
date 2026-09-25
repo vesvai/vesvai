@@ -21,6 +21,22 @@ func generateGrepToolPrompt() (string, error) {
 	return sys, nil
 }
 
+type stringOrArray []string
+
+func (s *stringOrArray) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		*s = stringOrArray{str}
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return err
+	}
+	*s = stringOrArray(arr)
+	return nil
+}
+
 func grepTool(fs *vfs.VFS) tool.Tool {
 	prompt, err := generateGrepToolPrompt()
 	if err != nil {
@@ -58,10 +74,10 @@ func grepTool(fs *vfs.VFS) tool.Tool {
 		},
 		func(ctx context.Context, args string) (string, error) {
 			var params struct {
-				Pattern string   `json:"pattern"`
-				Path    string   `json:"path"`
-				Include []string `json:"include"`
-				Mode    string   `json:"mode"`
+				Pattern string        `json:"pattern"`
+				Path    string        `json:"path"`
+				Include stringOrArray `json:"include"`
+				Mode    string        `json:"mode"`
 			}
 			if err := json.Unmarshal([]byte(args), &params); err != nil {
 				return "", fmt.Errorf("grep: invalid arguments: %w", err)
@@ -75,7 +91,7 @@ func grepTool(fs *vfs.VFS) tool.Tool {
 				mode = vfs.GrepModeContent
 			}
 
-			results, err := fs.GrepCtx(ctx, params.Pattern, params.Path, params.Include, mode, 100)
+			results, err := fs.GrepCtx(ctx, params.Pattern, params.Path, []string(params.Include), mode, 100)
 			if err != nil {
 				return "", fmt.Errorf("grep: %w", err)
 			}
