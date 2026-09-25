@@ -19,13 +19,13 @@ type Options struct {
 }
 
 func Create(fs *vfs.VFS, sess *session.Manager, opts Options) error {
-	tools.Create(fs, sess)
+	agents.Create(fs)
 	middlewares.Create(fs, middlewares.Deps{
 		Config:   opts.Config,
 		LLM:      opts.LLM,
 		Sessions: sess,
 	})
-	agents.Create(fs)
+	tools.Create(fs, sess)
 	if err := reminders.Create(opts.Bus); err != nil {
 		return err
 	}
