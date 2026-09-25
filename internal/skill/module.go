@@ -25,9 +25,14 @@ func SkillModule() error {
 	if err != nil {
 		return fmt.Errorf("skill: home dir: %w", err)
 	}
+	projSkills, err := config.GetProjectConfigPath("skills")
+	if err != nil {
+		return err
+	}
 	if err := LoadDirs(
 		filepath.Join(home, agentsSkillsDir),
 		vesvaiSkills,
+		projSkills,
 	); err != nil {
 		return err
 	}
