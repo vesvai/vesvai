@@ -4,15 +4,16 @@ This file provides guidance to Vesvai when working with code in this repository.
 
 ## Project Overview
 
-Vesvai is an advanced AI coding assistant with a custom agent framework. It features an event-driven architecture with a WordPress-style hook system, multi-provider LLM support (OpenAI, Claude, Gemini, etc.), a TUI interface built with tcell, and a plugin system. The core runs as a headless daemon exposing REST/WebSocket APIs, supporting sub-agents, context compaction, and persistent sessions via SQLite.
+Vesvai is a provider-agnostic AI coding agent written in Go. It runs as an interactive terminal application, a headless CLI, an HTTP API server, an Agent Client Protocol (ACP) server, or as an embeddable Go SDK. The agent can read and edit files, run shell commands, search the web, manage todos, delegate work to subagents, load skills, follow project rules, and talk to MCP and language servers — all inside a sandboxed workspace.
 
 ## Repository Structure
 
 - `cmd/vesvai/` - Main binary entry point
-- `internal/` - Core packages (agent, cli, llm, skill, tui, etc.)
-- `docs/` - System architecture specification (AGENT.md)
-- `.vesvai/` - Project-specific config, sessions, todos (gitignored)
-- `~/.vesvai/` - Global config, providers, plugins (user home)
+- `internal/` - Core packages (agent, llm, tools, skills, session, etc.)
+- `docs/` - Documentation (system, SDK, plugin guides)
+- `pkg/sdk/` - Embeddable Go SDK
+- `.vesvai/` - Project-specific config, plans, and subagent state
+- `.github/workflows/` - CI/CD pipelines (test, fmt, vet, release)
 
 ## Build & Development Commands
 
@@ -70,7 +71,7 @@ VESVAI_DEBUG=1 ./bin/vesvai
 ```
 
 **Major Components:**
-- **Agent System** (`internal/agent/`): Orchestrator, Explorer, Planner, Developer, Tester sub-agents with middleware and hooks
+- **Agent System** (`internal/agent/`): Orchestrator, Explorer, Planner, Developer sub-agents with middleware and hooks
 - **LLM Layer** (`internal/llm/`): Provider-agnostic interface with drivers for OpenAI, Anthropic, Google; circuit breakers and rate limit fallbacks
 - **Tools** (`internal/tools/`): Bash, file operations, web search/fetch, LSP/MCP integration
 - **Skill Engine** (`internal/skill/`): Dynamic skill loading with frontmatter metadata
